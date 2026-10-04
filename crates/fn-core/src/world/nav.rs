@@ -80,6 +80,37 @@ impl NavGrid {
         None
     }
 
+    /// Like [`nearest_free`](Self::nearest_free), but prefers cells `visible` accepts (the caller can see them, i.e. no
+    /// wall in between): standing against a house, the closest free cell may be inside it, behind the wall.
+    pub fn nearest_free_visible(&self, p: Vec2, max_r: i32, visible: &dyn Fn(Vec2) -> bool) -> Option<(i32, i32)> {
+        let (ci, cj) = self.cell_of(p);
+        if !self.is_blocked(ci, cj) {
+            return Some((ci, cj));
+        }
+        for r in 1..=max_r {
+            let mut best: Option<(f32, i32, i32)> = None;
+            for dj in -r..=r {
+                for di in -r..=r {
+                    if di.abs().max(dj.abs()) != r {
+                        continue;
+                    }
+                    let (i, j) = (ci + di, cj + dj);
+                    if !self.is_blocked(i, j) {
+                        let c = self.center(i, j);
+                        let d = c.distance_squared(p);
+                        if best.is_none_or(|b| d < b.0) && visible(c) {
+                            best = Some((d, i, j));
+                        }
+                    }
+                }
+            }
+            if let Some((_, i, j)) = best {
+                return Some((i, j));
+            }
+        }
+        self.nearest_free(p, max_r)
+    }
+
     /// Supercover-ish line test: true if every cell along the segment is free.
     pub fn line_clear(&self, a: Vec2, b: Vec2) -> bool {
         let d = b - a;
@@ -109,6 +140,21 @@ impl NavGrid {
         extra: impl Fn(i32, i32) -> Option<f32>,
     ) -> Option<Vec<Vec2>> {
         let start = self.nearest_free(from, 6)?;
+        self.find_path_from(start, to, max_expansions, true, extra)
+    }
+
+    /// [`find_path_with`](Self::find_path_with) starting at a given free cell. When the goal cannot be reached it
+    /// returns the route to the explored cell closest to it if `partial_ok`; either way a search that stops at the
+    /// `max_expansions` cap yields that partial route (the caller re-plans from where it ends), but a search that ran
+    /// out of cells (the start is sealed in) yields `None` when `partial_ok` is false.
+    pub fn find_path_from(
+        &self,
+        start: (i32, i32),
+        to: Vec2,
+        max_expansions: usize,
+        partial_ok: bool,
+        extra: impl Fn(i32, i32) -> Option<f32>,
+    ) -> Option<Vec<Vec2>> {
         let goal = self.nearest_free(to, 6)?;
         if start == goal {
             return Some(vec![self.center(start.0, start.1)]);
@@ -130,6 +176,7 @@ impl NavGrid {
         let mut expansions = 0usize;
         let mut best_node = (heur(start.0, start.1), start.0, start.1);
         let mut found = false;
+        let mut capped = false;
         while let Some(Reverse((_f, gc, ci, cj))) = open.pop() {
             let ic = idx(ci, cj);
             if closed[ic] {
@@ -146,6 +193,7 @@ impl NavGrid {
             }
             expansions += 1;
             if expansions > max_expansions {
+                capped = true;
                 break;
             }
             for dj in -1i32..=1 {
@@ -175,7 +223,7 @@ impl NavGrid {
             }
         }
         let end = if found { goal } else { (best_node.1, best_node.2) };
-        if !found && (end == start) {
+        if !found && (end == start || (!capped && !partial_ok)) {
             return None;
         }
         let mut path = vec![];
@@ -198,6 +246,16 @@ impl NavGrid {
 
     pub fn find_path(&self, from: Vec2, to: Vec2, max_expansions: usize) -> Option<Vec<Vec2>> {
         self.find_path_with(from, to, max_expansions, |_, _| Some(0.0))
+    }
+
+    /// `find_path` for a walker (a bot) rather than a road builder. If it stands in a blocked cell (against a wall) the
+    /// route starts from the nearest free cell it can actually see instead of the nearest one by distance. And when the
+    /// cells around it are sealed off from the goal (an alley between two houses whose margins touch) it gets `None`
+    /// instead of a route to the closest dead end — the grid is coarser than the world, so the caller should simply
+    /// head for the goal and let local avoidance sort it out.
+    pub fn find_path_visible(&self, from: Vec2, to: Vec2, max_expansions: usize, visible: &dyn Fn(Vec2) -> bool) -> Option<Vec<Vec2>> {
+        let start = self.nearest_free_visible(from, 6, visible)?;
+        self.find_path_from(start, to, max_expansions, false, |_, _| Some(0.0))
     }
 
     /// String-pulling: drop waypoints whose neighbours can see each other.

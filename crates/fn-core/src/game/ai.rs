@@ -20,6 +20,8 @@ use crate::world::props::HarvestKind;
 
 /// How far bots can see.
 const SIGHT: f32 = 210.0;
+/// A bot without usable ammo still goes for an enemy this close, pickaxe in hand.
+const BRAWL_RANGE: f32 = 32.0;
 /// Seconds between "slow" decisions (perception, goal choice).
 const THINK: f32 = 0.2;
 /// Free inventory slots bots try to keep for healing items.
@@ -291,8 +293,13 @@ fn turn_toward(cur: f32, target: f32, max_rate: f32, dt: f32) -> f32 {
     wrap_pi(cur + step)
 }
 
+/// The building whose walls enclose `p`. The collider box also covers the roof overhang, so it is shrunk by the
+/// overhang: a bot outside the wall but under the eaves is outside (routing it through the door would walk it into the wall).
 fn building_of(g: &Game, p: Vec3) -> Option<usize> {
-    g.world.buildings.iter().position(|b| b.aabb.contains_xz(p.x, p.z) && p.y >= b.aabb.min.y - 1.0 && p.y <= b.aabb.max.y + 0.5)
+    const EAVES: f32 = 0.9;
+    g.world.buildings.iter().position(|b| {
+        p.x > b.aabb.min.x + EAVES && p.x < b.aabb.max.x - EAVES && p.z > b.aabb.min.z + EAVES && p.z < b.aabb.max.z - EAVES && p.y >= b.aabb.min.y - 1.0 && p.y <= b.aabb.max.y + 0.5
+    })
 }
 
 fn weapon_slots(a: &Actor) -> impl Iterator<Item = (usize, WeaponKind, Rarity, u32)> + '_ {
@@ -769,8 +776,12 @@ impl Brain {
         let zone_urgent = zone.is_some_and(|z| z.1) && !(g.storm.state == super::StormState::Waiting && g.storm.timer > 25.0);
         let has_enemy = self.enemy.is_some() && self.seen_t < 7.0;
 
-        // 1. fight
-        if has_enemy && armed {
+        // 1. fight. With dry guns only late in the match, once the loot is gone, and only against an enemy close by: after the
+        // landing an unarmed bot should be looking for a weapon, not trading pickaxe blows.
+        let alive = g.alive_count();
+        let late = alive <= 7 || g.storm.phase >= 4;
+        let brawl = late && !armed && self.visible && a.pos.distance(self.enemy_pos) < BRAWL_RANGE;
+        if has_enemy && (armed || brawl) {
             let dist = a.pos.distance(self.enemy_pos);
             let range = 55.0 + self.skill.aggression * 150.0;
             let attacked = self.hurt_t < 5.0;
@@ -817,8 +828,8 @@ impl Brain {
         }
 
         // 5b. late in the match everyone closes in on the remaining players
-        let alive = g.alive_count();
-        if armed && (alive <= 7 || g.storm.phase >= 4) && self.enemy.is_none() && alive > 1 {
+        // (unarmed ones as well: with the loot gone, the pickaxe is all that is left to settle it with)
+        if late && self.enemy.is_none() && alive > 1 {
             let me = xz(a.pos);
             let mut best: Option<(f32, Vec2)> = None;
             for o in &g.actors {
@@ -1076,7 +1087,15 @@ impl Brain {
             if g.ai_paths_left > 0 {
                 g.ai_paths_left -= 1;
                 let nav = &g.world.nav;
-                match nav.find_path(start, dest, 9000) {
+                // pressed against a wall the bot may stand in a blocked cell: start from a free cell it can actually see
+                let env = g.env();
+                let eye = Vec3::new(start.x, g.actors[i].pos.y + 0.7, start.y);
+                let visible = |c: Vec2| {
+                    let to = Vec3::new(c.x, eye.y, c.y) - eye;
+                    let l = to.length();
+                    l < 0.1 || env.probe(eye, to / l, l).is_none()
+                };
+                match nav.find_path_visible(start, dest, 9000, &visible) {
                     Some(raw) => {
                         mid = nav.smooth(&raw);
                         // the first node is the start cell centre; drop it when we are already past it
@@ -1454,6 +1473,38 @@ impl Brain {
         best.map(|b| b.1)
     }
 
+    /// Out of ammo: run at the enemy with the pickaxe and swing when in reach.
+    fn brawl(&mut self, g: &mut Game, i: usize, dt: f32, it: &mut Intent, eid: usize) {
+        let (a, e) = (&g.actors[i], &g.actors[eid]);
+        // the pickaxe in hand (an empty gun is dead weight), build mode off
+        if a.build_mode {
+            it.toggle_build = true;
+        } else if a.inv.selected != 0 && matches!(a.action, Action::None) {
+            it.select = Some(0);
+        }
+        let eye = a.eye_pos();
+        let target = if self.visible { e.chest() } else { self.enemy_pos };
+        let to = target - eye;
+        let dist_xz = xz(to).length();
+        let (yaw, pitch) = (a.yaw, a.pitch);
+        let visible = self.visible;
+        it.yaw = turn_toward(yaw, yaw_to(eye, target), self.skill.turn.max(7.0), dt);
+        it.pitch = turn_toward(pitch, pitch_to(eye, target), self.skill.turn.max(7.0), dt);
+        let mut wish = Vec2::ZERO;
+        if dist_xz > 1.4 {
+            wish = if visible { xz(to).normalize_or_zero() } else { self.walk_to(g, i, self.enemy_pos, 2.0).0 };
+        }
+        let a = &g.actors[i];
+        wish = self.unstick(a, wish, wish.length() > 0.1, dt, it);
+        it.wish = wish;
+        it.sprint = dist_xz > 7.0;
+        // swing once the crosshair is on them and they are within the reach of the tool
+        let aimed = look_dir(yaw, pitch).dot(to.normalize_or_zero()) > 0.96;
+        if visible && aimed && to.length() < super::combat::PICKAXE_REACH - 0.35 {
+            it.fire = true;
+        }
+    }
+
     fn act_fight(&mut self, g: &mut Game, i: usize, dt: f32, it: &mut Intent) {
         let Some(eid) = self.enemy else {
             self.set_goal(Goal::Idle);
@@ -1474,6 +1525,12 @@ impl Brain {
         let dist_xz = xz(to).length();
         let e_speed = if visible { e.speed_xz() } else { 0.0 };
         let e_y = e.pos.y;
+
+        // nothing left to shoot with
+        if !is_armed(a) {
+            self.brawl(g, i, dt, it, eid);
+            return;
+        }
 
         // ---- weapon selection --------------------------------------------------------------
         let busy = matches!(a.action, Action::Swap { .. } | Action::Reload { .. });
@@ -1688,6 +1745,107 @@ mod tests {
             t += 1.0 / 30.0;
         }
         g
+    }
+
+    /// A bot with a far-away destination, started at `at` (a point on the seed-1234 island), for `secs` seconds.
+    /// Returns the farthest it got from where it began.
+    fn farthest_walk(at: Vec2, secs: f32) -> f32 {
+        let mut g = game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 3, god_mode: true, storm_speed: 1.0, ..Default::default() });
+        g.pickups.clear();
+        g.chests.clear();
+        // the human stands far away on dry ground, out of sight
+        let (px, pz) = (-380.0, 380.0);
+        g.actors[PLAYER].pos = Vec3::new(px, g.world.hm.height_at(px, pz), pz);
+        g.actors[PLAYER].brain = None;
+        let h = g.world.hm.height_at(at.x, at.y);
+        {
+            let a = &mut g.actors[1];
+            a.pos = Vec3::new(at.x, h, at.y);
+            a.mode = MoveMode::Ground;
+            a.on_ground = true;
+            a.inv.add_weapon(WeaponKind::AssaultRifle, Rarity::Rare, 30);
+            a.inv.ammo[AmmoKind::Medium.index()] = 100;
+        }
+        // the safe circle lies 300 m away: the bot has to get going
+        g.storm.center = Vec2::new(at.x + 300.0, at.y);
+        g.storm.radius = 150.0;
+        g.storm.to_center = g.storm.center;
+        g.storm.to_radius = 120.0;
+        g.storm.from_center = g.storm.center;
+        g.storm.from_radius = 150.0;
+        g.storm.dmg = 0.0;
+        let start = g.actors[1].pos;
+        let mut farthest = 0.0f32;
+        for _ in 0..(secs * 30.0) as usize {
+            g.update(1.0 / 30.0, &PlayerInput::default());
+            farthest = farthest.max(g.actors[1].pos.distance(start));
+        }
+        farthest
+    }
+
+    #[test]
+    fn bots_against_a_house_wall_or_in_a_door_alley_still_get_away() {
+        // (house index, side of its footprint, started 0.2 m inside the footprint margin / 3 m in front of it).
+        // Standing under the eaves the bot used to count as "inside the house" and was routed through the door into the wall,
+        // and from a blocked navigation cell the closest free cell was the one inside the house; in the alley between two
+        // facing doors every cell around was sealed off, so the closest reachable cell led back into the house.
+        let cases = [(47, 0, true), (3, 0, true), (3, 2, true), (3, 3, true), (13, 1, true), (25, 3, true), (3, 1, false)];
+        let w = crate::world::World::generate(1234);
+        let mut spots = vec![];
+        for (bi, side, under_eaves) in cases {
+            let b = &w.buildings[bi];
+            assert_eq!(b.kind, "house", "building {bi}");
+            let c = Vec2::new((b.aabb.min.x + b.aabb.max.x) * 0.5, (b.aabb.min.z + b.aabb.max.z) * 0.5);
+            let at = match (side, under_eaves) {
+                (0, true) => Vec2::new(c.x, b.aabb.min.z + 0.2),
+                (1, true) => Vec2::new(c.x, b.aabb.max.z - 0.2),
+                (2, true) => Vec2::new(b.aabb.min.x + 0.2, c.y),
+                (3, true) => Vec2::new(b.aabb.max.x - 0.2, c.y),
+                (0, false) => Vec2::new(c.x, b.aabb.min.z - 3.0),
+                (1, false) => Vec2::new(c.x, b.aabb.max.z + 3.0),
+                (2, false) => Vec2::new(b.aabb.min.x - 3.0, c.y),
+                _ => Vec2::new(b.aabb.max.x + 3.0, c.y),
+            };
+            spots.push((bi, side, under_eaves, at));
+        }
+        drop(w);
+        for (bi, side, under_eaves, at) in spots {
+            let far = farthest_walk(at, 45.0);
+            assert!(far > 40.0, "house {bi}, side {side}, {}: the bot got no further than {far:.1} m in 45 s", if under_eaves { "under the eaves" } else { "in front of the door" });
+        }
+    }
+
+    #[test]
+    fn bots_with_no_ammo_left_brawl_with_the_pickaxe_instead_of_standing_around() {
+        // the last two players, both holding empty guns with nothing to feed them, in plain sight of each other:
+        // they used to idle until the storm took them, because only armed bots ever chose to fight
+        let mut g = game_cfg(GameConfig { bots: 2, skip_bus: true, seed: 5, storm_speed: 1.0, ..Default::default() });
+        g.actors[PLAYER].alive = false;
+        g.actors[PLAYER].mode = MoveMode::Dead;
+        g.pickups.clear();
+        g.chests.clear();
+        g.storm.active = false;
+        let spot = super::super::testutil::free_spot(&g);
+        for (k, dx) in [(1, -6.0), (2, 6.0)] {
+            let (x, z) = (spot.x + dx, spot.z);
+            let h = g.world.hm.height_at(x, z);
+            let a = &mut g.actors[k];
+            a.pos = Vec3::new(x, h, z);
+            a.mode = MoveMode::Ground;
+            a.on_ground = true;
+            a.inv.add_weapon(WeaponKind::AssaultRifle, Rarity::Common, 0);
+            a.inv.ammo = [0; 5];
+            a.inv.selected = 1;
+        }
+        for _ in 0..(120 * 30) {
+            g.update(1.0 / 30.0, &PlayerInput::default());
+            if g.phase == Phase::Over {
+                break;
+            }
+        }
+        let dealt = g.actors[1].damage_dealt + g.actors[2].damage_dealt;
+        assert!(dealt > 0.0, "two unarmed bots in plain sight never touched each other in 120 s (phase {:?})", g.phase);
+        assert!(g.phase == Phase::Over, "and the fight finishes: bot 1 hp {} bot 2 hp {}", g.actors[1].hp, g.actors[2].hp);
     }
 
     #[test]
