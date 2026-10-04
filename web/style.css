@@ -141,6 +141,8 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #nowebgpu { z-index: 40; text-align: center; padding: 30px; }
 #nowebgpu p { max-width: 640px; line-height: 1.5; color: #d6e4ff; }
 
+#note { position: fixed; z-index: 30; left: 50%; top: 18px; transform: translate(-50%, -140%); max-width: min(620px, 92vw); padding: 10px 22px; font-size: 15px; line-height: 1.35; text-align: center; color: #fff; background: rgba(8, 12, 44, .88); border: 2px solid rgba(255, 255, 255, .45); pointer-events: none; transition: transform .35s cubic-bezier(.2, 1.2, .4, 1); }
+#note.show { transform: translate(-50%, 0); }
 #click-to-play { position: fixed; z-index: 9; left: 50%; bottom: 14%; transform: translateX(-50%); display: none; font-family: var(--font); font-style: italic; font-size: 30px; padding: 10px 26px; background: rgba(0,0,0,.55); border: 2px solid rgba(255,255,255,.5); text-transform: uppercase; letter-spacing: .06em; animation: blink 1.2s ease-in-out infinite; pointer-events: none; }
 @keyframes blink { 50% { opacity: .45; } }
 

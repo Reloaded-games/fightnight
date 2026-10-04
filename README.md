@@ -126,8 +126,9 @@ the harnesses use.
 ## Notes and limitations
 
 * Single player against bots: there is no networking or matchmaking, and no structure editing.
-* Desktop only (keyboard and mouse). Quality presets exist because GPUs vary; start on Medium or Low if
-  Graphics: High stutters.
+* Desktop only (keyboard and mouse). Quality presets exist because GPUs vary: if the frame rate stays under
+  roughly 30 fps for a few seconds the game steps the preset down by itself (never up; switch it off in
+  Settings).
 * Development was done on a machine without a GPU: the browser tests and screenshots run in headless
   Chromium with software WebGPU (SwiftShader), so frame rates on real hardware have not been measured.
   The CPU side (simulation, scene building, draw submission) costs roughly 1–2 ms per frame with 39 bots.

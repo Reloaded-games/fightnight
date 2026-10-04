@@ -11,7 +11,7 @@ const NOLOCK = q.get('nolock') === '1';
 // ------------------------------------------------------------------------------------------------
 // Settings
 // ------------------------------------------------------------------------------------------------
-const DEFAULTS = { name: 'You', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false };
+const DEFAULTS = { name: 'You', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
 let cfg = { ...DEFAULTS };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('fightnight.settings') || '{}')); } catch (e) { /* storage unavailable */ }
 function saveCfg() { try { localStorage.setItem('fightnight.settings', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
@@ -81,6 +81,15 @@ const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function click() { audio.playUi('ui_click', 0.5); }
 
+let noteTimer = 0;
+function note(text, ms = 6000) {
+  const el = $('note');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+
 function bindSeg(id, key) {
   const seg = $(id);
   const apply = () => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cfg[key]));
@@ -118,6 +127,7 @@ function wireUi() {
   bindCheck('set-autosprint', 'autosprint', applyRuntimeOptions);
   bindCheck('set-tags', 'tags', applyRuntimeOptions);
   bindCheck('set-fps', 'perf', applyRuntimeOptions);
+  bindCheck('set-autoq', 'autoquality');
 
   $('btn-fullscreen').addEventListener('click', () => {
     try { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); } catch (e) { /* not allowed */ }
@@ -544,7 +554,28 @@ function syncLockWait() {
   }
 }
 
+// Unknown hardware is the biggest risk for a WebGPU game, so a machine that cannot hold ~30 fps on its current
+// preset steps down one level (never up). Skipped in automated browsers, where software rendering is always slow.
+const QUALITY_ORDER = ['high', 'medium', 'low'];
+let slowAvg = 0.016, slowFor = 0;
+function autoQuality(dt) {
+  if (!cfg.autoquality || navigator.webdriver || state !== 'playing' || waitingForLock || document.hidden) { slowFor = 0; return; }
+  slowAvg += (dt - slowAvg) * 0.05;
+  slowFor = slowAvg > 0.034 ? slowFor + dt : Math.max(0, slowFor - dt * 2);
+  if (slowFor < 5) return;
+  slowFor = 0; slowAvg = 0.016;
+  const i = QUALITY_ORDER.indexOf(cfg.quality);
+  if (i < 0 || i >= QUALITY_ORDER.length - 1) return;
+  cfg.quality = QUALITY_ORDER[i + 1];
+  saveCfg();
+  fn.set_quality(cfg.quality);
+  resizeAll();
+  document.querySelectorAll('#seg-quality button').forEach((b) => b.classList.toggle('on', b.dataset.v === cfg.quality));
+  note(`The frame rate was low, so graphics were lowered to ${cfg.quality}. You can change this in Settings.`);
+}
+
 function tick(dt) {
+  autoQuality(dt);
   fn.frame(dt);
   window.__game.frames++;
   if (state === 'playing' || state === 'paused' || state === 'over') {
