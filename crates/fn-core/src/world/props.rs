@@ -104,6 +104,8 @@ impl PropInst {
 pub enum HarvestKind {
     Tree,
     Rock,
+    /// A steel-blue rock streaked with metal: breaks into metal instead of stone.
+    Ore,
 }
 
 /// Something the pickaxe can chop down / break.
@@ -328,14 +330,19 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
             let kind = if big { PropKind::Boulder } else { *rng.pick(&[PropKind::Rock0, PropKind::Rock1, PropKind::Rock2]) };
             let scale = if big { rng.range(0.9, 1.6) } else { rng.range(0.7, 1.7) };
             let g = rng.range(0.85, 1.15);
-            let tint = [g, g * rng.range(0.95, 1.05), g * rng.range(0.95, 1.08)];
+            let mut tint = [g, g * rng.range(0.95, 1.05), g * rng.range(0.95, 1.08)];
+            // about one rock in four is ore; chosen by hashing the cell so the random stream (and so the whole island) is unchanged
+            let ore = hash2f(gx, gz, seed ^ 0x0A3E) < 0.27;
+            if ore {
+                tint = [tint[0] * 0.66, tint[1] * 0.82, tint[2] * 1.12];
+            }
             let pos = Vec3::new(p.x, h - 0.15 * scale, p.y);
             let (ci, slot) = out.push(PropInst { kind, pos, yaw: rng.range(0.0, std::f32::consts::TAU), scale, tint });
             let radius = if big { 2.0 * scale * 0.85 } else { 0.9 * scale * 0.85 };
             let height = if big { 2.4 * scale } else { 0.9 * scale };
             let idx = out.harvest.len() as u32;
             let collider = statics.insert(Collider { shape: Shape::Cyl { cx: p.x, cz: p.y, r: radius, y0: h - 1.0, y1: h + height }, tag: Tag::Rock(idx), blocks_bullets: true });
-            out.harvest.push(Harvestable { kind: HarvestKind::Rock, pos, height, hp: if big { 220.0 } else { 120.0 }, max_hp: if big { 220.0 } else { 120.0 }, alive: true, collider, chunk: ci, slot, prop_kind: kind });
+            out.harvest.push(Harvestable { kind: if ore { HarvestKind::Ore } else { HarvestKind::Rock }, pos, height, hp: if big { 220.0 } else { 120.0 }, max_hp: if big { 220.0 } else { 120.0 }, alive: true, collider, chunk: ci, slot, prop_kind: kind });
         }
     }
     out

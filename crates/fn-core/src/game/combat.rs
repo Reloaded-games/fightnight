@@ -491,6 +491,7 @@ impl Game {
         let (mat, per_hit) = match h.kind {
             HarvestKind::Tree => (Mat::Wood, 18 + (self.rng.below(7) as u32)),
             HarvestKind::Rock => (Mat::Stone, 14 + (self.rng.below(6) as u32)),
+            HarvestKind::Ore => (Mat::Metal, 12 + (self.rng.below(6) as u32)),
         };
         let mut amount = per_hit;
         let broke = h.hp <= 0.0;
@@ -500,6 +501,7 @@ impl Game {
             amount += match kind {
                 HarvestKind::Tree => 30,
                 HarvestKind::Rock => 25,
+                HarvestKind::Ore => 22,
             };
         }
         self.actors[who].inv.add_mats(mat, amount);
@@ -1165,6 +1167,59 @@ mod tests {
         assert!(g.actors[a].inv.mats[Mat::Wood.index()] >= wood0 + 60, "wood gained");
         assert!(g.world.statics.get(g.world.harvest[tree].collider).is_none(), "its collider is gone");
         assert_eq!(g.felled.len(), 1);
+    }
+
+    #[test]
+    fn trees_rocks_and_ore_each_give_their_own_building_material() {
+        // metal used to be promised (T cycles to it, the README listed it) but nothing in the world gave it
+        let mut g = game(1, true);
+        for (kind, mat) in [(HarvestKind::Tree, Mat::Wood), (HarvestKind::Rock, Mat::Stone), (HarvestKind::Ore, Mat::Metal)] {
+            let candidates: Vec<usize> = g.world.harvest.iter().enumerate().filter(|(_, h)| h.kind == kind && h.alive).map(|(i, _)| i).take(60).collect();
+            assert!(!candidates.is_empty(), "no {kind:?} in the world");
+            let mut gained = false;
+            'search: for idx in candidates {
+                let h = g.world.harvest[idx].clone();
+                let r = match g.world.statics.get(h.collider).map(|c| c.shape) {
+                    Some(crate::world::collision::Shape::Cyl { r, .. }) => r,
+                    _ => continue,
+                };
+                for k in 0..8 {
+                    let ang = k as f32 * std::f32::consts::FRAC_PI_4;
+                    let (sx, sz) = (h.pos.x + ang.cos() * (r + 0.95), h.pos.z + ang.sin() * (r + 0.95));
+                    let feet = Vec3::new(sx, g.world.hm.height_at(sx, sz), sz);
+                    let env = g.env();
+                    // a free spot to stand on, with a clear line to the surface of the trunk or rock (not to its centre)
+                    let surface = Vec3::new(h.pos.x + ang.cos() * (r + 0.05), feet.y + 1.2, h.pos.z + ang.sin() * (r + 0.05));
+                    let open = env.push_out(feet, RADIUS, HEIGHT, 0.55).length() < 1e-3 && g.world.hm.slope_at(sx, sz) < 0.5 && env.line_clear(feet + Vec3::Y * 1.2, surface);
+                    if !open {
+                        continue;
+                    }
+                    let a = PLAYER;
+                    g.actors[a].pos = feet;
+                    g.actors[a].mode = MoveMode::Ground;
+                    g.actors[a].on_ground = true;
+                    g.actors[a].inv.selected = 0;
+                    g.actors[a].action = Action::None;
+                    let before = g.actors[a].inv.mats[mat.index()];
+                    for _ in 0..900 {
+                        let (o, _) = g.aim_ray(a);
+                        let to = Vec3::new(h.pos.x, feet.y + 1.0, h.pos.z) - o;
+                        g.actors[a].yaw = yaw_of(Vec2::new(to.x, to.z));
+                        g.actors[a].pitch = (to.y / Vec2::new(to.x, to.z).length()).atan();
+                        g.update(1.0 / 60.0, &PlayerInput { fire: true, ..Default::default() });
+                        if !g.world.harvest[idx].alive {
+                            break;
+                        }
+                    }
+                    if !g.world.harvest[idx].alive {
+                        assert!(g.actors[a].inv.mats[mat.index()] >= before + 40, "{kind:?} should give {mat:?}: {before} -> {}", g.actors[a].inv.mats[mat.index()]);
+                        gained = true;
+                        break 'search;
+                    }
+                }
+            }
+            assert!(gained, "no {kind:?} could be broken with the pickaxe");
+        }
     }
 
     #[test]

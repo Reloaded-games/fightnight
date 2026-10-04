@@ -14,6 +14,15 @@ pub const WALL_T: f32 = 0.28;
 const DOOR_W: f32 = 1.5;
 const DOOR_H: f32 = 2.35;
 
+/// A raised entrance (stoop, porch, plinth): where its outer edge is, in the building's local frame.
+#[derive(Clone, Copy, Debug)]
+pub struct Entry {
+    /// Centre of the landing's outer edge, at the landing's top height.
+    pub edge: Vec3,
+    /// Half the width of the steps that lead up to it.
+    pub half_w: f32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Geom {
     pub mesh: MeshData,
@@ -29,6 +38,8 @@ pub struct Geom {
     pub height: f32,
     /// Local position of a spinning windmill hub, if any.
     pub hub: Option<Vec3>,
+    /// The raised entrance in front of the door, if the building has one.
+    pub entry: Option<Entry>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -221,7 +232,7 @@ impl B {
     }
 
     fn finish(self, half: Vec2, height: f32, door_out: Vec3, door_in: Vec3) -> Geom {
-        Geom { mesh: self.mb.finish(), cols: self.cols, loot: self.loot, chests: self.chests, door_out, door_in, half, height, hub: None }
+        Geom { mesh: self.mb.finish(), cols: self.cols, loot: self.loot, chests: self.chests, door_out, door_in, half, height, hub: None, entry: None }
     }
 }
 
@@ -393,6 +404,15 @@ fn counter(b: &mut B, c: Vec3, w: f32, yaw: f32) {
     b.loot.push(c + Vec3::new(0.0, 0.96, 0.0));
 }
 
+/// True if no solid already in the building (furniture, walls) rises above the floor `y` within the `rx` x `rz` half-extents
+/// around (x, z): somewhere an item can lie or a chest can stand.
+fn floor_clear(b: &B, x: f32, z: f32, y: f32, rx: f32, rz: f32) -> bool {
+    !b.cols.iter().any(|c| {
+        let bb = c.shape.aabb();
+        bb.min.x < x + rx && bb.max.x > x - rx && bb.min.z < z + rz && bb.max.z > z - rz && bb.min.y < y + 0.5 && bb.max.y > y + 0.05
+    })
+}
+
 /// Furnish the ground-floor interior of a house. Keeps the door lane and stairs clear.
 fn furnish(b: &mut B, rng: &mut Rng, hx: f32, hz: f32, door_x: f32, stairs: Option<(f32, f32, f32, f32)>) {
     let iy = FLOOR_Y;
@@ -454,7 +474,8 @@ fn furnish(b: &mut B, rng: &mut Rng, hx: f32, hz: f32, door_x: f32, stairs: Opti
     // a couple of loose floor loot spots
     for _ in 0..2 {
         let p = Vec3::new(rng.range(ix0 + 0.6, ix1 - 0.6), iy, rng.range(iz0 + 1.8, iz1 - 1.8));
-        if !blocked(p.x, p.z, 0.6) {
+        // not inside a bed, a sofa or a shelf
+        if !blocked(p.x, p.z, 0.6) && floor_clear(b, p.x, p.z, iy, 0.3, 0.3) {
             b.loot.push(p);
         }
     }
@@ -601,13 +622,31 @@ pub fn gen_house(rng: &mut Rng, w: f32, d: f32, st: &Style) -> Geom {
     // --- interior
     furnish(&mut b, rng, hx, hz, door_x, stairs_rect);
     if rng.chance(0.35) && floors == 1 {
-        b.chests.push((Vec3::new(if door_x > 0.0 { -hx + WALL_T + 0.55 } else { hx - WALL_T - 0.55 }, FLOOR_Y, -hz + WALL_T + 0.45), 0.0));
+        // the back corner away from the door; if furniture got there first, the other corner or a side wall
+        let sx = if door_x > 0.0 { -hx + WALL_T + 0.55 } else { hx - WALL_T - 0.55 };
+        let back = -hz + WALL_T + 0.45;
+        let candidates = [
+            (Vec3::new(sx, FLOOR_Y, back), 0.0),
+            (Vec3::new(-sx, FLOOR_Y, back), 0.0),
+            (Vec3::new(hx - WALL_T - 0.5, FLOOR_Y, -hz * 0.2), -FRAC_PI_2),
+            (Vec3::new(-hx + WALL_T + 0.5, FLOOR_Y, -hz * 0.2), FRAC_PI_2),
+        ];
+        let fits = |p: &Vec3, yaw: f32| {
+            // clear of the door lane, and of furniture over the chest's footprint plus the room it needs to open
+            let (rx, rz) = if yaw == 0.0 { (0.55, 0.4) } else { (0.4, 0.55) };
+            let lane = (p.x - door_x).abs() < 1.5 + rx && p.z > hz - 3.2;
+            !lane && floor_clear(&b, p.x, p.z, FLOOR_Y, rx, rz)
+        };
+        if let Some(&(p, yaw)) = candidates.iter().find(|(p, yaw)| fits(p, *yaw)) {
+            b.chests.push((p, yaw));
+        }
     }
 
     let door_out = Vec3::new(door_x, 0.0, hz + 2.6);
     let door_in = Vec3::new(door_x, FLOOR_Y, hz - 1.6);
     let mut g = b.finish(Vec2::new(hx, hz), top_y + rise, door_out, door_in);
     g.loot.truncate(8);
+    g.entry = Some(if st.porch { Entry { edge: Vec3::new(door_x, FLOOR_Y, hz + 2.6), half_w: 1.0 } } else { Entry { edge: Vec3::new(door_x, 0.14, hz + 1.0), half_w: 1.0 } });
     g
 }
 
@@ -713,12 +752,20 @@ pub fn gen_shop(rng: &mut Rng, w: f32, d: f32) -> Geom {
     counter(&mut b, Vec3::new(if rng.chance(0.5) { -hx * 0.4 } else { hx * 0.4 }, iy, hz * 0.2), 2.6, 0.0);
     let (ix, iz) = (hx * 0.0, -hz * 0.1);
     let _ = (ix, iz);
-    b.loot.push(Vec3::new(rng.range(-hx + 1.5, hx - 1.5), iy, rng.range(-hz * 0.3, hz * 0.3)));
-    b.loot.push(Vec3::new(rng.range(-hx + 1.5, hx - 1.5), iy, -hz + 2.0));
-    b.chests.push((Vec3::new(hx - WALL_T - 0.6, iy, -hz + WALL_T + 0.5), 0.0));
+    // loose loot not on the counter's footprint, and the chest in whichever back corner the shelves left free
+    for p in [Vec3::new(rng.range(-hx + 1.5, hx - 1.5), iy, rng.range(-hz * 0.3, hz * 0.3)), Vec3::new(rng.range(-hx + 1.5, hx - 1.5), iy, -hz + 2.0)] {
+        if floor_clear(&b, p.x, p.z, iy, 0.3, 0.3) {
+            b.loot.push(p);
+        }
+    }
+    let corner = Vec3::new(hx - WALL_T - 0.6, iy, -hz + WALL_T + 0.5);
+    if let Some(p) = [corner, Vec3::new(-corner.x, iy, corner.z)].into_iter().find(|p| floor_clear(&b, p.x, p.z, iy, 0.55, 0.4)) {
+        b.chests.push((p, 0.0));
+    }
     let door_x = -hx + door_u;
-    
-    b.finish(Vec2::new(hx, hz), top_y + par, Vec3::new(door_x, 0.0, hz + 2.4), Vec3::new(door_x, FLOOR_Y, hz - 1.6))
+    let mut g = b.finish(Vec2::new(hx, hz), top_y + par, Vec3::new(door_x, 0.0, hz + 2.4), Vec3::new(door_x, FLOOR_Y, hz - 1.6));
+    g.entry = Some(Entry { edge: Vec3::new(door_x, 0.12, hz + 1.8), half_w: 1.0 });
+    g
 }
 
 // ---------------------------------------------------------------------------------
@@ -775,7 +822,9 @@ pub fn gen_barn(rng: &mut Rng) -> Geom {
     b.chests.push((Vec3::new(0.0, FLOOR_Y, -hz + WALL_T + 0.5), 0.0));
     b.chests.push((Vec3::new(hx - WALL_T - 0.5, FLOOR_Y, 2.5), -FRAC_PI_2));
     let _ = rng;
-    b.finish(Vec2::new(hx, hz), top_y + 3.2, Vec3::new(0.0, 0.0, hz + 3.0), Vec3::new(0.0, FLOOR_Y, hz - 2.0))
+    let mut g = b.finish(Vec2::new(hx, hz), top_y + 3.2, Vec3::new(0.0, 0.0, hz + 3.0), Vec3::new(0.0, FLOOR_Y, hz - 2.0));
+    g.entry = Some(Entry { edge: Vec3::new(0.0, FLOOR_Y, hz + 0.1), half_w: 1.7 });
+    g
 }
 
 // ---------------------------------------------------------------------------------
@@ -992,6 +1041,8 @@ pub struct Placed {
     pub hub: Option<Vec3>,
     pub rot: u8,
     pub height: f32,
+    /// World-space bounds of the steps added in front of a raised entrance (see [`add_entrance_steps`]).
+    pub steps: Option<Aabb>,
 }
 
 /// Rotate by `rot` quarter turns about +Y and translate to `pos` (ground height at pos.y).
@@ -1038,7 +1089,61 @@ pub fn place(g: &Geom, pos: Vec3, rot: u8, tag: Tag) -> Placed {
         hub: g.hub.map(tp),
         rot,
         height: g.height,
+        steps: None,
     }
+}
+
+/// A drop below this from a landing to the terrain is a plain step; anything more needs a stair.
+const STEP_UP: f32 = 0.4;
+
+/// On a sloping lot the door side of a house can stand a metre or more above the terrain (the floor sits at the highest
+/// point of the footprint). Run a flight of steps from the landing's edge down to the ground: stepped mesh plus a walkable
+/// wedge. Without it the door is out of reach for anyone who cannot jump that high, and bots never jump on purpose.
+/// `ground(x, z)` is the terrain height; `placed` and `pos`/`rot` are the building as placed by [`place`].
+pub fn add_entrance_steps(placed: &mut Placed, g: &Geom, pos: Vec3, rot: u8, tag: Tag, ground: &dyn Fn(f32, f32) -> f32) {
+    let Some(entry) = g.entry else { return };
+    let m = Mat4::from_translation(pos) * Mat4::from_rotation_y(rot as f32 * FRAC_PI_2);
+    let height_at = |x: f32, z: f32| {
+        let p = m.transform_point3(Vec3::new(x, 0.0, z));
+        ground(p.x, p.z)
+    };
+    let (cx, hw, ez) = (entry.edge.x, entry.half_w, entry.edge.z);
+    let top = pos.y + entry.edge.y;
+    // lowest terrain across the width of the steps, `d` metres beyond the landing's edge
+    let lowest = |d: f32| [-hw, 0.0, hw].iter().map(|dx| height_at(cx + dx, ez + d)).fold(f32::MAX, f32::min);
+    if top - lowest(0.3) < STEP_UP {
+        return;
+    }
+    // a gentle climb (about 0.42 m per metre); longer while the ground keeps falling away
+    const RISE_PER_M: f32 = 0.42;
+    let mut len = ((top - lowest(0.3)) / RISE_PER_M).max(1.2);
+    for _ in 0..8 {
+        let need = ((top - lowest(len)) / RISE_PER_M).clamp(1.2, 10.0);
+        if need <= len + 0.05 {
+            break;
+        }
+        len = need;
+    }
+    // the stair stands on the lowest ground under its whole run, so nothing shows underneath
+    let runs = (len / 0.5).ceil().max(1.0) as i32;
+    let base_w = (0..=runs).map(|k| lowest(len * k as f32 / runs as f32)).fold(f32::MAX, f32::min).min(top - 0.3) - 0.05;
+    let (top_l, base_l) = (entry.edge.y, base_w - pos.y);
+    let n = (((top_l - base_l) / 0.19).ceil() as i32).clamp(2, 14);
+    let mut mb = MeshBuilder::new();
+    mb.mat(mat::STONE).hex(0xa8a7a2);
+    for j in 0..n {
+        let (z0, z1) = (ez + len * j as f32 / n as f32, ez + len * (j + 1) as f32 / n as f32);
+        // the step's tread sits at the height of the walkable slope at its middle
+        let y = top_l - (j as f32 + 0.5) * (top_l - base_l) / n as f32;
+        mb.box_min_max(Vec3::new(cx - hw, base_l - 0.15, z0), Vec3::new(cx + hw, y, z1));
+    }
+    placed.mesh.append(&mb.finish(), m);
+    // the slope rises toward -Z (toward the door) in the building's frame
+    let (lo, hi) = (Vec3::new(cx - hw, base_l, ez), Vec3::new(cx + hw, top_l, ez + len));
+    let (a, b) = (m.transform_point3(lo), m.transform_point3(hi));
+    let (min, max) = (a.min(b), a.max(b));
+    placed.cols.push(Collider::wedge(min, max, rot_dir(3, rot), tag));
+    placed.steps = Some(Aabb::new(min, max));
 }
 
 #[cfg(test)]

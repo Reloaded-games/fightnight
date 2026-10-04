@@ -141,6 +141,8 @@ impl World {
 
         // grass would poke through floors and planks, so keep it out of footprints
         let mut no_cover: Vec<(Vec2, Vec2)> = buildings.iter().map(|b: &BuildingInfo| (Vec2::new(b.aabb.min.x, b.aabb.min.z), Vec2::new(b.aabb.max.x, b.aabb.max.z))).collect();
+        // ... and out of the steps in front of raised doors
+        no_cover.extend(towns.buildings.iter().filter_map(|b| b.placed.steps).map(|bb| (Vec2::new(bb.min.x, bb.min.z), Vec2::new(bb.max.x, bb.max.z))));
         for (mesh, _) in &towns.decor {
             let bb = mesh.bounds();
             let (dx, dz) = (bb.max.x - bb.min.x, bb.max.z - bb.min.z);
@@ -262,16 +264,47 @@ mod tests {
         assert!(w.hm.height_at(0.0, 0.0).is_finite());
         assert!(w.buildings.len() >= 25, "{} buildings", w.buildings.len());
         let trees = w.harvest.iter().filter(|h| h.kind == props::HarvestKind::Tree).count();
-        let rocks = w.harvest.iter().filter(|h| h.kind == props::HarvestKind::Rock).count();
+        let rocks = w.harvest.iter().filter(|h| matches!(h.kind, props::HarvestKind::Rock | props::HarvestKind::Ore)).count();
+        let ore = w.harvest.iter().filter(|h| h.kind == props::HarvestKind::Ore).count();
         let props_total: usize = w.chunk_props.iter().map(|c| c.len()).sum();
         assert!(trees > 2400, "{trees} trees");
         assert!(rocks > 80, "{rocks} rocks");
+        assert!(ore * 8 > rocks && ore * 2 < rocks, "{ore} of {rocks} rocks are ore: metal must be findable but rarer than stone");
         assert!(props_total > 4500, "{props_total} props");
         assert!(w.chest_spots.len() >= 8, "{} chests", w.chest_spots.len());
         assert!(w.loot_spots.len() >= 60, "{} loot spots", w.loot_spots.len());
         assert!(!w.chunk_meshes.is_empty());
         let town = &w.layout.pois[0];
         assert!(w.nav.nearest_free(town.center, 4).is_some());
+    }
+
+    #[test]
+    fn loot_and_chests_do_not_spawn_inside_furniture() {
+        let w = World::generate(1234);
+        // an item (about 0.3 m tall) or a chest (0.9 x 0.6 x 0.8 m) is "embedded" when a solid reaches above its top over its footprint
+        let embedded = |p: Vec3, margin: f32, height: f32| -> Option<String> {
+            let q = Aabb::new(Vec3::new(p.x - margin, p.y + 0.05, p.z - margin), Vec3::new(p.x + margin, p.y + height, p.z + margin));
+            let mut hit = None;
+            w.statics.query(&q, |_, c| {
+                let bb = c.shape.aabb();
+                if matches!(c.shape, Shape::Box { .. }) && bb.min.y < p.y + 0.25 && bb.max.y > p.y + height && bb.min.x < p.x + margin && bb.max.x > p.x - margin && bb.min.z < p.z + margin && bb.max.z > p.z - margin {
+                    hit = Some(format!("{:?} x {:.2}..{:.2} y {:.2}..{:.2} z {:.2}..{:.2}", c.tag, bb.min.x, bb.max.x, bb.min.y, bb.max.y, bb.min.z, bb.max.z));
+                }
+            });
+            hit
+        };
+        let mut bad = vec![];
+        for l in w.loot_spots.iter().filter(|l| l.building.is_some()) {
+            if let Some(d) = embedded(l.pos, 0.12, 0.35) {
+                bad.push(format!("loot at {:?} inside {d}", l.pos));
+            }
+        }
+        for c in &w.chest_spots {
+            if let Some(d) = embedded(c.pos, 0.4, 0.8) {
+                bad.push(format!("chest at {:?} inside {d}", c.pos));
+            }
+        }
+        assert!(bad.is_empty(), "{} spots are inside furniture:\n{}", bad.len(), bad.join("\n"));
     }
 
     #[test]

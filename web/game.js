@@ -53,7 +53,7 @@ window.__game.freezeFrame = async () => {
 window.__game.unfreeze = () => { const c = document.getElementById('frozen'); if (c) c.remove(); gpuCanvas.style.visibility = 'visible'; };
 
 const TIPS = [
-  'Hit trees and rocks with your pickaxe to collect wood, stone and metal.',
+  'Pickaxe trees for wood, grey rocks for stone and the blue-grey ore rocks for metal.',
   'Hold forward and click with a ramp selected to ramp-rush up cliffs.',
   'Shield potions stack up to 100 shield; bandages only heal to 75 HP.',
   'Headshots deal bonus damage. Aim for the helmet.',

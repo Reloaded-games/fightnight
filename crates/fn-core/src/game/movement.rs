@@ -614,6 +614,46 @@ mod tests {
     }
 
     #[test]
+    fn every_door_in_the_world_can_be_walked_through_from_the_ground() {
+        // some lots sit on a slope, and the door side can stand well above the terrain: without steps those houses are
+        // closed to anyone who cannot jump a metre (every bot, and anyone not hunting for the one jumpable sill)
+        let w = world();
+        let (mut a, pieces) = setup();
+        let env = Env::new(w, &pieces);
+        let mut shut = vec![];
+        let mut tested = 0;
+        for (bi, b) in w.buildings.iter().enumerate() {
+            if !matches!(b.kind, "house" | "cabin" | "shop" | "barn" | "lodge") {
+                continue;
+            }
+            tested += 1;
+            let out = Vec2::new(b.door_out.x - b.door_in.x, b.door_out.z - b.door_in.z).normalize();
+            // start in front of the door, on the terrain, and walk at the point just inside the door
+            let start = Vec2::new(b.door_out.x, b.door_out.z) + out * 3.0;
+            a.pos = Vec3::new(start.x, env.terrain(start.x, start.y), start.y);
+            a.vel = Vec3::ZERO;
+            a.on_ground = true;
+            a.mode = MoveMode::Ground;
+            let target = Vec2::new(b.door_in.x, b.door_in.z);
+            let mut ev = vec![];
+            let mut reached = false;
+            for _ in 0..(6 * 60) {
+                let to = target - Vec2::new(a.pos.x, a.pos.z);
+                if to.length() < 0.5 {
+                    reached = true;
+                    break;
+                }
+                step_ground(&mut a, &Intent { wish: to.normalize(), ..Default::default() }, &env, 1.0 / 60.0, &mut ev);
+            }
+            if !reached || a.pos.y < b.door_in.y - 0.4 {
+                shut.push((bi, b.kind, (b.door_in.y - env.terrain(b.door_out.x, b.door_out.z) * 1.0).max(0.0)));
+            }
+        }
+        assert!(tested > 40, "{tested} buildings tested");
+        assert!(shut.is_empty(), "{} of {tested} doors cannot be walked through: {shut:?}", shut.len());
+    }
+
+    #[test]
     fn climbs_the_stairs_of_a_two_story_house() {
         let w = world();
         let (mut a, pieces) = setup();

@@ -13,7 +13,7 @@ model or audio files.
   potions, Chug Jugs. 5 hotbar slots + pickaxe, health + shield, materials.
 * **Building**: walls, floors, ramps and roofs on a Fortnite-style grid in wood, stone and metal — ramp-rush
   up cliffs, box yourself in, and watch bullets and rockets chew through your pieces.
-* **Harvesting**: hit trees and rocks with the pickaxe for materials (trees really fall over).
+* **Harvesting**: hit trees (wood), grey rocks (stone) and the blue-grey ore rocks (metal) with the pickaxe (trees really fall over).
 * **Shrinking storm** in 7 phases that forces everyone together, with a minimap, full map and storm timer.
 * A colourful island with grassy hills, forests, lakes, a snowy mountain, beaches and nine named towns.
 * Fortnite-flavoured lighting (cascaded shadow maps, bloom, ACES grading, soft sky and clouds), procedural

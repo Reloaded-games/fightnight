@@ -68,7 +68,10 @@ impl<'a> Planner<'a> {
             return None;
         }
         let id = self.out.buildings.len() as u32;
-        let placed = place(g, Vec3::new(pos.x, hi, pos.y), rot, Tag::Building(id));
+        let at = Vec3::new(pos.x, hi, pos.y);
+        let mut placed = place(g, at, rot, Tag::Building(id));
+        let hm = self.hm;
+        add_entrance_steps(&mut placed, g, at, rot, Tag::Building(id), &|x, z| hm.height_at(x, z));
         self.fps.push((emin, emax));
         if lawn {
             self.splat.paint_rect(min - Vec2::splat(3.0), max + Vec2::splat(3.0), CH_LAWN, 6.0);
