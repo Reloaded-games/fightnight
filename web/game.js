@@ -113,6 +113,9 @@ function wireUi() {
   bindCheck('set-tags', 'tags', applyRuntimeOptions);
   bindCheck('set-fps', 'perf', applyRuntimeOptions);
 
+  $('btn-fullscreen').addEventListener('click', () => {
+    try { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); } catch (e) { /* not allowed */ }
+  });
   $('btn-play').addEventListener('click', () => { click(); startMatch(); });
   $('btn-settings').addEventListener('click', () => { click(); show('settings'); });
   $('btn-help').addEventListener('click', () => { click(); show('help'); });
@@ -132,7 +135,11 @@ function wireUi() {
 // ------------------------------------------------------------------------------------------------
 function resizeAll() {
   const dprCap = cfg.quality === 'high' ? 2 : cfg.quality === 'medium' ? 1.5 : 1.25;
-  const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
+  let dpr = Math.min(window.devicePixelRatio || 1, dprCap);
+  // keep the frame to a sane pixel budget on very large screens
+  const budget = cfg.quality === 'high' ? 4.0e6 : cfg.quality === 'medium' ? 2.6e6 : 1.6e6;
+  const px = innerWidth * innerHeight * dpr * dpr;
+  if (px > budget) dpr *= Math.sqrt(budget / px);
   const w = Math.max(2, Math.floor(innerWidth * dpr)), h = Math.max(2, Math.floor(innerHeight * dpr));
   if (gpuCanvas.width !== w || gpuCanvas.height !== h) {
     gpuCanvas.width = w; gpuCanvas.height = h;

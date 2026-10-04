@@ -57,7 +57,7 @@ impl<'a> Planner<'a> {
 
     /// Try to put a building at `pos` (x, z). Returns its index on success.
     fn place(&mut self, g: &Geom, pos: Vec2, rot: u8, poi: usize, kind: &'static str, margin: f32, lawn: bool) -> Option<usize> {
-        let half = if rot % 2 == 0 { g.half } else { Vec2::new(g.half.y, g.half.x) };
+        let half = if rot.is_multiple_of(2) { g.half } else { Vec2::new(g.half.y, g.half.x) };
         let (min, max) = (pos - half, pos + half);
         let (lo, hi) = self.height_range(min - Vec2::splat(1.0), max + Vec2::splat(1.0));
         if lo < 2.0 || hi - lo > 1.5 || self.lake_conflict(pos, half.max_element()) {
@@ -301,7 +301,7 @@ fn plan_farm(pl: &mut Planner, pi: usize, poi: &Poi) {
         let p = c + Vec2::new(pl.rng.range(-38.0, 38.0), pl.rng.range(-30.0, 30.0));
         let ok = !pl.fps.iter().any(|&(a, b)| p.x > a.x - 1.5 && p.x < b.x + 1.5 && p.y > a.y - 1.5 && p.y < b.y + 1.5);
         if ok && pl.hm.height_at(p.x, p.y) > 2.4 {
-            let yaw = pl.rng.range(0.0, 6.28);
+            let yaw = pl.rng.range(0.0, std::f32::consts::TAU);
             pl.prop(PropKind::HayBale, p, yaw, 1.0);
             let h = pl.hm.height_at(p.x, p.y);
             pl.out.decor_cols.push(Collider::cyl(p.x, p.y, 0.8, h, h + 1.2, Tag::Static));
@@ -394,7 +394,7 @@ fn plan_station(pl: &mut Planner, pi: usize, poi: &Poi) {
         let p = c + Vec2::new(pl.rng.range(-20.0, 20.0), pl.rng.range(-20.0, 20.0));
         let kind = if k % 2 == 0 { PropKind::Barrel } else { PropKind::Crate };
         if !pl.fps.iter().any(|&(a, b)| p.x > a.x - 2.0 && p.x < b.x + 2.0 && p.y > a.y - 2.0 && p.y < b.y + 2.0) && pl.splat.sample(p)[CH_ASPHALT] < 0.2 {
-            let yaw = pl.rng.range(0.0, 6.28);
+            let yaw = pl.rng.range(0.0, std::f32::consts::TAU);
             pl.prop(kind, p, yaw, 1.0);
             let h = pl.hm.height_at(p.x, p.y);
             pl.out.decor_cols.push(Collider::cyl(p.x, p.y, 0.55, h, h + 1.0, Tag::Static));

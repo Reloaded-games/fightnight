@@ -529,7 +529,7 @@ pub fn gen_house(rng: &mut Rng, w: f32, d: f32, st: &Style) -> Geom {
             }
         }
         // base board
-        b.corner_posts(hx - 0.06, hz - 0.06, y0 - if fl == 0 { 0.0 } else { 0.0 }, y0 + STORY_H, st.trim);
+        b.corner_posts(hx - 0.06, hz - 0.06, y0, y0 + STORY_H, st.trim);
     }
     // exterior band between floors
     if floors == 2 {
@@ -717,8 +717,8 @@ pub fn gen_shop(rng: &mut Rng, w: f32, d: f32) -> Geom {
     b.loot.push(Vec3::new(rng.range(-hx + 1.5, hx - 1.5), iy, -hz + 2.0));
     b.chests.push((Vec3::new(hx - WALL_T - 0.6, iy, -hz + WALL_T + 0.5), 0.0));
     let door_x = -hx + door_u;
-    let g = b.finish(Vec2::new(hx, hz), top_y + par, Vec3::new(door_x, 0.0, hz + 2.4), Vec3::new(door_x, FLOOR_Y, hz - 1.6));
-    g
+    
+    b.finish(Vec2::new(hx, hz), top_y + par, Vec3::new(door_x, 0.0, hz + 2.4), Vec3::new(door_x, FLOOR_Y, hz - 1.6))
 }
 
 // ---------------------------------------------------------------------------------
@@ -1034,7 +1034,7 @@ pub fn place(g: &Geom, pos: Vec3, rot: u8, tag: Tag) -> Placed {
         door_out: tp(g.door_out),
         door_in: tp(g.door_in),
         aabb,
-        footprint_half: if rot % 2 == 0 { g.half } else { Vec2::new(g.half.y, g.half.x) },
+        footprint_half: if rot.is_multiple_of(2) { g.half } else { Vec2::new(g.half.y, g.half.x) },
         hub: g.hub.map(tp),
         rot,
         height: g.height,

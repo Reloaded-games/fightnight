@@ -25,6 +25,8 @@ export class Hud {
     this.showPerf = false;
     this.perf = '';
     this.spectateHint = 0;
+    this.banners = []; // "ELIMINATED name" popups for the player's own kills
+    this.seenFeed = new Set();
   }
 
   resize(w, h, dpr) {
@@ -87,6 +89,7 @@ export class Hud {
       this.heal(s, W, H, S);
       this.busPrompts(s, W, H, S);
       this.notice(s, W, H, S);
+      this.bannersDraw(s, W, H, S);
     } else {
       this.spectating(s, W, H, S);
     }
@@ -108,6 +111,14 @@ export class Hud {
       for (let i = 0; i < 3; i++) if (s.mats[i] > p.mats[i]) { this.matFlash[i] = 1; this.notices.push({ txt: `+${s.mats[i] - p.mats[i]} ${MAT_NAMES[i]}`, r: -1, age: 0, mat: i }); }
       for (let i = 0; i < 5; i++) if (s.ammo[i] > p.ammo[i] + 0) this.notices.push({ txt: `+${s.ammo[i] - p.ammo[i]} ${AMMO_NAMES[i]} ammo`, r: -2, age: 0, ammo: i });
     }
+    // the player's own eliminations get a big centre-screen banner
+    for (const f of s.feed) {
+      const key = f.v + '|' + f.k + '|' + Math.floor((s.t - f.age) * 2);
+      if (f.me && !this.seenFeed.has(key) && f.age < 1.5) { this.seenFeed.add(key); this.banners.push({ name: f.v, age: 0, kills: s.kills }); }
+    }
+    if (this.seenFeed.size > 64) this.seenFeed.clear();
+    for (const b of this.banners) b.age += dt;
+    this.banners = this.banners.filter((b) => b.age < 2.8).slice(-2);
     this.prev = s;
     for (const n of this.notices) n.age += dt;
     this.notices = this.notices.filter((n) => n.age < 3.2).slice(-6);
@@ -474,6 +485,20 @@ export class Hud {
       this.text(n.txt.toUpperCase(), 50 * S, y - 2 * S, 20 * S, '#fff');
       ctx.restore();
       y -= 34 * S;
+    }
+  }
+
+  bannersDraw(s, W, H, S) {
+    const ctx = this.ctx;
+    for (const b of this.banners) {
+      const pop = Math.min(1, b.age / 0.18);
+      const a = Math.min(1, (2.8 - b.age) / 0.5);
+      const scale = 0.6 + 0.4 * (1 - Math.pow(1 - pop, 3)) + Math.max(0, 0.15 - b.age) * 1.5;
+      ctx.save(); ctx.globalAlpha = a;
+      ctx.translate(W / 2, H * 0.62); ctx.scale(scale, scale);
+      this.text('ELIMINATED', 0, 0, 46 * S, '#ffe94a', 'center');
+      this.text(b.name, 0, 42 * S, 34 * S, '#ffffff', 'center');
+      ctx.restore();
     }
   }
 

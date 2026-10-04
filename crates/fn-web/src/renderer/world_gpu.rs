@@ -99,11 +99,6 @@ fn upload_static(device: &Device, m: &MeshData, aabb: Aabb) -> StaticMeshGpu {
     }
 }
 
-/// Instances to draw this frame grouped by (mesh), already appended to `out`.
-pub struct PropPass {
-    pub batches: Vec<Batch>,
-}
-
 /// Cull and LOD-select props for one view. Instances are appended to `out`; the returned batches
 /// index into it with `first` offset by `base`.
 pub fn gather_props(

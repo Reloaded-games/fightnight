@@ -265,11 +265,10 @@ impl Mixer {
                         self.two_d(out, Sfx::StormWarning, 0.7);
                     }
                 }
-                Event::Victory { winner } => {
-                    if *winner == me {
+                Event::Victory { winner }
+                    if *winner == me => {
                         self.two_d(out, Sfx::Victory, 1.0);
                     }
-                }
                 _ => {}
             }
         }
@@ -302,7 +301,7 @@ impl Mixer {
         for c in &g.chests {
             if !c.opened {
                 let d = c.pos.distance(listener);
-                if d < 40.0 && best.map_or(true, |b| d < b.0) {
+                if d < 40.0 && best.is_none_or(|b| d < b.0) {
                     best = Some((d, c.pos));
                 }
             }

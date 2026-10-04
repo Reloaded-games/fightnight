@@ -27,7 +27,7 @@ impl Game {
             }
             let kind = PickupKind::from_drop(roll_floor_loot(&mut rng));
             let id = self.new_id();
-            self.pickups.push(Pickup { id, pos: s.pos, vel: Vec3::ZERO, kind, age: 0.0, grounded: true, spin: rng.range(0.0, 6.28) });
+            self.pickups.push(Pickup { id, pos: s.pos, vel: Vec3::ZERO, kind, age: 0.0, grounded: true, spin: rng.range(0.0, std::f32::consts::TAU) });
         }
         let chests = self.world.chest_spots.clone();
         for c in chests {
@@ -45,7 +45,7 @@ impl Game {
         } else {
             Vec3::ZERO
         };
-        let spin = self.rng.range(0.0, 6.28);
+        let spin = self.rng.range(0.0, std::f32::consts::TAU);
         self.pickups.push(Pickup { id, pos, vel, kind, age: 0.0, grounded: !pop, spin });
         id
     }
@@ -64,7 +64,7 @@ impl Game {
         let mut best: Option<(f32, Target)> = None;
         for p in &self.pickups {
             let d = p.pos.distance(c);
-            if d < INTERACT_RANGE && best.map_or(true, |b| d < b.0) {
+            if d < INTERACT_RANGE && best.is_none_or(|b| d < b.0) {
                 best = Some((d, Target::Pickup(p.id)));
             }
         }
@@ -73,7 +73,7 @@ impl Game {
                 continue;
             }
             let d = ch.pos.distance(c);
-            if d < INTERACT_RANGE + 0.4 && best.map_or(true, |b| d < b.0 + 0.3) {
+            if d < INTERACT_RANGE + 0.4 && best.is_none_or(|b| d < b.0 + 0.3) {
                 best = Some((d, Target::Chest(ch.id)));
             }
         }
@@ -118,7 +118,7 @@ impl Game {
             let id = self.new_id();
             let vel = out * rng.range(2.2, 3.4) + Vec3::Y * rng.range(5.0, 6.5);
             let _ = ang;
-            self.pickups.push(Pickup { id, pos: pos + Vec3::Y * 0.8 + out * 0.5, vel, kind: PickupKind::from_drop(d), age: 0.0, grounded: false, spin: rng.range(0.0, 6.28) });
+            self.pickups.push(Pickup { id, pos: pos + Vec3::Y * 0.8 + out * 0.5, vel, kind: PickupKind::from_drop(d), age: 0.0, grounded: false, spin: rng.range(0.0, std::f32::consts::TAU) });
         }
     }
 

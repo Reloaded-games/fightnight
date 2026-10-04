@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::needless_range_loop)]
+
 mod app;
 mod gpu;
 mod input;

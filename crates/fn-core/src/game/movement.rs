@@ -82,7 +82,7 @@ pub fn step_ground(a: &mut Actor, it: &Intent, env: &Env, dt: f32, ev: &mut Vec<
     a.coyote = if a.on_ground { 0.1 } else { (a.coyote - dt).max(0.0) };
     let want_crouch = it.crouch;
     if a.crouching && !want_crouch {
-        let clear = env.ceiling(a.pos.x, a.pos.z, a.pos.y + CROUCH_HEIGHT).map_or(true, |c| c > a.pos.y + HEIGHT + 0.05);
+        let clear = env.ceiling(a.pos.x, a.pos.z, a.pos.y + CROUCH_HEIGHT).is_none_or(|c| c > a.pos.y + HEIGHT + 0.05);
         if clear {
             a.crouching = false;
         }
@@ -385,9 +385,7 @@ pub fn update_body(a: &mut Actor, it: &Intent, dt: f32) {
     let sp = a.speed_xz();
     let aiming = it.fire || a.ads || a.shot_flash > 0.0 || a.build_mode;
     let mut target = a.body_yaw;
-    if matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus) {
-        target = a.yaw;
-    } else if aiming {
+    if aiming || matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus) {
         target = a.yaw;
     } else if sp > 0.8 {
         target = yaw_of(Vec2::new(a.vel.x, a.vel.z));

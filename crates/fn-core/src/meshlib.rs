@@ -41,6 +41,7 @@ pub enum MeshId {
     WindmillBlades,
     // --- characters (rigid parts posed by `game::rig`) ------------------------------
     CharTorso,
+    CharTrim,
     CharPelvis,
     CharHead,
     Hair1,
@@ -444,6 +445,7 @@ pub fn build_mesh(id: MeshId) -> MeshData {
         Crate => crate_mesh(),
         WindmillBlades => windmill_blades(),
         CharTorso => models::char_torso(),
+        CharTrim => models::char_trim(),
         CharPelvis => models::char_pelvis(),
         CharHead => models::char_head(),
         Hair1 => models::hair(1),
@@ -514,6 +516,7 @@ pub const ALL_IDS: &[MeshId] = &[
     MeshId::Crate,
     MeshId::WindmillBlades,
     MeshId::CharTorso,
+    MeshId::CharTrim,
     MeshId::CharPelvis,
     MeshId::CharHead,
     MeshId::Hair1,

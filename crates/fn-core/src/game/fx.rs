@@ -86,7 +86,7 @@ impl Fx {
 
     #[allow(clippy::too_many_arguments)]
     fn spawn(&mut self, pos: Vec3, vel: Vec3, size0: f32, size1: f32, life: f32, c0: [f32; 4], c1: [f32; 4], shape: f32, add: bool, grav: f32, drag: f32) {
-        let rot = self.rng.range(0.0, 6.28);
+        let rot = self.rng.range(0.0, std::f32::consts::TAU);
         let rot_v = self.rng.range(-2.0, 2.0);
         let seed = self.rng.f32();
         self.push(Part { pos, vel, size0, size1, age: 0.0, life, c0, c1, shape, grav, drag, add, rot, rot_v, seed, stretch: 0.0 });
@@ -266,7 +266,7 @@ impl Fx {
                 if *speed > 7.0 {
                     let k = (*speed / 14.0).clamp(0.4, 1.4);
                     for _ in 0..5 {
-                        let a = self.rng.range(0.0, 6.28);
+                        let a = self.rng.range(0.0, std::f32::consts::TAU);
                         let v = Vec3::new(a.cos(), 0.1, a.sin()) * 2.0 * k;
                         self.spawn(*pos + Vec3::Y * 0.1, v, 0.25, 0.9 * k, 0.5, [0.7, 0.62, 0.5, 0.5], [0.7, 0.62, 0.5, 0.0], shape::SMOKE, false, 0.0, 2.0);
                     }

@@ -8,7 +8,6 @@ pub mod world_gpu;
 use crate::gpu::Gpu;
 use bytemuck::cast_slice;
 use fn_core::camera::Frustum;
-use fn_core::meshlib::MeshId;
 use fn_core::mesh::{Instance, MeshData, Particle};
 use fn_core::world::terrain_mesh::ChunkInfo;
 use fn_core::world::{World, GRID_N, WORLD_HALF};
@@ -60,7 +59,6 @@ struct BloomLevel {
 struct Targets {
     w: u32,
     h: u32,
-    msaa: u32,
     color_msaa: Option<TextureView>,
     hdr_view: TextureView,
     depth_view: TextureView,
@@ -193,7 +191,7 @@ fn create_targets(device: &Device, w: u32, h: u32, msaa: u32, bloom_on: bool) ->
             bh /= 2;
         }
     }
-    Targets { w, h, msaa, color_msaa, hdr_view, depth_view, bloom }
+    Targets { w, h, color_msaa, hdr_view, depth_view, bloom }
 }
 
 impl Renderer {
@@ -430,7 +428,7 @@ impl Renderer {
 
     fn ensure_capture(&mut self) {
         let (w, h) = (self.gpu.config.width, self.gpu.config.height);
-        let need_new = self.capture.as_ref().map_or(true, |c| c.w != w || c.h != h);
+        let need_new = self.capture.as_ref().is_none_or(|c| c.w != w || c.h != h);
         if need_new {
             let d = &self.gpu.device;
             let tex = d.create_texture(&TextureDescriptor {
@@ -654,14 +652,12 @@ impl Renderer {
             });
         }
         if capture_copy {
-            web_sys::console::log_1(&"capture: copy submitted, mapping".into());
             if let Some(cap) = &self.capture {
                 let result = cap.result.clone();
                 let (w, h, bpr) = (cap.w, cap.h, cap.bytes_per_row);
                 let buf = cap.buf.clone();
                 let buf2 = buf.clone();
                 buf.slice(..).map_async(MapMode::Read, move |res| {
-                    web_sys::console::log_1(&format!("capture: map callback {:?}", res).into());
                     if res.is_ok() {
                         if let Ok(data) = buf2.slice(..).get_mapped_range() {
                             let mut out = Vec::with_capacity((w * h * 4) as usize);

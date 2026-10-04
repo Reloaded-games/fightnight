@@ -586,6 +586,13 @@ impl Game {
             MoveMode::Dead => {}
         }
         let _ = landed_sky;
+        // an invisible wall far out at sea keeps swimmers from drifting off the map
+        if matches!(self.actors[i].mode, MoveMode::Ground | MoveMode::Swim) {
+            let lim = WORLD_HALF + 110.0;
+            let a = &mut self.actors[i];
+            a.pos.x = a.pos.x.clamp(-lim, lim);
+            a.pos.z = a.pos.z.clamp(-lim, lim);
+        }
         if fall_damage > 0.0 && !god {
             self.damage_actor(i, fall_damage, None, "Fall damage", false, self.actors[i].pos, false);
         }

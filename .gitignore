@@ -5,3 +5,4 @@ node_modules/
 .DS_Store
 /tools/node_modules
 /tools/shots
+/tools/*.png

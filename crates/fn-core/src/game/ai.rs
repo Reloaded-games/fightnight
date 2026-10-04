@@ -340,7 +340,7 @@ fn best_heal_slot(a: &Actor) -> Option<usize> {
                 continue;
             }
             let v = b / kind.def().use_time;
-            if best.map_or(true, |x| v > x.0) {
+            if best.is_none_or(|x| v > x.0) {
                 best = Some((v, s));
             }
         }
@@ -461,7 +461,7 @@ impl Brain {
                 PoiKind::Station => 1.0,
                 PoiKind::Hamlet => 0.8,
             };
-            let crowd = g.actors.iter().filter(|o| o.brain.as_ref().and_then(|b| b.land).map_or(false, |l| l.distance(poi.center) < poi.radius + 60.0)).count() as f32;
+            let crowd = g.actors.iter().filter(|o| o.brain.as_ref().and_then(|b| b.land).is_some_and(|l| l.distance(poi.center) < poi.radius + 60.0)).count() as f32;
             let w = kind_w / (1.0 + d / 140.0) / (1.0 + 0.55 * crowd);
             let p = poi.center + self.rng.in_disc(poi.radius * 0.6);
             cands.push((p, d, w));
@@ -555,7 +555,7 @@ impl Brain {
                 while r < 160.0 {
                     let q = p + dir * r;
                     if env.water_depth(q.x, q.y) < 0.6 && g.world.hm.height_at(q.x, q.y) > 0.3 {
-                        if best.map_or(true, |b| r < b.0) {
+                        if best.is_none_or(|b| r < b.0) {
                             best = Some((r, q));
                         }
                         break;
@@ -650,7 +650,7 @@ impl Brain {
                 continue;
             }
             let score = dist - if known { 20.0 } else { 0.0 };
-            if best.map_or(true, |b| score < b.0) {
+            if best.is_none_or(|b| score < b.0) {
                 best = Some((score, o.id));
             }
         }
@@ -671,7 +671,7 @@ impl Brain {
         }
         // someone hit us: turn on them even without a line of sight
         if let Some(att) = self.last_attacker.take() {
-            if g.actors.get(att).map_or(false, |o| o.alive) && (!self.visible || self.enemy.is_none()) {
+            if g.actors.get(att).is_some_and(|o| o.alive) && (!self.visible || self.enemy.is_none()) {
                 let o = &g.actors[att];
                 if self.enemy != Some(att) {
                     self.react_t = self.skill.react * 0.6;
@@ -766,7 +766,7 @@ impl Brain {
         let a = &g.actors[i];
         let armed = is_armed(a);
         let zone = self.zone_target(g, i);
-        let zone_urgent = zone.map_or(false, |z| z.1) && !(g.storm.state == super::StormState::Waiting && g.storm.timer > 25.0);
+        let zone_urgent = zone.is_some_and(|z| z.1) && !(g.storm.state == super::StormState::Waiting && g.storm.timer > 25.0);
         let has_enemy = self.enemy.is_some() && self.seen_t < 7.0;
 
         // 1. fight
@@ -826,7 +826,7 @@ impl Brain {
                     continue;
                 }
                 let d = xz(o.pos).distance(me);
-                if best.map_or(true, |b| d < b.0) {
+                if best.is_none_or(|b| d < b.0) {
                     best = Some((d, xz(o.pos)));
                 }
             }
@@ -959,7 +959,7 @@ impl Brain {
                 v *= 1.35;
             }
             let s = v / (1.0 + d / 22.0);
-            if best.map_or(true, |b| s > b.0) {
+            if best.is_none_or(|b| s > b.0) {
                 best = Some((s, LootRef::Pickup(p.id), p.pos));
             }
         }
@@ -981,7 +981,7 @@ impl Brain {
                 v *= 1.35;
             }
             let s = v / (1.0 + d / 22.0);
-            if best.map_or(true, |b| s > b.0) {
+            if best.is_none_or(|b| s > b.0) {
                 best = Some((s, LootRef::Chest(c.id), c.pos));
             }
         }
@@ -1002,7 +1002,7 @@ impl Brain {
                 continue;
             }
             let d = dx * dx + dz * dz;
-            if best.map_or(true, |b| d < b.0) {
+            if best.is_none_or(|b| d < b.0) {
                 best = Some((d, k));
             }
         }
@@ -1449,7 +1449,7 @@ impl Brain {
             if s == sel {
                 sc *= 1.2;
             }
-            if best.map_or(true, |b| sc > b.0) {
+            if best.is_none_or(|b| sc > b.0) {
                 best = Some((sc, s));
             }
         }

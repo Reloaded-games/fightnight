@@ -33,7 +33,6 @@ pub struct App {
     pub cues: Vec<AudioCue>,
     pub loops: LoopLevels,
     pub minimap: Vec<u8>,
-    pub meshes: Vec<MeshData>,
     pub paused: bool,
     pub sens: f32,
     pub invert_y: bool,
@@ -76,7 +75,6 @@ impl App {
             cues: vec![],
             loops: LoopLevels::default(),
             minimap,
-            meshes,
             paused: false,
             sens: 0.0022,
             invert_y: false,
@@ -414,6 +412,17 @@ impl App {
                 }
                 "ok".into()
             }
+            "cam_bus" => {
+                // free camera relative to the bus: distance, yaw offset (deg, 0 = behind), height
+                let (dist, yo, hgt) = (num(1, 24.0), num(2, 0.0).to_radians(), num(3, 6.0));
+                let bus_yaw = yaw_of(g.bus.dir);
+                let ang = bus_yaw + yo;
+                let back = yaw_forward(ang) * -dist;
+                let pos = g.bus.pos + back + Vec3::Y * hgt;
+                let look = (g.bus.pos + Vec3::Y * 3.0 - pos).normalize();
+                self.debug_cam = Some((pos, yaw_of(Vec2::new(look.x, look.z)), look.y.asin(), num(4, 55.0)));
+                "ok".into()
+            }
             "orbit" => {
                 if parts.get(1) == Some(&"off") {
                     self.debug_orbit = None;
@@ -517,6 +526,84 @@ impl App {
                     g.update(1.0 / 30.0, &idle);
                 }
                 format!("{{\"alive\":{},\"phase\":\"{:?}\"}}", g.alive_count(), g.phase)
+            }
+            "gallery" => {
+                // bots frozen in different activities, for animation review (use `speed 0.02` to hold the poses)
+                let p = g.actors[PLAYER].pos;
+                let yaw = g.actors[PLAYER].yaw;
+                let (dist, spacing, turn) = (num(1, 6.0), num(2, 1.9), num(3, 90.0).to_radians());
+                let n_actors = g.actors.len();
+                let side = yaw_right(yaw);
+                let fwd = yaw_forward(yaw);
+                for k in 0..8.min(n_actors - 1) {
+                    let pos = p + fwd * dist + side * ((k as f32 - 3.5) * spacing);
+                    let y = g.world.hm.height_at(pos.x, pos.z);
+                    let a = &mut g.actors[k + 1];
+                    a.pos = Vec3::new(pos.x, y, pos.z);
+                    a.vel = Vec3::ZERO;
+                    a.mode = MoveMode::Ground;
+                    a.on_ground = true;
+                    a.alive = true;
+                    a.hp = 100.0;
+                    a.brain = None;
+                    a.yaw = yaw + turn;
+                    a.body_yaw = a.yaw;
+                    a.pitch = 0.0;
+                    a.eye_smooth = y;
+                    a.inv = Inventory::new();
+                    a.build_mode = false;
+                    a.crouching = false;
+                    a.ads = false;
+                    a.action = Action::None;
+                    match k {
+                        0 => {
+                            a.inv.add_weapon(WeaponKind::AssaultRifle, Rarity::Epic, 30);
+                            a.inv.selected = 1;
+                            a.ads = true;
+                            a.anim.aim = 1.0;
+                        }
+                        1 => {
+                            a.inv.add_weapon(WeaponKind::Shotgun, Rarity::Legendary, 5);
+                            a.inv.selected = 1;
+                            a.crouching = true;
+                            a.anim.crouch = 1.0;
+                            a.anim.aim = 1.0;
+                        }
+                        2 => {
+                            a.inv.add_weapon(WeaponKind::Smg, Rarity::Rare, 4);
+                            a.inv.ammo[0] = 100;
+                            a.inv.selected = 1;
+                            a.action = Action::Reload { t: 1.1, dur: 2.1 };
+                        }
+                        3 => {
+                            a.inv.selected = 0;
+                            a.anim.swing = 0.6;
+                        }
+                        4 => {
+                            a.inv.add_consumable(ConsumableKind::ShieldBig, 2);
+                            a.inv.selected = 1;
+                            a.shield = 20.0;
+                            a.action = Action::Heal { slot: 1, t: 2.4, dur: 4.8 };
+                        }
+                        5 => {
+                            a.build_mode = true;
+                            a.anim.build = 1.0;
+                        }
+                        6 => {
+                            a.inv.add_weapon(WeaponKind::Sniper, Rarity::Epic, 1);
+                            a.inv.selected = 1;
+                            a.ads = true;
+                            a.anim.aim = 1.0;
+                            a.pitch = 0.1;
+                        }
+                        _ => {
+                            a.inv.add_weapon(WeaponKind::RocketLauncher, Rarity::Rare, 1);
+                            a.inv.selected = 1;
+                            a.anim.aim = 1.0;
+                        }
+                    }
+                }
+                "ok".into()
             }
             "state" => {
                 let a = &g.actors[PLAYER];

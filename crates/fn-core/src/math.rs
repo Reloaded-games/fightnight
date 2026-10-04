@@ -207,7 +207,7 @@ pub fn ray_capsule_y(o: Vec3, d: Vec3, base: Vec3, top: Vec3, r: f32) -> Option<
     // Work in XZ for the infinite cylinder, then clamp to caps with spheres.
     let mut best: Option<f32> = None;
     let mut consider = |t: f32| {
-        if t >= 0.0 && best.map_or(true, |b| t < b) {
+        if t >= 0.0 && best.is_none_or(|b| t < b) {
             best = Some(t);
         }
     };

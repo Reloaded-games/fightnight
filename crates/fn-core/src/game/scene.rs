@@ -52,7 +52,7 @@ fn casts_shadow(m: MeshId) -> bool {
     use MeshId::*;
     matches!(
         m,
-        CharTorso | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat
+        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat
     )
 }
 
@@ -191,6 +191,7 @@ impl Scene {
         };
         let (shirt, skin, pants, boots) = (lin(o.shirt), lin(o.skin), lin(o.pants), lin(o.boots));
         put(self, MeshId::CharTorso, p.torso, shirt);
+        put(self, MeshId::CharTrim, p.torso, lin(o.accent));
         put(self, MeshId::CharPelvis, p.pelvis, pants);
         put(self, MeshId::CharHead, p.head, skin);
         if let Some(h) = rig::hair_model(o) {

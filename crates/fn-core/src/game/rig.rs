@@ -172,13 +172,14 @@ pub fn pose(a: &Actor) -> Pose {
     if dead {
         // topple backwards
         let k = ease(a.dead_time * 2.8);
-        root = root * rx(1.35 * k);
+        root *= rx(1.35 * k);
     }
 
     // ---- body frame ------------------------------------------------------------------------------
     let sp = (phase).sin();
     let bob = if grounded { (0.5 - 0.5 * (2.0 * phase).cos()) * 0.03 * ra } else { 0.0 };
-    let mut pelvis_y = HIP_Y - 0.36 * crouch - 0.1 * an.land - bob;
+    let breathe = if grounded { (time * 1.7 + a.id as f32).sin() * 0.006 * (1.0 - ra.min(1.0)) } else { 0.0 };
+    let mut pelvis_y = HIP_Y - 0.36 * crouch - 0.1 * an.land - bob + breathe;
     let mut lean = 0.05 + 0.16 * ra + 0.13 * an.sprint + 0.3 * crouch;
     let mut roll = -an.lean_side * 0.1;
     let mut pelvis_pos = Vec3::new(0.0, pelvis_y, 0.0);

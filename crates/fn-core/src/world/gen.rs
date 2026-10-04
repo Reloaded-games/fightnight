@@ -219,7 +219,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
             continue;
         }
         let h = base.height(p.x, p.y);
-        if h < 2.6 || h > 40.0 {
+        if !(2.6..=40.0).contains(&h) {
             continue;
         }
         let sl = base.slope(p.x, p.y, 14.0);
@@ -315,7 +315,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
                 continue;
             }
             let md = pois.iter().map(|o| o.center.distance(c.0)).fold(f32::MAX, f32::min);
-            if best.map_or(true, |b| md > b.0) {
+            if best.is_none_or(|b| md > b.0) {
                 best = Some((md, c.0));
             }
         }
@@ -360,7 +360,7 @@ fn plan_roads(base: &BaseTerrain, lakes: &[Lake], pois: &[Poi]) -> Vec<Road> {
                     continue;
                 }
                 let d = pois[a].center.distance(pois[b].center);
-                if best.map_or(true, |x| d < x.0) {
+                if best.is_none_or(|x| d < x.0) {
                     best = Some((d, a, b));
                 }
             }

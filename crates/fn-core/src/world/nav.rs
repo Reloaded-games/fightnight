@@ -67,7 +67,7 @@ impl NavGrid {
                     let (i, j) = (ci + di, cj + dj);
                     if !self.is_blocked(i, j) {
                         let d = self.center(i, j).distance_squared(p);
-                        if best.map_or(true, |b| d < b.0) {
+                        if best.is_none_or(|b| d < b.0) {
                             best = Some((d, i, j));
                         }
                     }

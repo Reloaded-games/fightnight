@@ -186,14 +186,8 @@ pub fn structure_base(pieces: &Pieces, env: &Env, cx: i32, cz: i32) -> f32 {
     // look at pieces in the 3x3 cell neighbourhood on any level
     for dx in -1..=1 {
         for dz in -1..=1 {
-            let mut found: Option<f32> = None;
-            let wanted = |k: &PieceKey| k.x == cx + dx && k.z == cz + dz;
-            for p in pieces.iter().filter(|p| wanted(&p.key)) {
-                found = Some(p.base_y);
-                break;
-            }
-            if let Some(b) = found {
-                return b;
+            if let Some(p) = pieces.iter().find(|p| p.key.x == cx + dx && p.key.z == cz + dz) {
+                return p.base_y;
             }
         }
     }

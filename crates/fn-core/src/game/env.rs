@@ -82,7 +82,7 @@ impl<'a> Env<'a> {
             let a = c.shape.aabb();
             if x >= a.min.x - 0.2 && x <= a.max.x + 0.2 && z >= a.min.z - 0.2 && z <= a.max.z + 0.2 {
                 let b = c.shape.bottom();
-                if b >= head_y - 0.05 && best.map_or(true, |v| b < v) {
+                if b >= head_y - 0.05 && best.is_none_or(|v| b < v) {
                     best = Some(b);
                 }
             }
@@ -124,7 +124,7 @@ impl<'a> Env<'a> {
         }
         let limit = best.map_or(max_t, |b| b.t.min(max_t));
         if let Some(h) = self.collider_ray(o, d, limit, bullets) {
-            if best.map_or(true, |b| h.t < b.t) {
+            if best.is_none_or(|b| h.t < b.t) {
                 best = Some(h);
             }
         }
@@ -156,10 +156,10 @@ impl<'a> Env<'a> {
                     }
                 }
                 // keep walking while no hit has been found, or the best hit lies beyond this cell
-                local_best.map_or(true, |(t, _, _)| t > t_exit)
+                local_best.is_none_or(|(t, _, _)| t > t_exit)
             });
             if let Some((t, n, tag)) = local_best {
-                if best.map_or(true, |b| t < b.t) {
+                if best.is_none_or(|b| t < b.t) {
                     best = Some(RayHit { t, normal: n, tag: Some(tag) });
                 }
             }

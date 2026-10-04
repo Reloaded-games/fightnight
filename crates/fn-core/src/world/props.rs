@@ -300,7 +300,7 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
             }
             let aut = painter.autumn(p.x, p.y);
             let tint = if aut > 0.55 { tint_of(*rng.pick(&[0xd9892c, 0xb8582b, 0x8aa83a]), 1.15, 0.1, &mut rng) } else { tint_of(*rng.pick(&[0x5aa83a, 0x4a9a35, 0x6cbb42, 0x3f8f3a]), 1.2, 0.12, &mut rng) };
-            out.push(PropInst { kind: PropKind::Bush, pos: Vec3::new(p.x, h - 0.1, p.y), yaw: rng.range(0.0, 6.28), scale: rng.range(0.8, 1.5), tint });
+            out.push(PropInst { kind: PropKind::Bush, pos: Vec3::new(p.x, h - 0.1, p.y), yaw: rng.range(0.0, std::f32::consts::TAU), scale: rng.range(0.8, 1.5), tint });
         }
     }
 
@@ -330,7 +330,7 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
             let g = rng.range(0.85, 1.15);
             let tint = [g, g * rng.range(0.95, 1.05), g * rng.range(0.95, 1.08)];
             let pos = Vec3::new(p.x, h - 0.15 * scale, p.y);
-            let (ci, slot) = out.push(PropInst { kind, pos, yaw: rng.range(0.0, 6.28), scale, tint });
+            let (ci, slot) = out.push(PropInst { kind, pos, yaw: rng.range(0.0, std::f32::consts::TAU), scale, tint });
             let radius = if big { 2.0 * scale * 0.85 } else { 0.9 * scale * 0.85 };
             let height = if big { 2.4 * scale } else { 0.9 * scale };
             let idx = out.harvest.len() as u32;
@@ -386,7 +386,7 @@ pub fn scatter_ground_cover(world: &super::World, cx: usize, cz: usize) -> (Vec<
             let tint = srgb_lin(base_hex);
             let sc = 0.9 + hash2f(ix, iz, seed ^ 0x65) * 0.8;
             let pos = Vec3::new(p.x, h - 0.03, p.y);
-            let yaw = hash2f(ix, iz, seed ^ 0x66) * 6.28;
+            let yaw = hash2f(ix, iz, seed ^ 0x66) * std::f32::consts::TAU;
             grass.push(Instance::at(pos, yaw, sc, [tint[0] * 1.5, tint[1] * 1.5, tint[2] * 1.5, 1.0]));
             // flowers in meadows
             let meadow = smoothstep(0.55, 0.7, crate::noise::fbm01(p.x / 55.0 + 4.0, p.y / 55.0 - 9.0, 3, seed ^ 0xF1));

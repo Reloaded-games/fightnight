@@ -68,6 +68,27 @@ pub fn char_torso() -> MeshData {
     b.finish()
 }
 
+/// Accent-coloured trim worn on the torso: shoulder pads, a chest band and the collar. Tinted
+/// with the outfit's accent colour so every character gets a second colour.
+pub fn char_trim() -> MeshData {
+    use dims::*;
+    let mut b = MeshBuilder::new();
+    b.mat(mat::CLOTH).color(grey(1.0)).ao(0.8, 1.0);
+    // shoulder pads
+    for s in [-1.0f32, 1.0] {
+        b.blob(Vec3::new(s * (SHOULDER_X + 0.012), SHOULDER_Y + 0.045, 0.0), Vec3::new(0.088, 0.062, 0.095), 2, 0.0, 0, true);
+    }
+    // chest band
+    b.color(grey(0.95));
+    b.push_xf(Mat4::from_scale(Vec3::new(1.0, 1.0, 0.64)));
+    b.cylinder(Vec3::new(0.0, 0.215, 0.0), 0.222, 0.228, 0.05, 16, false, false);
+    b.pop_xf();
+    // collar
+    b.color(grey(0.9));
+    b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.0, 0.0), 0.097, 0.082, 0.06, 14, false, false);
+    b.finish()
+}
+
 pub fn char_pelvis() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
@@ -983,6 +1004,7 @@ mod tests {
         vec![
             ("torso", char_torso()),
             ("pelvis", char_pelvis()),
+            ("trim", char_trim()),
             ("head", char_head()),
             ("hair1", hair(1)),
             ("hair2", hair(2)),

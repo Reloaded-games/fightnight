@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/fn-core", "crates/fn-web", "crates/fn-shaders"]
+# fn-web only builds for wasm32 (see scripts/build.sh); plain `cargo test` covers the native crates.
+default-members = ["crates/fn-core", "crates/fn-shaders"]
 
 [workspace.package]
 version = "0.1.0"

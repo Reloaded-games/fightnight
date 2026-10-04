@@ -206,7 +206,7 @@ fn push_out_rect(c: Vec2, r: f32, rmin: Vec2, rmax: Vec2) -> Option<Vec2> {
 fn ray_cyl(o: Vec3, d: Vec3, max_t: f32, cx: f32, cz: f32, r: f32, y0: f32, y1: f32) -> Option<(f32, Vec3)> {
     let mut best: Option<(f32, Vec3)> = None;
     let mut cons = |t: f32, n: Vec3| {
-        if t >= 0.0 && t <= max_t && best.map_or(true, |(b, _)| t < b) {
+        if t >= 0.0 && t <= max_t && best.is_none_or(|(b, _)| t < b) {
             best = Some((t, n));
         }
     };
