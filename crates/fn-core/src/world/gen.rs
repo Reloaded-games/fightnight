@@ -3,10 +3,14 @@
 
 use super::heightmap::Heightmap;
 use super::nav::NavGrid;
-use super::{CELL, GRID_N, WORLD_HALF};
+use super::{CELL, GRID_N, WORLD_HALF, WORLD_SIZE};
 use crate::math::*;
 use crate::noise::*;
 use crate::rng::*;
+
+// Expand the coastline and landmark distribution with the playable world;
+// individual buildings, trees, roads and hills retain human-scale dimensions.
+const ISLAND_SCALE: f32 = WORLD_SIZE / 1280.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PoiKind {
@@ -91,7 +95,7 @@ impl BaseTerrain {
         // Pick the mountain direction from the seed, well inland.
         let mut r = Rng::new(seed as u64 ^ 0xA5A5);
         let a = r.range(0.0, std::f32::consts::TAU);
-        let dist = r.range(150.0, 230.0);
+        let dist = r.range(150.0, 230.0) * ISLAND_SCALE;
         Self { seed, mountain: Vec2::new(a.cos() * dist, a.sin() * dist) }
     }
 
@@ -103,8 +107,8 @@ impl BaseTerrain {
         let s = self.seed;
         let n1 = fbm(ca * 1.3 + 11.0, sa * 1.3 + 5.0, 3, s ^ 0x11);
         let n2 = fbm(ca * 3.4 - 7.0, sa * 3.4 + 13.0, 2, s ^ 0x22);
-        let coast_r = 452.0 + 66.0 * n1 + 24.0 * n2;
-        let bays = fbm(x / 150.0 + 3.7, z / 150.0 - 8.1, 3, s ^ 0x33) * 30.0;
+        let coast_r = (452.0 + 66.0 * n1 + 24.0 * n2) * ISLAND_SCALE;
+        let bays = fbm(x / (150.0 * ISLAND_SCALE) + 3.7, z / (150.0 * ISLAND_SCALE) - 8.1, 3, s ^ 0x33) * (30.0 * ISLAND_SCALE);
         coast_r + bays - r
     }
 
@@ -137,8 +141,8 @@ impl BaseTerrain {
 
 fn plan_lakes(base: &BaseTerrain, rng: &mut Rng) -> Vec<Lake> {
     let mut cands: Vec<(Vec2, f32)> = vec![];
-    for _ in 0..600 {
-        let p = rng.in_disc(340.0);
+    for _ in 0..1200 {
+        let p = rng.in_disc(340.0 * ISLAND_SCALE);
         if base.coast_dist(p.x, p.y) < 130.0 {
             continue;
         }
@@ -161,14 +165,14 @@ fn plan_lakes(base: &BaseTerrain, rng: &mut Rng) -> Vec<Lake> {
             continue;
         }
         lakes.push(Lake { center: p, radius: rng.range(34.0, 50.0), level: h - 0.2, depth: rng.range(3.0, 4.5) });
-        if lakes.len() >= 2 {
+        if lakes.len() >= 3 {
             break;
         }
     }
     lakes
 }
 
-const POI_NAMES: [&str; 12] = [
+const POI_NAMES: [&str; 18] = [
     "Maple Meadows",
     "Sunset Cove",
     "Pine Ridge",
@@ -181,6 +185,12 @@ const POI_NAMES: [&str; 12] = [
     "Fox Hill",
     "Birch Bend",
     "Gull Point",
+    "Quartz Quay",
+    "Highland Haven",
+    "Orchard Outpost",
+    "Willow Workshop",
+    "Amber Acres",
+    "Beacon Bay",
 ];
 
 fn poi_radius(kind: PoiKind) -> f32 {
@@ -189,7 +199,7 @@ fn poi_radius(kind: PoiKind) -> f32 {
         PoiKind::Coastal => 78.0,
         PoiKind::Farm => 72.0,
         PoiKind::Lodge => 66.0,
-        PoiKind::Lakeside => 60.0,
+        PoiKind::Lakeside => 92.0,
         PoiKind::Hamlet => 48.0,
         PoiKind::Station => 36.0,
     }
@@ -212,8 +222,8 @@ fn ground_height(base: &BaseTerrain, c: Vec2, r: f32) -> f32 {
 fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
     // Candidate pool of flat-ish land.
     let mut pool: Vec<(Vec2, f32, f32, f32)> = vec![]; // pos, height, coast dist, slope
-    for _ in 0..2500 {
-        let p = rng.in_disc(400.0);
+    for _ in 0..5000 {
+        let p = rng.in_disc(WORLD_HALF * 0.78);
         let d = base.coast_dist(p.x, p.y);
         if d < 55.0 {
             continue;
@@ -226,7 +236,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
         if sl > 0.26 {
             continue;
         }
-        if lakes.iter().any(|l| l.center.distance(p) < l.radius * 2.2 + 40.0) {
+        if lakes.iter().any(|l| l.center.distance(p) < l.radius * 2.2 + 100.0) {
             continue;
         }
         pool.push((p, h, d, sl));
@@ -248,7 +258,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
     // 1. Central town: flattest candidate near the island centre.
     let town = pool
         .iter()
-        .filter(|c| c.0.length() < 170.0)
+        .filter(|c| c.0.length() < 170.0 * ISLAND_SCALE)
         .min_by(|a, b| (a.3 + a.0.length() * 0.0008).partial_cmp(&(b.3 + b.0.length() * 0.0008)).unwrap())
         .or_else(|| pool.iter().min_by(|a, b| a.0.length().partial_cmp(&b.0.length()).unwrap()));
     if let Some(t) = town {
@@ -259,7 +269,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
     let town_c = pois.first().map(|p| p.center).unwrap_or(Vec2::ZERO);
     let coastal = pool
         .iter()
-        .filter(|c| c.2 < 110.0 && taken(&pois, c.0, PoiKind::Coastal))
+        .filter(|c| c.2 < 110.0 * ISLAND_SCALE && taken(&pois, c.0, PoiKind::Coastal))
         .max_by(|a, b| a.0.distance(town_c).partial_cmp(&b.0.distance(town_c)).unwrap());
     if let Some(c) = coastal {
         add(&mut pois, PoiKind::Coastal, c.0, 1);
@@ -291,7 +301,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
 
     // 4. Lakeside village: the POI is centred on the first lake, houses form a ring around it.
     if let Some(lake) = lakes.first() {
-        if taken(&pois, lake.center, PoiKind::Lakeside) || true {
+        if taken(&pois, lake.center, PoiKind::Lakeside) {
             add(&mut pois, PoiKind::Lakeside, lake.center, 3);
             if let Some(last) = pois.last_mut() {
                 last.ground = lake.level + 0.45;
@@ -301,7 +311,11 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
     }
 
     // 5..: farthest-point sampling for the rest.
-    let rest = [PoiKind::Farm, PoiKind::Hamlet, PoiKind::Hamlet, PoiKind::Station, PoiKind::Coastal];
+    let rest = [
+        PoiKind::Farm, PoiKind::Hamlet, PoiKind::Hamlet, PoiKind::Station, PoiKind::Coastal,
+        PoiKind::Lodge, PoiKind::Hamlet, PoiKind::Coastal, PoiKind::Station, PoiKind::Town,
+        PoiKind::Farm, PoiKind::Station, PoiKind::Farm, PoiKind::Coastal,
+    ];
     for (k, kind) in rest.iter().enumerate() {
         let mut best: Option<(f32, Vec2)> = None;
         for c in &pool {
@@ -311,7 +325,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
             if *kind == PoiKind::Farm && c.3 > 0.12 {
                 continue;
             }
-            if *kind == PoiKind::Coastal && c.2 > 120.0 {
+            if *kind == PoiKind::Coastal && c.2 > 120.0 * ISLAND_SCALE {
                 continue;
             }
             let md = pois.iter().map(|o| o.center.distance(c.0)).fold(f32::MAX, f32::min);
@@ -320,8 +334,7 @@ fn plan_pois(base: &BaseTerrain, lakes: &[Lake], rng: &mut Rng) -> Vec<Poi> {
             }
         }
         if let Some((_, p)) = best {
-            let names = [4, 5, 6, 7, 8];
-            add(&mut pois, *kind, p, names[k]);
+            add(&mut pois, *kind, p, k + 4);
         }
     }
     pois
@@ -332,7 +345,7 @@ fn plan_roads(base: &BaseTerrain, lakes: &[Lake], pois: &[Poi]) -> Vec<Road> {
         return vec![];
     }
     // Coarse cost grid
-    let cell = 8.0;
+    let cell = 8.0 * ISLAND_SCALE;
     let mut grid = NavGrid::new(WORLD_HALF, cell);
     for j in 0..grid.h as i32 {
         for i in 0..grid.w as i32 {
@@ -370,10 +383,10 @@ fn plan_roads(base: &BaseTerrain, lakes: &[Lake], pois: &[Poi]) -> Vec<Road> {
             edges.push((a, b));
         }
     }
-    // A few loops: connect each POI to its nearest non-adjacent neighbour (limit 3).
+    // Alternate routes for drivers rather than a single tree of dead ends.
     let mut extras = 0;
     for a in 0..n {
-        if extras >= 3 {
+        if extras >= 6 {
             break;
         }
         let mut cand: Vec<(f32, usize)> = (0..n)
@@ -382,7 +395,7 @@ fn plan_roads(base: &BaseTerrain, lakes: &[Lake], pois: &[Poi]) -> Vec<Road> {
             .collect();
         cand.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
         if let Some(&(d, b)) = cand.first() {
-            if d < 330.0 {
+            if d < 330.0 * ISLAND_SCALE {
                 edges.push((a, b));
                 extras += 1;
             }
@@ -420,7 +433,7 @@ fn plan_roads(base: &BaseTerrain, lakes: &[Lake], pois: &[Poi]) -> Vec<Road> {
         } else {
             RoadKind::Dirt
         };
-        roads.push(Road { pts, width: if kind == RoadKind::Asphalt { 6.0 } else { 4.6 }, kind });
+        roads.push(Road { pts, width: if kind == RoadKind::Asphalt { 7.5 } else { 5.4 }, kind });
     }
     roads
 }
@@ -527,8 +540,8 @@ mod tests {
         assert!(b.height(0.0, 0.0) > 1.0);
         for k in 0..16 {
             let a = k as f32 / 16.0 * std::f32::consts::TAU;
-            let p = Vec2::new(a.cos(), a.sin()) * 600.0;
-            assert!(b.height(p.x, p.y) < -3.0, "sea at r=600 angle {k}");
+            let p = Vec2::new(a.cos(), a.sin()) * (WORLD_HALF - 60.0);
+            assert!(b.height(p.x, p.y) < -3.0, "sea near world edge angle {k}");
         }
     }
 
@@ -537,7 +550,7 @@ mod tests {
         for seed in [1u32, 7, 42, 2024, 99999] {
             let b = BaseTerrain::new(seed);
             let l = plan_layout(&b);
-            assert!(l.pois.len() >= 5, "seed {seed}: only {} POIs", l.pois.len());
+            assert!(l.pois.len() >= 13, "seed {seed}: only {} POIs", l.pois.len());
             for (i, p) in l.pois.iter().enumerate() {
                 assert!(b.height(p.center.x, p.center.y) > 1.5, "seed {seed}: {} in sea", p.name);
                 for q in &l.pois[i + 1..] {
@@ -549,6 +562,29 @@ mod tests {
                 assert!(r.pts.len() >= 4);
             }
         }
+    }
+
+    #[test]
+    fn larger_island_layout_is_deterministic_and_distributed() {
+        let b = BaseTerrain::new(1234);
+        let first = plan_layout(&b);
+        let second = plan_layout(&b);
+        assert_eq!(first.pois.len(), second.pois.len());
+        assert_eq!(first.roads.len(), second.roads.len());
+        for (a, b) in first.pois.iter().zip(&second.pois) {
+            assert_eq!((a.name.as_str(), a.kind, a.center, a.radius, a.ground, a.axis_x), (b.name.as_str(), b.kind, b.center, b.radius, b.ground, b.axis_x));
+        }
+        for (a, b) in first.roads.iter().zip(&second.roads) {
+            assert_eq!((&a.pts, a.width, a.kind), (&b.pts, b.width, b.kind));
+        }
+        // The expanded area must contain useful land and destinations in every
+        // quadrant, rather than adding an empty sea around the old map.
+        for (sx, sz) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
+            assert!(first.pois.iter().any(|p| p.center.x * sx > 100.0 && p.center.y * sz > 100.0), "quadrant ({sx}, {sz}) has no destination");
+        }
+        assert!(first.pois.iter().filter(|p| p.center.length() > 450.0).count() >= 6);
+        assert!(first.roads.len() >= first.pois.len(), "expanded map should have alternate road routes");
+        assert_eq!(first.lakes.len(), 3);
     }
 
     #[test]

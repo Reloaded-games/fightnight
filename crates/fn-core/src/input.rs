@@ -129,6 +129,15 @@ impl Input {
         }
     }
 
+    /// Driving uses the physical Shift key for boost, independent of automatic sprint on foot.
+    pub fn take_driving(&mut self, sens: f32, invert_y: bool) -> PlayerInput {
+        let auto = self.auto_sprint;
+        self.auto_sprint = false;
+        let input = self.take(sens, invert_y);
+        self.auto_sprint = auto;
+        input
+    }
+
     /// Consume the accumulated state. `sens` is radians per pixel.
     pub fn take(&mut self, sens: f32, invert_y: bool) -> PlayerInput {
         let mut mv = Vec2::new((self.right as i32 - self.left as i32) as f32, (self.fwd as i32 - self.back as i32) as f32);
@@ -210,6 +219,16 @@ mod tests {
         assert!(i.take(0.002, false).crouch);
         i.key("KeyF", false);
         assert!(!i.take(0.002, false).crouch);
+    }
+
+    #[test]
+    fn vehicle_boost_uses_shift_and_preserves_auto_sprint_setting() {
+        let mut i = Input::new();
+        i.key("KeyW", true);
+        assert!(!i.take_driving(0.002, false).sprint);
+        assert!(i.auto_sprint && i.take(0.002, false).sprint);
+        i.key("ShiftLeft", true);
+        assert!(i.take_driving(0.002, false).sprint);
     }
 
     #[test]

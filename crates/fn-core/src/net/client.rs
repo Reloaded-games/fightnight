@@ -243,6 +243,14 @@ impl Client {
             .iter()
             .map(|p| crate::game::Projectile { pos: p.pos, vel: p.vel, owner: p.owner as usize, kind: p.kind, rarity: p.rarity, life: 1.0 })
             .collect();
+        let was_driving = g.vehicle_for_actor(self.you).is_some();
+        if !was_driving {
+            if let Some(v) = s.vehicles.iter().find(|v| v.driver == Some(self.you)) {
+                self.view_yaw = v.yaw;
+                self.view_pitch = -0.12;
+            }
+        }
+        g.vehicles = s.vehicles;
         // everybody else
         for a in s.actors {
             let i = a.id as usize;
@@ -421,6 +429,25 @@ impl Client {
     fn predict(&mut self, c: &Cmd, live: bool) {
         let it = c.to_intent();
         let dt = c.dt;
+        // Predict steering with the host's physics, replaying only commands
+        // after the acknowledged snapshot. The host alone assigns the seat.
+        if let Some(index) = self.game.vehicles.iter().position(|v| v.driver == Some(self.you)) {
+            if !it.interact {
+                let env = Env::new(&self.game.world, &self.game.pieces.grid);
+                crate::game::vehicles::step_fleet(&mut self.game.vehicles, index, &env, &it, dt);
+            }
+            let v = &self.game.vehicles[index];
+            self.pred.pos = v.driver_position();
+            self.pred.vel = v.velocity();
+            self.pred.yaw = it.yaw;
+            self.pred.pitch = it.pitch.clamp(-1.5, 1.5);
+            self.pred.body_yaw = v.yaw;
+            self.pred.crouching = false;
+            self.pred.sprinting = false;
+            self.pred.ads = false;
+            if live { self.last_intent = it; }
+            return;
+        }
         let a = &mut self.pred;
         a.yaw = it.yaw;
         a.pitch = it.pitch.clamp(-1.5, 1.5);
@@ -448,6 +475,7 @@ impl Client {
             a.pos.x = a.pos.x.clamp(-lim, lim);
             a.pos.z = a.pos.z.clamp(-lim, lim);
         }
+        crate::game::vehicles::avoid_chassis(a, &self.game.vehicles);
         movement::update_body(a, &it, dt);
         movement::update_anim(a, dt);
         if matches!(a.mode, MoveMode::Ground | MoveMode::Swim) {
@@ -546,6 +574,19 @@ impl Client {
         self.advance_world(dt);
         self.show_local(dt);
         self.show_others(dt);
+        for v in &self.game.vehicles {
+            if let Some(i) = v.driver.filter(|&i| i < self.game.actors.len()) {
+                let a = &mut self.game.actors[i];
+                if a.alive {
+                    a.pos = v.driver_position();
+                    a.vel = v.velocity();
+                    a.body_yaw = v.yaw;
+                    a.crouching = false;
+                    a.sprinting = false;
+                    a.ads = false;
+                }
+            }
+        }
         self.play_events();
         self.game.finish_frame(dt);
     }

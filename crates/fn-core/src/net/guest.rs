@@ -123,7 +123,7 @@ mod tests {
         assert!(g.closed().unwrap().contains("connection"));
         // after the match started, a dropped connection is the match's business
         let mut g = GuestRoom::new("Ada");
-        g.on_message(&ServerMsg::Start { you: 1, setup: MatchSetup { seed: 1, bots: 1, difficulty: crate::game::Difficulty::Easy, skip_bus: false, storm_speed: 1.0, start_mats: 0, names: vec!["a".into(), "b".into()] } }.encode());
+        g.on_message(&ServerMsg::Start { you: 1, setup: MatchSetup { seed: 1, mode: crate::game::GameMode::BattleRoyale, bots: 1, difficulty: crate::game::Difficulty::Easy, skip_bus: false, storm_speed: 1.0, start_mats: 0, names: vec!["a".into(), "b".into()] } }.encode());
         g.disconnected();
         assert!(g.closed().is_none());
         // garbage changes nothing

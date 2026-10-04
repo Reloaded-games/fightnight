@@ -76,6 +76,7 @@ impl Game {
             return;
         }
         self.remotes[actor] = None;
+        self.exit_vehicle(actor);
         let a = &mut self.actors[actor];
         a.human = false;
         a.name = format!("{} (bot)", a.name);

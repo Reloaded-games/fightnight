@@ -269,7 +269,7 @@ mod tests {
     fn water_depth_in_sea_and_lake() {
         let (e, _) = env();
         let w = world();
-        assert!(e.water_depth(620.0, 0.0) > 5.0);
+        assert!(e.water_depth(crate::world::WORLD_HALF - 20.0, 0.0) > 5.0);
         assert_eq!(e.water_depth(w.layout.pois[0].center.x, w.layout.pois[0].center.y), 0.0);
         let l = &w.layout.lakes[0];
         assert!(e.water_depth(l.center.x, l.center.y) > 2.0, "lake centre must be deep");

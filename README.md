@@ -10,6 +10,11 @@ source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
   weapon bloom and recoil, **reloading**, headshots and damage falloff.
 * **39 enemy bots** (adjustable) that land, loot, heal, build cover, fight and run from the storm.
+* **Three modes**, selectable for solo play and by the multiplayer host: Battle Royale, **Zero Build**
+  (no player or bot construction and no building materials), and **LEGO** (original brick toy characters,
+  gear, vegetation, studded terrain and build pieces, with battle royale rules).
+* **Drivable Island Buggies** parked around the island. Enter or leave with **E**, drive with **WASD**,
+  boost with **Shift** and brake with **Space**. Driver seats, collisions and physics are owned by the host.
 * **Multiplayer**: one player hosts a room, up to seven friends join with a copy-and-paste code (no server, no
   account: the browsers connect to each other over WebRTC), and bots fill the island. See [Multiplayer](#multiplayer).
 * **Loot**: chests, floor weapons with rarity beams (common → legendary), ammo, bandages, medkits, shield
@@ -18,7 +23,8 @@ source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard
   up cliffs, box yourself in, and watch bullets and rockets chew through your pieces.
 * **Harvesting**: hit trees (wood), grey rocks (stone) and the blue-grey ore rocks (metal) with the pickaxe (trees really fall over).
 * **Shrinking storm** in 7 phases that forces everyone together, with a minimap, full map and storm timer.
-* A colourful island with grassy hills, forests, lakes, a snowy mountain, beaches and nine named towns.
+* A **1,920 × 1,920 m island**, 2.25× the former area, with grassy hills, forests, three lakes,
+  a snowy mountain, beaches and up to 18 named destinations connected by roads.
 * Fortnite-flavoured lighting (cascaded shadow maps, bloom, ACES grading, soft sky and clouds), procedural
   character animation (run/crouch/air/swim/glide cycles, IK-held weapons, reload and swing animations, a
   dance emote and a victory dance) and a Canvas2D HUD in the same visual language (compass, minimap, skewed
@@ -28,6 +34,7 @@ source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard
 ## Screenshots
 
 ![Blender-authored Scout and vegetation](docs/screenshots/cartoon-scout.jpg)
+![LEGO mode with a drivable buggy](docs/screenshots/lego-buggy.jpg)
 
 | | |
 | --- | --- |
@@ -69,7 +76,8 @@ ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub 
 | Left mouse | Fire · swing the pickaxe · place the selected piece |
 | Right mouse | Aim down sights |
 | `R` | Reload |
-| `E` | Pick up / open chest |
+| `E` | Pick up / open chest / enter or exit a buggy |
+| `W A S D`, `Shift`, `Space` (driving) | Steer and accelerate / boost / brake |
 | `1`–`6` / wheel | Select slot (1 is the pickaxe) |
 | `G` | Drop the selected item |
 | `Q` | Toggle build mode |
@@ -91,7 +99,8 @@ Press **Multiplayer** in the main menu.
 * **Host a game** opens your room. Press *+ Invite a player* for every friend: it makes an **invite code**; send it
   to them (chat, mail, anything). They choose **Join a game**, paste it, press *Continue*, and send back the
   **reply code** they get. Paste that into the matching box on your side and press *Connect*: they appear in
-  the player list. When everybody is in, set the number of bots and the difficulty and press **Start match**.
+  the player list. The **room creator is the host**. When everybody is in, choose the mode,
+  number of bots and difficulty and press **Start match**. Every guest uses those match rules.
 * **Join a game**: paste the host's invite, send back your reply, and wait for the host to start.
 
 Everybody drops from the same Battle Bus into the same island; the last one standing (human or bot) wins. If a

@@ -507,6 +507,8 @@ impl Game {
                 HarvestKind::Ore => 22,
             };
         }
+        // Zero Build still lets a pickaxe remove natural cover, without awarding resources.
+        if !self.cfg.mode.can_build() { amount = 0; }
         self.actors[who].inv.add_mats(mat, amount);
         self.events.push(Event::Harvest { actor: who, pos: point, mat, amount });
         if broke {
@@ -735,6 +737,24 @@ pub fn update_projectiles(g: &mut Game, dt: f32) {
 mod tests {
     use super::super::testutil::{free_spot, game};
     use super::*;
+
+    #[test]
+    fn zero_build_pickaxe_removes_cover_without_awarding_materials() {
+        let mut g = game(1, true);
+        g.cfg.mode = GameMode::ZeroBuild;
+        g.actors[PLAYER].inv.mats = [0; 3];
+        let idx = g.world.harvest.iter().position(|h| h.alive).expect("harvestable cover");
+        let point = g.world.harvest[idx].pos;
+        let collider = g.world.harvest[idx].collider;
+        for _ in 0..20 {
+            if !g.world.harvest[idx].alive { break; }
+            g.harvest(PLAYER, idx, point);
+        }
+        assert!(!g.world.harvest[idx].alive);
+        assert!(g.world.statics.get(collider).is_none());
+        assert_eq!(g.actors[PLAYER].inv.mats, [0; 3]);
+        assert!(g.events.iter().any(|e| matches!(e, Event::Harvest { amount: 0, .. })));
+    }
 
     /// Put `a` and `b` facing each other on open ground, `d` metres apart.
     fn duel(g: &mut Game, d: f32) -> (usize, usize) {

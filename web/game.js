@@ -12,9 +12,10 @@ const NOLOCK = q.get('nolock') === '1';
 // ------------------------------------------------------------------------------------------------
 // Settings
 // ------------------------------------------------------------------------------------------------
-const DEFAULTS = { name: 'You', outfit: 'scout', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
+const DEFAULTS = { name: 'You', mode: 'battle-royale', outfit: 'scout', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
 let cfg = { ...DEFAULTS };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('fightnight.settings') || '{}')); } catch (e) { /* storage unavailable */ }
+if (!['battle-royale', 'zero-build', 'lego'].includes(cfg.mode)) cfg.mode = DEFAULTS.mode;
 function saveCfg() { try { localStorage.setItem('fightnight.settings', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
 
 // ------------------------------------------------------------------------------------------------
@@ -78,7 +79,7 @@ const TIPS = [
 // The wasm side parses `key=value;key=value`, so the free-text player name must not contain either separator.
 function matchOptions() {
   const name = String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You';
-  return `bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};outfit=${cfg.outfit};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
+  return `mode=${cfg.mode};bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};outfit=${cfg.outfit};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -105,8 +106,22 @@ function note(text, ms = 6000) {
 function bindSeg(id, key) {
   const seg = $(id);
   const apply = () => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cfg[key]));
-  seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { cfg[key] = b.dataset.v; saveCfg(); apply(); click(); if (key === 'quality' && ready) { fn.set_quality(cfg.quality); resizeAll(); } }));
+  seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { cfg[key] = b.dataset.v; saveCfg(); apply(); click(); if (key === 'mode') applyModeUi(); if (key === 'quality' && ready) { fn.set_quality(cfg.quality); resizeAll(); } }));
   apply();
+}
+function applyModeUi() {
+  const descriptions = {
+    'battle-royale': 'Loot, build cover and outlast the storm.',
+    'zero-build': 'Combat and natural cover. No building or materials, for players and bots.',
+    lego: 'Original brick characters, toy gear and studded building pieces. Battle royale rules.',
+  };
+  for (const id of ['seg-mode', 'lb-mode']) {
+    $(id).querySelectorAll('button').forEach((b) => {
+      const selected = b.dataset.v === cfg.mode;
+      b.classList.toggle('on', selected); b.setAttribute('aria-pressed', String(selected));
+    });
+  }
+  for (const id of ['mode-description', 'lb-mode-description']) $(id).textContent = descriptions[cfg.mode];
 }
 function bindRange(id, valId, key, fmt = (v) => v, onChange) {
   const el = $(id), val = $(valId);
@@ -129,11 +144,14 @@ function wireUi() {
   $('opt-name').value = cfg.name;
   $('opt-name').addEventListener('input', () => { cfg.name = $('opt-name').value; saveCfg(); });
   bindRange('opt-bots', 'val-bots', 'bots');
+  bindSeg('seg-mode', 'mode');
   bindSeg('seg-diff', 'difficulty');
   bindSeg('seg-outfit', 'outfit');
   bindSeg('seg-quality', 'quality');
   bindCheck('opt-skipbus', 'skipbus');
   bindRange('lb-bots', 'lb-val-bots', 'bots');
+  bindSeg('lb-mode', 'mode');
+  applyModeUi();
   bindSeg('lb-diff', 'difficulty');
   bindCheck('lb-skipbus', 'skipbus');
   mp.wire();

@@ -5,18 +5,21 @@ use super::events::*;
 use super::*;
 use crate::math::*;
 use crate::rng::Rng;
+use crate::world::{WORLD_HALF, WORLD_SIZE};
+
+const MAP_SCALE: f32 = WORLD_SIZE / 1280.0;
 
 /// Initial storm radius: comfortably covers the whole island.
-pub const R0: f32 = 700.0;
+pub const R0: f32 = WORLD_HALF + 90.0;
 pub const BUS_ALTITUDE: f32 = 285.0;
-pub const BUS_SPEED: f32 = 38.0;
+pub const BUS_SPEED: f32 = 38.0 * MAP_SCALE;
 
 /// (wait seconds, shrink seconds, end radius, damage per second)
 pub const PHASES: [(f32, f32, f32, f32); 7] = [
-    (70.0, 60.0, 340.0, 1.0),
-    (45.0, 50.0, 210.0, 2.0),
-    (40.0, 45.0, 125.0, 3.0),
-    (30.0, 40.0, 70.0, 5.0),
+    (90.0, 75.0, 340.0 * MAP_SCALE, 1.0),
+    (55.0, 60.0, 210.0 * MAP_SCALE, 2.0),
+    (40.0, 45.0, 125.0 * MAP_SCALE, 3.0),
+    (30.0, 40.0, 70.0 * MAP_SCALE, 5.0),
     (25.0, 35.0, 32.0, 7.0),
     (20.0, 30.0, 10.0, 10.0),
     (15.0, 25.0, 0.0, 10.0),
@@ -43,8 +46,8 @@ pub fn initial_storm() -> Storm {
 pub fn initial_bus(rng: &mut Rng) -> Bus {
     let ang = rng.range(0.0, std::f32::consts::TAU);
     let dir = Vec2::new(ang.cos(), ang.sin());
-    let through = rng.in_disc(110.0);
-    let half = 790.0;
+    let through = rng.in_disc(110.0 * MAP_SCALE);
+    let half = 790.0 * MAP_SCALE;
     let start = through - dir * half;
     let end = through + dir * half;
     let total = half * 2.0 / BUS_SPEED;
@@ -235,7 +238,7 @@ mod tests {
             prev_dmg = dmg;
         }
         assert_eq!(PHASES.last().unwrap().2, 0.0);
-        // a whole match takes about 8-9 minutes of storm time
+        // The larger island allows extra travel time in the first two phases.
         let total: f32 = PHASES.iter().map(|p| p.0 + p.1).sum();
         assert!((420.0..620.0).contains(&total), "total storm time {total}");
     }
@@ -258,6 +261,19 @@ mod tests {
     }
 
     #[test]
+    fn bus_and_initial_storm_cover_the_expanded_island() {
+        for seed in [1, 7, 42, 1234, 2024] {
+            let bus = initial_bus(&mut Rng::new(seed));
+            assert!(bus.start.length() > WORLD_HALF && bus.end.length() > WORLD_HALF);
+            let (distance, _) = point_segment_dist(Vec2::ZERO, bus.start, bus.end);
+            assert!(distance < 170.0, "bus should pass near the centre of the island");
+            assert!((40.0..45.0).contains(&bus.total), "larger map should retain a short bus journey");
+        }
+        assert!(R0 > WORLD_HALF);
+        assert!(PHASES[0].2 > 450.0, "first circle should suit the expanded land area");
+    }
+
+    #[test]
     fn storm_shrinks_into_a_valid_circle_and_damages_outsiders() {
         let mut g = game_cfg(GameConfig { bots: 3, skip_bus: true, seed: 7, storm_speed: 20.0, ..Default::default() });
         let inp = PlayerInput::default();
@@ -267,7 +283,8 @@ mod tests {
         // the target circle lies inside the current one
         assert!(first_target.distance(g.storm.center) + g.storm.to_radius <= g.storm.radius + 1.0);
         // move the player far outside the final circle and run the storm
-        let out = Vec3::new(600.0, g.world.hm.height_at(600.0, 0.0), 0.0);
+        let edge = WORLD_HALF - 40.0;
+        let out = Vec3::new(edge, g.world.hm.height_at(edge, 0.0), 0.0);
         g.actors[PLAYER].pos = out;
         g.actors[PLAYER].mode = MoveMode::Ground;
         let hp0 = g.actors[PLAYER].hp;

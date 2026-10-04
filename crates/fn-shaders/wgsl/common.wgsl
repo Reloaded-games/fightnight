@@ -22,7 +22,7 @@ struct Globals {
     screen: vec4<f32>,         // width, height, 1/width, 1/height
     post: vec4<f32>,           // exposure, saturation, bloom strength, damage flash
     world: vec4<f32>,          // half extent, heightmap n, cell size, sea level
-    misc: vec4<f32>,           // x wind strength, y storm time, z player in storm (0/1), w -
+    misc: vec4<f32>,           // x wind strength, y storm time, z player in storm (0/1), w brick theme
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;

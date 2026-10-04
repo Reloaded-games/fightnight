@@ -29,6 +29,7 @@ pub struct SceneStats {
 }
 
 pub struct Scene {
+    mode: GameMode,
     lists: Vec<Vec<Instance>>,
     /// Bounding-box centre and half height per mesh (floor items are centred on their pivot).
     centers: Vec<(Vec3, f32)>,
@@ -52,7 +53,7 @@ fn casts_shadow(m: MeshId) -> bool {
     use MeshId::*;
     matches!(
         m,
-        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat
+        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat | VehicleBody | VehicleWheel
     )
 }
 
@@ -86,6 +87,7 @@ impl Scene {
             })
             .collect();
         Scene {
+            mode: GameMode::BattleRoyale,
             lists: (0..MeshId::Count as usize).map(|_| Vec::new()).collect(),
             centers,
             ghost: vec![],
@@ -101,10 +103,12 @@ impl Scene {
     }
 
     fn push(&mut self, mesh: MeshId, m: Mat4, color: [f32; 4]) {
+        let mesh = crate::lego_models::mapped_mesh(mesh, self.mode);
         self.lists[mesh as usize].push(Instance::from_mat4(m, color));
     }
 
     fn push_i(&mut self, mesh: MeshId, i: Instance) {
+        let mesh = crate::lego_models::mapped_mesh(mesh, self.mode);
         self.lists[mesh as usize].push(i);
     }
 
@@ -135,7 +139,7 @@ impl Scene {
             }
             let first = self.instances.len() as u32;
             self.instances.extend_from_slice(list);
-            self.batches.push(Batch { mesh: mesh as u16, first, count: list.len() as u32, shadow: casts_shadow(ALL_IDS[mesh]) });
+            self.batches.push(Batch { mesh: mesh as u16, first, count: list.len() as u32, shadow: casts_shadow(crate::lego_models::original_mesh(ALL_IDS[mesh])) });
         }
         self.ghost_instances.clear();
         self.ghost_instances.extend_from_slice(&self.ghost);
@@ -151,12 +155,14 @@ impl Scene {
 
     /// Rebuild all draw lists for the current game state as seen from `cam`.
     pub fn build(&mut self, g: &Game, cam: &Camera) {
+        self.mode = g.cfg.mode;
         self.clear();
         let fr = cam.frustum();
         let cp = cam.pos;
         self.bus(g);
+        self.vehicles(g, &fr, cp);
         for a in &g.actors {
-            self.character(a, &fr, cp);
+            if g.vehicle_for_actor(a.id).is_none() { self.character(a, &fr, cp); }
         }
         self.pickups(g, &fr, cp);
         self.chests(g, &fr, cp);
@@ -169,6 +175,51 @@ impl Scene {
     }
 
     // ---- characters ---------------------------------------------------------------------------------
+
+    fn vehicles(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
+        use crate::models::dims::*;
+        for v in &g.vehicles {
+            if v.pos.distance(cp) > 450.0 || !fr.intersects_sphere(v.pos + Vec3::Y, 3.0) { continue; }
+            let f = yaw_forward(v.yaw);
+            let grade = (g.world.hm.height_at(v.pos.x + f.x * 1.1, v.pos.z + f.z * 1.1) - g.world.hm.height_at(v.pos.x - f.x * 1.1, v.pos.z - f.z * 1.1)) / 2.2;
+            let pitch = grade.atan().clamp(-0.32, 0.32);
+            let lean = -v.steer * (v.speed.abs() / 38.0).min(1.0) * 0.06;
+            let base = Mat4::from_translation(v.pos) * Mat4::from_rotation_y(v.yaw) * Mat4::from_rotation_x(pitch) * Mat4::from_rotation_z(lean);
+            let palette = [0xf1b942, 0x4aaeb7, 0xe77962, 0x617ccc];
+            self.push(MeshId::VehicleBody, base, lin(crate::mesh::hex(palette[v.id.saturating_sub(1) as usize % palette.len()])));
+            for x in [-1.02, 1.02] {
+                for z in [-1.02, 1.05] {
+                    let steer = if z < 0.0 { -v.steer * 0.44 } else { 0.0 };
+                    let roll = (g.time * v.speed / 0.47) % std::f32::consts::TAU;
+                    let m = base * Mat4::from_translation(Vec3::new(x, 0.47, z)) * Mat4::from_rotation_y(steer) * Mat4::from_rotation_x(roll);
+                    self.push(MeshId::VehicleWheel, m, WHITE);
+                }
+            }
+            let Some(a) = v.driver.and_then(|i| g.actors.get(i)).filter(|a| a.alive) else { continue; };
+            self.stats.characters += 1;
+            let o = &a.outfit;
+            let hips = base * Mat4::from_translation(Vec3::new(-0.38, 0.89, 0.30));
+            self.push(MeshId::CharPelvis, hips, lin(o.pants));
+            self.push(MeshId::CharTorso, hips, lin(o.shirt));
+            self.push(MeshId::CharTrim, hips, lin(o.accent));
+            let head = hips * Mat4::from_translation(Vec3::Y * NECK_Y) * Mat4::from_rotation_y(angle_diff(v.yaw, a.yaw).clamp(-0.7, 0.7));
+            self.push(MeshId::CharHead, head, lin(o.skin));
+            if let Some(mesh) = rig::hair_model(o) { self.push(mesh, head, lin(o.hair)); }
+            if let Some(mesh) = rig::headgear_model(o) { self.push(mesh, head, lin(o.headgear_color)); }
+            for side in [-1.0, 1.0] {
+                let thigh = hips * Mat4::from_translation(Vec3::new(side * HIP_X, -HIP_DROP, 0.0)) * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                let shin = thigh * Mat4::from_translation(-Vec3::Y * THIGH) * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+                self.push(MeshId::CharLegUp, thigh, lin(o.pants));
+                self.push(MeshId::CharLegLow, shin, lin(o.pants));
+                self.push(MeshId::CharBoot, shin * Mat4::from_translation(-Vec3::Y * SHIN), lin(o.boots));
+                let upper = hips * Mat4::from_translation(Vec3::new(side * SHOULDER_X, SHOULDER_Y, 0.0)) * Mat4::from_rotation_x(0.95);
+                let lower = upper * Mat4::from_translation(-Vec3::Y * UPPER_ARM) * Mat4::from_rotation_x(0.35);
+                self.push(MeshId::CharArmUp, upper, lin(o.shirt));
+                self.push(MeshId::CharArmLow, lower, lin(o.shirt));
+                self.push(MeshId::CharHand, lower * Mat4::from_translation(-Vec3::Y * FOREARM), lin(o.skin));
+            }
+        }
+    }
 
     fn character(&mut self, a: &Actor, fr: &Frustum, cp: Vec3) {
         if !a.alive && a.dead_time > 0.9 {
@@ -347,7 +398,7 @@ impl Scene {
         let m = rig::piece_transform(&pl.key, pl.base_y);
         let col = if pl.valid { [0.2, 0.75, 1.0, 1.0] } else { [1.0, 0.22, 0.18, 1.0] };
         self.ghost.push(Instance::from_mat4(m, col));
-        self.ghost_mesh = Some(mesh as u16);
+        self.ghost_mesh = Some(crate::lego_models::mapped_mesh(mesh, self.mode) as u16);
     }
 
     // ---- projectiles, felled trees ----------------------------------------------------------------------------------------------

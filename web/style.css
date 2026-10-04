@@ -74,6 +74,10 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 .seg button { font-family: var(--font); font-style: italic; text-transform: uppercase; font-size: 18px; color: #cfe0ff; background: transparent; border: 0; padding: 7px 16px; cursor: pointer; border-right: 1px solid rgba(255,255,255,.2); }
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: var(--yellow); color: var(--ink); }
+.mode-field { flex-direction: column; align-items: stretch; gap: 8px; }
+.modes { display: flex; }
+.modes button { flex: 1; white-space: nowrap; padding: 9px 12px; }
+.mode-description { max-width: 440px; min-height: 34px; margin: 0 0 16px; color: #a9c5ed; font-size: 13px; line-height: 1.4; }
 .val { min-width: 36px; text-align: right; color: var(--yellow); font-family: var(--font); font-size: 20px; }
 .keys { display: grid; grid-template-columns: repeat(2, auto); gap: 5px 26px; font-size: 14px; color: #dce8ff; }
 .keys kbd { display: inline-block; min-width: 28px; text-align: center; background: #fff; color: var(--ink); font-family: var(--font); font-weight: 900; padding: 2px 7px; margin-right: 8px; transform: skewX(-8deg); font-size: 15px; box-shadow: 0 2px 0 rgba(0,0,0,.4); }

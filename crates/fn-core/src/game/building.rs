@@ -13,6 +13,10 @@ pub const PLACE_COOLDOWN: f32 = 0.11;
 
 impl Game {
     pub fn handle_building(&mut self, i: usize, it: &Intent) {
+        if !self.cfg.mode.can_build() {
+            self.actors[i].build_mode = false;
+            return;
+        }
         {
             let a = &mut self.actors[i];
             if it.toggle_build {
@@ -49,6 +53,7 @@ impl Game {
     }
 
     pub fn place_piece(&mut self, i: usize) -> bool {
+        if !self.cfg.mode.can_build() { return false; }
         let (mat, kind) = (self.actors[i].build_mat, self.actors[i].build_piece);
         let cost = kind.cost();
         if self.actors[i].inv.mats[mat.index()] < cost {
@@ -79,7 +84,7 @@ impl Game {
     pub fn update_previews(&mut self) {
         let me = self.local;
         let p = &self.actors[me];
-        self.placement_preview = if p.alive && p.build_mode && p.mode == MoveMode::Ground { Some(self.plan_for(me)) } else { None };
+        self.placement_preview = if self.cfg.mode.can_build() && p.alive && p.build_mode && p.mode == MoveMode::Ground { Some(self.plan_for(me)) } else { None };
         self.interact_target = if p.alive && matches!(p.mode, MoveMode::Ground | MoveMode::Swim) { self.find_target(me) } else { None };
     }
 }
@@ -88,6 +93,42 @@ impl Game {
 mod tests {
     use super::super::testutil::{free_spot, game};
     use super::*;
+
+    #[test]
+    fn zero_build_rejects_human_and_bot_build_commands_even_with_materials() {
+        let mut g = game(1, true);
+        g.cfg.mode = GameMode::ZeroBuild;
+        let spot = free_spot(&g);
+        for i in 0..g.actors.len() {
+            g.actors[i].pos = spot;
+            g.actors[i].mode = MoveMode::Ground;
+            g.actors[i].on_ground = true;
+            g.actors[i].inv.mats = [999; 3];
+            g.actors[i].build_mode = true; // stale state / a malicious remote command
+            g.handle_building(i, &Intent { toggle_build: true, piece: Some(PieceKind::Wall), place: true, fire: true, ..Default::default() });
+            assert!(!g.actors[i].build_mode);
+            assert!(!g.place_piece(i), "direct placement must obey the host's mode too");
+        }
+        g.update_previews();
+        assert_eq!(g.pieces.count(), 0);
+        assert!(g.placement_preview.is_none());
+        assert!(!g.events.iter().any(|e| matches!(e, Event::Built { .. })));
+    }
+
+    #[test]
+    fn lego_mode_keeps_construction_and_material_costs() {
+        let mut g = game(1, true);
+        g.cfg.mode = GameMode::Lego;
+        let spot = free_spot(&g);
+        g.actors[PLAYER].pos = spot;
+        g.actors[PLAYER].mode = MoveMode::Ground;
+        g.actors[PLAYER].on_ground = true;
+        g.actors[PLAYER].yaw = 0.0;
+        let before = g.actors[PLAYER].inv.mats[0];
+        assert!(g.place_piece(PLAYER));
+        assert_eq!(g.pieces.count(), 1);
+        assert_eq!(g.actors[PLAYER].inv.mats[0], before - g.actors[PLAYER].build_piece.cost());
+    }
 
     #[test]
     fn building_costs_materials_and_places_a_wall_that_blocks() {

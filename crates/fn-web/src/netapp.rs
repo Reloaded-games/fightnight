@@ -128,10 +128,10 @@ impl App {
         match (&self.mode, self.net_live, &self.lobby) {
             (Mode::Host(h), true, _) => {
                 let peers: Vec<String> = h.peers().iter().map(|p| format!("{{\"name\":{},\"ping\":{:.0},\"connected\":{},\"ready\":{}}}", esc(&p.name), p.ping_ms, p.connected, p.ready)).collect();
-                let _ = write!(s, "{{\"state\":\"host\",\"started\":{},\"waiting\":{},\"names\":{},\"peers\":[{}]}}", h.has_started(), h.waiting_for(), names_json(&h.setup.names), peers.join(","));
+                let _ = write!(s, "{{\"state\":\"host\",\"started\":{},\"waiting\":{},\"names\":{},\"mode\":{},\"peers\":[{}]}}", h.has_started(), h.waiting_for(), names_json(&h.setup.names), esc(h.setup.mode.name()), peers.join(","));
             }
             (Mode::Guest(c), true, _) => {
-                let _ = write!(s, "{{\"state\":\"guest\",\"started\":true,\"synced\":{},\"ping\":{:.0},\"names\":{},\"closed\":{}}}", c.is_synced(), c.ping_ms, names_json(&c.setup.names), c.closed().map_or("null".into(), esc));
+                let _ = write!(s, "{{\"state\":\"guest\",\"started\":true,\"synced\":{},\"ping\":{:.0},\"names\":{},\"mode\":{},\"closed\":{}}}", c.is_synced(), c.ping_ms, names_json(&c.setup.names), esc(c.setup.mode.name()), c.closed().map_or("null".into(), esc));
             }
             (_, _, Lobby::Host(r)) => {
                 let _ = write!(s, "{{\"state\":\"host-lobby\",\"names\":{}}}", names_json(&r.names()));
@@ -167,7 +167,7 @@ impl App {
     /// [`App::net_finish_host`] once the messages have been sent.
     pub fn net_begin_host(&mut self, cfg: &GameConfig) -> Result<(), String> {
         let Lobby::Host(mut room) = std::mem::replace(&mut self.lobby, Lobby::None) else { return Err("You are not hosting a room.".into()) };
-        let params = StartParams { seed: cfg.seed as u32, bots: cfg.bots as u16, difficulty: cfg.difficulty, skip_bus: cfg.skip_bus, storm_speed: cfg.storm_speed, start_mats: cfg.start_mats.min(65535) as u16 };
+        let params = StartParams { seed: cfg.seed as u32, mode: cfg.mode, bots: cfg.bots as u16, difficulty: cfg.difficulty, skip_bus: cfg.skip_bus, storm_speed: cfg.storm_speed, start_mats: cfg.start_mats.min(65535) as u16 };
         let setup = room.begin(&params);
         self.net_out.extend(room.drain());
         self.pending_host = Some((room, setup));
@@ -183,6 +183,7 @@ impl App {
             self.minimap = fn_core::world::minimap::render(&world, 1024);
         }
         self.cfg.seed = setup.seed as u64;
+        self.cfg.mode = setup.mode;
         let fov = self.mode.game().fov_deg;
         let mut host = Host::new(world, setup, room);
         host.game.fov_deg = fov;
@@ -202,6 +203,7 @@ impl App {
             self.minimap = fn_core::world::minimap::render(&world, 1024);
         }
         self.cfg.seed = setup.seed as u64;
+        self.cfg.mode = setup.mode;
         let fov = self.mode.game().fov_deg;
         let mut client = Client::new(world, you, setup);
         client.game.fov_deg = fov;

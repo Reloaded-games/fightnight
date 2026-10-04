@@ -22,7 +22,8 @@ use crate::world::props::HarvestKind;
 const SIGHT: f32 = 210.0;
 /// How close a bot must get to a route waypoint before it heads for the next one, and to a door waypoint.
 const WAYPOINT_ARRIVE: f32 = 1.7;
-const DOOR_ARRIVE: f32 = 0.9;
+// A 2 m stair/door corridor leaves 0.62 m either side of an actor's capsule.
+const DOOR_ARRIVE: f32 = 0.4;
 /// A bot without usable ammo still goes for an enemy this close, pickaxe in hand.
 const BRAWL_RANGE: f32 = 32.0;
 /// Seconds between "slow" decisions (perception, goal choice).
@@ -436,6 +437,10 @@ fn preferred_range(kind: WeaponKind) -> f32 {
 
 impl Brain {
     fn run(&mut self, g: &mut Game, i: usize, dt: f32) -> Intent {
+        if !g.cfg.mode.can_build() {
+            self.job = Job::None;
+            if matches!(self.goal, Goal::Harvest { .. }) { self.set_goal(Goal::Idle); }
+        }
         self.hurt_t += dt;
         self.goal_t += dt;
         self.since_think += dt;
@@ -859,7 +864,7 @@ impl Brain {
 
         // 6. materials
         let a = &g.actors[i];
-        if a.inv.mats[0] < 60 && self.goal_t > 0.0 {
+        if g.cfg.mode.can_build() && a.inv.mats[0] < 60 && self.goal_t > 0.0 {
             if let Goal::Harvest { idx } = self.goal {
                 if g.world.harvest[idx].alive && self.goal_t < 14.0 && a.inv.mats[0] < 150 {
                     return;
@@ -1085,9 +1090,16 @@ impl Brain {
         if let Some(b) = to_b {
             if from_b != Some(b) {
                 let bi = &g.world.buildings[b];
-                dest = xz(bi.door_out);
-                // the route ends at the nav cell nearest the door, which can be a metre or two off its axis: line up
-                // with the door (and the steps in front of it) explicitly
+                let outward = (xz(bi.door_out) - xz(bi.door_in)).normalize_or_zero();
+                // Coarse nav cell centres can sit beside the porch. Align on the door axis before the stair foot,
+                // then traverse its full width safely instead of cutting diagonally across the raised landing.
+                let env = g.env();
+                let far = (g.world.nav.cell * 1.5).ceil() as i32;
+                dest = (1..=far).rev().map(|d| xz(bi.door_out) + outward * d as f32).find(|p| {
+                    let feet = v3(*p, g.world.hm.height_at(p.x, p.y));
+                    building_of(g, feet).is_none() && env.push_out(feet, RADIUS, HEIGHT, super::env::STEP_HEIGHT).length_squared() < 0.001
+                }).unwrap_or_else(|| xz(bi.door_out));
+                post.push(dest);
                 post.push(xz(bi.door_out));
                 post.push(xz(bi.door_in));
                 post.push(gxz);
@@ -1647,7 +1659,7 @@ impl Brain {
 
         // ---- building: cover and high ground ---------------------------------------------------------------
         let total = a.total_hp();
-        let mats = a.inv.mats[a.build_mat.index()];
+        let mats = if g.cfg.mode.can_build() { a.inv.mats[a.build_mat.index()] } else { 0 };
         if visible && self.cover_cd <= 0.0 && mats >= 10 && self.hurt_t < 1.5 && total < 75.0 && self.rng.chance(0.03 + 0.12 * self.skill.builder) && self.skill.builder > 0.25 && a.mode == MoveMode::Ground {
             self.job = Job::Cover { stage: 0, t: 0.0 };
             return;
@@ -1727,6 +1739,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn zero_build_bots_abandon_harvesting_and_pending_build_jobs() {
+        let mut g = game_cfg(GameConfig { mode: GameMode::ZeroBuild, bots: 1, skip_bus: true, ..Default::default() });
+        let idx = g.world.harvest.iter().position(|h| h.alive).expect("a tree or rock");
+        let mut brain = g.actors[1].brain.take().unwrap();
+        brain.goal = Goal::Harvest { idx };
+        brain.job = Job::Cover { stage: 0, t: 0.0 };
+        g.actors[1].inv.mats = [999; 3];
+        let it = brain.run(&mut g, 1, 1.0 / 60.0);
+        assert!(!matches!(brain.goal, Goal::Harvest { .. }));
+        assert_eq!(brain.job, Job::None);
+        assert!(it.piece.is_none() && !it.place && !it.toggle_build);
+    }
+
+    #[test]
     fn bots_ride_the_bus_jump_glide_and_land_on_the_island() {
         let mut g = game(24, false);
         let inp = PlayerInput::default();
@@ -1791,7 +1817,7 @@ mod tests {
         // the safe circle lies 300 m away: the bot has to get going
         // (the farthest dry land along the way: storm circles are centred over land)
         let dir = dir.normalize();
-        let centre = (8..=30).rev().map(|k| at + dir * (k as f32 * 10.0)).find(|p| p.abs().max_element() < 600.0 && g.world.hm.height_at(p.x, p.y) > 3.0)?;
+        let centre = (8..=30).rev().map(|k| at + dir * (k as f32 * 10.0)).find(|p| p.abs().max_element() < crate::world::WORLD_HALF - 40.0 && g.world.hm.height_at(p.x, p.y) > 3.0)?;
         g.storm.center = centre;
         g.storm.radius = 150.0;
         g.storm.to_center = g.storm.center;

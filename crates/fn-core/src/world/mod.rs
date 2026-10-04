@@ -23,15 +23,18 @@ use splat::Splat;
 use std::collections::HashMap;
 use terrain_mesh::{TerrainMesh, TerrainPainter};
 
-pub const WORLD_SIZE: f32 = 1280.0;
+/// The larger island keeps the same terrain and navigation grid budgets. Three
+/// metre terrain cells let vehicles cross 2.25 times the previous map area
+/// without allocating 2.25 times as many terrain vertices on every client.
+pub const WORLD_SIZE: f32 = 1920.0;
 pub const WORLD_HALF: f32 = WORLD_SIZE * 0.5;
-pub const CELL: f32 = 2.0;
-pub const GRID_N: usize = 641;
 pub const CHUNK_CELLS: usize = 32;
 pub const CHUNKS: usize = 20;
+pub const GRID_N: usize = CHUNKS * CHUNK_CELLS + 1;
+pub const CELL: f32 = WORLD_SIZE / (GRID_N - 1) as f32;
 pub const CHUNK_SIZE: f32 = CHUNK_CELLS as f32 * CELL;
 pub const SEA_LEVEL: f32 = 0.0;
-pub const NAV_CELL: f32 = 4.0;
+pub const NAV_CELL: f32 = CELL * 2.0;
 
 #[derive(Clone, Debug)]
 pub struct BuildingInfo {
@@ -263,8 +266,14 @@ mod tests {
     fn world_generates_with_content() {
         let w = World::generate(1234);
         assert_eq!(w.terrain.chunks.len(), CHUNKS * CHUNKS);
+        assert_eq!(w.hm.n, 641, "larger map must retain the terrain memory budget");
+        assert_eq!(w.hm.half, WORLD_HALF);
+        assert_eq!(w.nav.w * w.nav.h, 320 * 320, "navigation cost must stay bounded");
+        assert_eq!(CHUNKS as f32 * CHUNK_SIZE, WORLD_SIZE);
+        assert!(w.layout.pois.len() >= 13, "{} destinations", w.layout.pois.len());
+        assert!(w.layout.pois.iter().any(|p| p.center.length() > 500.0), "new destinations must extend beyond the old island");
         assert!(w.hm.height_at(0.0, 0.0).is_finite());
-        assert!(w.buildings.len() >= 25, "{} buildings", w.buildings.len());
+        assert!(w.buildings.len() >= 55, "{} buildings", w.buildings.len());
         let trees = w.harvest.iter().filter(|h| h.kind == props::HarvestKind::Tree).count();
         let rocks = w.harvest.iter().filter(|h| matches!(h.kind, props::HarvestKind::Rock | props::HarvestKind::Ore)).count();
         let ore = w.harvest.iter().filter(|h| h.kind == props::HarvestKind::Ore).count();

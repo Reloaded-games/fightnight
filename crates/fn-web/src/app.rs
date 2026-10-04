@@ -195,6 +195,7 @@ impl App {
         self.renderer.update_ground_cover(&self.mode.game().world, cam.pos);
         let f = FrameInput {
             time: self.menu_t,
+            mode: self.cfg.mode,
             camera: cam,
             sun_dir: Vec3::new(0.55, 0.62, 0.42),
             storm: Vec4::ZERO,
@@ -225,7 +226,8 @@ impl App {
             let g = self.mode.game();
             if g.actors[g.local].ads { 0.62 } else { 1.0 }
         };
-        let pi = self.input.take(self.sens * ads_scale, self.invert_y);
+        let driving = { let g = self.mode.game(); g.vehicle_for_actor(g.local).is_some() };
+        let pi = if driving { self.input.take_driving(self.sens * ads_scale, self.invert_y) } else { self.input.take(self.sens * ads_scale, self.invert_y) };
         let t0 = now_ms();
         match &mut self.mode {
             Mode::Solo(g) => {
@@ -283,6 +285,7 @@ impl App {
         let sp = storm_params(game);
         let f = FrameInput {
             time: game.time,
+            mode: game.cfg.mode,
             camera: cam,
             sun_dir: Vec3::new(0.55, 0.62, 0.42),
             storm: Vec4::new(sp[0], sp[1], sp[2], sp[3]),
@@ -795,7 +798,33 @@ impl App {
             }
             "state" => {
                 let a = &g.actors[me];
-                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{},\"outfit\":{}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting, g.cfg.player_outfit)
+                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{},\"outfit\":{},\"gameMode\":\"{:?}\",\"worldSize\":{},\"vehicles\":{}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting, g.cfg.player_outfit, g.cfg.mode, fn_core::world::WORLD_SIZE, g.vehicles.len())
+            }
+            "vehicles" => {
+                let list: Vec<String> = g.vehicles.iter().map(|v| format!("{{\"id\":{},\"pos\":[{:.2},{:.2},{:.2}],\"yaw\":{:.3},\"speed\":{:.2},\"driver\":{}}}", v.id, v.pos.x, v.pos.y, v.pos.z, v.yaw, v.speed, v.driver.map_or("null".into(), |i| i.to_string()))).collect();
+                format!("[{}]", list.join(","))
+            }
+            "vehicle" => {
+                // Stand beside a parked car, optionally positioning a remote
+                // actor on the host for transport integration tests.
+                let index = num(1, 0.0) as usize;
+                let actor = (num(2, me as f32) as usize).min(g.actors.len() - 1);
+                if let Some(v) = g.vehicles.get(index).cloned() {
+                    g.exit_vehicle(actor);
+                    let p = v.pos + yaw_right(v.yaw) * 2.6;
+                    let h = g.world.hm.height_at(p.x, p.z);
+                    let a = &mut g.actors[actor];
+                    a.pos = Vec3::new(p.x, h, p.z);
+                    a.vel = Vec3::ZERO;
+                    a.mode = MoveMode::Ground;
+                    a.on_ground = true;
+                    a.eye_smooth = h;
+                    a.peak_y = h;
+                    a.yaw = v.yaw;
+                    a.body_yaw = v.yaw;
+                    a.pitch = -0.15;
+                }
+                "ok".into()
             }
             "actor" => {
                 // actor <index>: where somebody is, whoever they are (for multiplayer tests)

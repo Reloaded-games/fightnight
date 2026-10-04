@@ -62,7 +62,7 @@ struct Harness {
 }
 
 fn quick_params(bots: u16, skip_bus: bool) -> StartParams {
-    StartParams { seed: 1234, bots, difficulty: Difficulty::Normal, skip_bus, storm_speed: 1.0, start_mats: 300 }
+    StartParams { seed: 1234, mode: crate::game::GameMode::BattleRoyale, bots, difficulty: Difficulty::Normal, skip_bus, storm_speed: 1.0, start_mats: 300 }
 }
 
 impl Harness {
@@ -354,6 +354,55 @@ fn plant_guest(h: &mut Harness) -> Vec3 {
         who.peak_y = p.y;
     }
     p
+}
+
+#[test]
+fn creator_chooses_the_mode_for_every_guest() {
+    use crate::game::GameMode;
+    for mode in [GameMode::ZeroBuild, GameMode::Lego] {
+        let mut h = Harness::with_params(1, StartParams { mode, ..quick_params(1, true) }, GOOD);
+        started(&mut h);
+        h.run(0.3, &idle(), &[idle()]);
+        assert_eq!(h.host.game.cfg.mode, mode);
+        assert_eq!(h.clients[0].game.cfg.mode, mode);
+        assert_eq!(h.host.game.local, 0, "room creator owns actor zero");
+        assert_eq!(h.clients[0].game.local, 1);
+        if mode == GameMode::ZeroBuild {
+            assert!(h.host.game.actors.iter().all(|a| a.inv.mats == [0; 3]));
+        }
+    }
+}
+
+#[test]
+fn guest_drives_host_owned_car_and_releases_it_on_exit_or_disconnect() {
+    use crate::game::vehicles::Vehicle;
+    let mut h = Harness::new(1, 0, true, GOOD);
+    started(&mut h);
+    let p = plant_guest(&mut h);
+    h.host.game.pickups.clear();
+    h.host.game.chests.clear();
+    h.host.game.vehicles = vec![Vehicle::new(1, p, 0.0)];
+    h.host.game.actors[1].pos = p - Vec3::X * 2.4;
+    h.run(0.4, &idle(), &[idle()]);
+    h.step(1.0 / 60.0, &idle(), &[PlayerInput { interact: true, ..idle() }]);
+    h.run(0.3, &idle(), &[idle()]);
+    assert_eq!(h.host.game.vehicles[0].driver, Some(1));
+    assert_eq!(h.clients[0].game.vehicles[0].driver, Some(1));
+    let start = h.host.game.vehicles[0].pos;
+    h.run(1.0, &idle(), &[PlayerInput { move_axis: Vec2::new(0.0, 1.0), ..idle() }]);
+    h.run(0.6, &idle(), &[PlayerInput { jump: true, ..idle() }]);
+    let car = &h.host.game.vehicles[0];
+    assert!(car.pos.distance(start) > 3.0, "guest's commands drive the host's car");
+    assert!(car.speed.abs() < 0.1, "brake stops the car");
+    assert!(h.clients[0].game.vehicles[0].pos.distance(car.pos) < 0.3, "replica and authority agree");
+    assert!(h.clients[0].game.actors[1].pos.distance(car.driver_position()) < 0.3);
+    h.step(1.0 / 60.0, &idle(), &[PlayerInput { interact: true, ..idle() }]);
+    h.run(0.3, &idle(), &[idle()]);
+    assert!(h.host.game.vehicles[0].driver.is_none());
+    assert!(h.clients[0].game.vehicles[0].driver.is_none());
+    assert!(h.host.game.enter_vehicle(1, 1));
+    h.host.on_disconnect(1);
+    assert!(h.host.game.vehicles[0].driver.is_none(), "departing guest releases the exclusive seat");
 }
 
 #[test]
@@ -745,6 +794,7 @@ fn old_and_garbled_messages_change_nothing() {
             own: own_of(&g.actors[1]),
             actors: vec![],
             projectiles: vec![],
+            vehicles: vec![],
         }))
         .encode()
     };

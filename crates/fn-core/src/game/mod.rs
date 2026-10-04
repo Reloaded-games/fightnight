@@ -20,6 +20,7 @@ pub mod pieces;
 pub mod remote;
 pub mod rig;
 pub mod scene;
+pub mod vehicles;
 
 use crate::camera::Camera;
 use crate::math::*;
@@ -41,9 +42,26 @@ pub enum Difficulty {
     Hard,
 }
 
+/// Rules and visual theme chosen by the player who starts the match.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GameMode {
+    #[default]
+    BattleRoyale,
+    ZeroBuild,
+    Lego,
+}
+
+impl GameMode {
+    pub fn name(self) -> &'static str {
+        match self { Self::BattleRoyale => "Battle Royale", Self::ZeroBuild => "Zero Build", Self::Lego => "LEGO" }
+    }
+    pub fn can_build(self) -> bool { self != Self::ZeroBuild }
+}
+
 #[derive(Clone, Debug)]
 pub struct GameConfig {
     pub seed: u64,
+    pub mode: GameMode,
     pub bots: usize,
     pub difficulty: Difficulty,
     pub player_name: String,
@@ -64,7 +82,7 @@ pub struct GameConfig {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        Self { seed: 1, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, humans: 1, human_names: vec![], start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
+        Self { seed: 1, mode: GameMode::BattleRoyale, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, humans: 1, human_names: vec![], start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
     }
 }
 
@@ -243,6 +261,8 @@ pub struct Game {
     pub chests: Vec<Chest>,
     pub pieces: Pieces,
     pub projectiles: Vec<Projectile>,
+    /// Drivable buggies; the room creator owns their physics and driver seats.
+    pub vehicles: Vec<vehicles::Vehicle>,
     pub storm: Storm,
     pub bus: Bus,
     pub events: Vec<Event>,
@@ -321,7 +341,7 @@ impl Game {
                 name_pool[(i - humans) % name_pool.len()].to_string()
             };
             let mut a = Actor::new(i, &name, human, outfit);
-            a.inv.mats[Mat::Wood.index()] = cfg.start_mats;
+            a.inv.mats[Mat::Wood.index()] = if cfg.mode.can_build() { cfg.start_mats } else { 0 };
             if !human {
                 a.brain = Some(Box::new(ai::Brain::new(&mut rng, cfg.difficulty)));
             }
@@ -338,6 +358,7 @@ impl Game {
             chests: vec![],
             pieces: Pieces::new(),
             projectiles: vec![],
+            vehicles: vec![],
             storm: matchflow::initial_storm(),
             bus: matchflow::initial_bus(&mut Rng::new(cfg.seed ^ 0xB05)),
             events: vec![],
@@ -373,6 +394,7 @@ impl Game {
         };
         g.remotes = (0..g.actors.len()).map(|_| None).collect();
         g.spawn_world_loot();
+        g.vehicles = vehicles::spawn(&g.world);
         g.setup_start();
         g
     }
@@ -515,6 +537,7 @@ impl Game {
         self.ai_paths_left = 3;
         matchflow::update_bus(self, dt);
         matchflow::update_storm(self, dt);
+        self.update_empty_vehicles(dt);
         self.apply_remote_cmds(dt);
 
         let n = self.actors.len();
@@ -635,6 +658,7 @@ impl Game {
             a.yaw = it.yaw;
             a.pitch = it.pitch.clamp(-1.5, 1.5);
         }
+        if self.drive_vehicle(i, it, dt) { return; }
         let mode = self.actors[i].mode;
         let mut fall_damage = 0.0;
         let mut landed_sky = false;
@@ -687,6 +711,7 @@ impl Game {
         if !self.actors[i].alive {
             return;
         }
+        self.avoid_vehicles(i);
         movement::update_body(&mut self.actors[i], it, dt);
         movement::update_anim(&mut self.actors[i], dt);
         if matches!(self.actors[i].mode, MoveMode::Ground | MoveMode::Swim) {
@@ -800,6 +825,7 @@ impl Game {
         let env = self.env();
         let airborne = matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
         let mut back = if airborne { 7.5 } else { lerp(self.cam_dist, self.cam_dist * 0.62, a.anim.aim) };
+        if self.vehicle_for_actor(idx).is_some() { back = 7.4; }
         if matches!(a.mode, MoveMode::Bus) {
             back = 21.0;
         }
@@ -961,7 +987,7 @@ mod monkey {
                 assert!(a.hp > 0.0, "{ctx}: alive with hp {}", a.hp);
                 assert!(a.pos.y > -20.0 && a.pos.y < 600.0, "{ctx}: y {}", a.pos.y);
                 if matches!(a.mode, MoveMode::Ground | MoveMode::Swim) {
-                    assert!(a.pos.x.abs() < 900.0 && a.pos.z.abs() < 900.0, "{ctx}: out of the world {:?}", a.pos);
+                    assert!(a.pos.x.abs() <= WORLD_HALF + 110.0 && a.pos.z.abs() <= WORLD_HALF + 110.0, "{ctx}: out of the world {:?}", a.pos);
                 }
                 if matches!(a.mode, MoveMode::Ground) {
                     let th = g.world.hm.height_at(a.pos.x, a.pos.z);

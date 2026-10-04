@@ -133,6 +133,10 @@ fn fs_main(i: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32
     var emissive = 0.0;
     let wp = i.wpos;
     let uv = dominant_uv(wp, N);
+    // Derivatives must run before any material-dependent branch: WebGPU's
+    // uniformity analysis cannot prove the per-triangle material is uniform.
+    let brick_grid = fract(uv / vec2<f32>(0.8, 0.4));
+    let brick_aa = max(fwidth(brick_grid), vec2<f32>(0.006));
 
     switch (mat_id) {
         case 1, 2: { // foliage / grass blades
@@ -204,6 +208,18 @@ fn fs_main(i: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32
             rim = 0.12;
         }
         default: {}
+    }
+
+    if (G.misc.w > 0.5 && emissive < 0.5) {
+        // Original plastic toy pieces and the island's baked buildings share
+        // a clean sheen. Building walls use regular toy brick seams.
+        spec = 0.35;
+        shin = 42.0;
+        rim = 0.18;
+        if (mat_id == 3 || mat_id == 4 || mat_id == 5 || mat_id == 13) {
+            let seam = 1.0 - smoothstep(0.0, brick_aa.x + 0.025, min(brick_grid.x, 1.0 - brick_grid.x)) * smoothstep(0.0, brick_aa.y + 0.025, min(brick_grid.y, 1.0 - brick_grid.y));
+            albedo *= 1.0 - seam * 0.18;
+        }
     }
 
     var col: vec3<f32>;

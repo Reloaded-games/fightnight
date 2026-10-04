@@ -44,6 +44,7 @@ pub use fn_core::game::scene::Batch;
 
 pub struct FrameInput<'a> {
     pub time: f32,
+    pub mode: fn_core::game::GameMode,
     pub camera: Camera,
     pub sun_dir: Vec3,
     /// centre.x, centre.z, radius, strength

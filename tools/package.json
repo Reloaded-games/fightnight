@@ -5,6 +5,8 @@
   "description": "Headless-browser helpers used to smoke test and screenshot the game",
   "scripts": {
     "test": "node e2e.mjs && node e2e_flow.mjs",
+    "test:modes": "node modes_e2e.mjs",
+    "test:multiplayer": "node mp_e2e.mjs",
     "fuzz": "node fuzz_ui.mjs 1 150",
     "screenshots": "bash screenshots.sh"
   },

@@ -7,7 +7,7 @@ mod renderer;
 
 use app::App;
 use fn_core::audio_synth::{synth, Sfx};
-use fn_core::game::{Difficulty, GameConfig};
+use fn_core::game::{Difficulty, GameConfig, GameMode};
 use renderer::types::*;
 use renderer::Renderer;
 use std::cell::RefCell;
@@ -45,7 +45,8 @@ fn parse_opts(opts: &str) -> (GameConfig, String) {
     for kv in opts.split(';') {
         let Some((k, v)) = kv.split_once('=') else { continue };
         match k.trim() {
-            "bots" => cfg.bots = v.parse::<usize>().unwrap_or(39).clamp(1, 98),
+            "bots" => cfg.bots = v.parse::<usize>().unwrap_or(39).clamp(0, 98),
+            "mode" => cfg.mode = match v { "zero-build" => GameMode::ZeroBuild, "lego" => GameMode::Lego, _ => GameMode::BattleRoyale },
             "difficulty" => {
                 cfg.difficulty = match v {
                     "easy" => Difficulty::Easy,

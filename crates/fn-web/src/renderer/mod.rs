@@ -486,7 +486,7 @@ impl Renderer {
             screen: [self.targets.w as f32, self.targets.h as f32, 1.0 / self.targets.w as f32, 1.0 / self.targets.h as f32],
             post: [0.85, 1.2, 0.0, f.damage],
             world: [WORLD_HALF, GRID_N as f32, fn_core::world::CELL, fn_core::world::SEA_LEVEL],
-            misc: [f.wind, f.storm_time, f.in_storm, 0.0],
+            misc: [f.wind, f.storm_time, f.in_storm, if f.mode == fn_core::game::GameMode::Lego { 1.0 } else { 0.0 }],
         }
     }
 
@@ -512,12 +512,12 @@ impl Renderer {
         scratch.clear();
         scratch.extend_from_slice(f.instances);
         let detail = self.quality.detail;
-        let main_props = world_gpu::gather_props(&self.wg, &frustum, cam.pos, detail, false, 0.0, &mut scratch, 0);
+        let main_props = world_gpu::gather_props(&self.wg, f.mode, &frustum, cam.pos, detail, false, 0.0, &mut scratch, 0);
         let mut shadow_props: Vec<Vec<Batch>> = vec![];
         if self.quality.shadows {
             for c in cascades.iter() {
                 let fr = Frustum::from_view_proj(&c.vp);
-                shadow_props.push(world_gpu::gather_props(&self.wg, &fr, c.center, 1.0, true, c.radius + 30.0, &mut scratch, 0));
+                shadow_props.push(world_gpu::gather_props(&self.wg, f.mode, &fr, c.center, 1.0, true, c.radius + 30.0, &mut scratch, 0));
             }
         }
         self.dyn_inst.upload(device, queue, cast_slice(&scratch));
@@ -805,7 +805,7 @@ impl Renderer {
             }
             // grass tufts and flowers around the camera (double sided, wind animated)
             if !self.wg.grass.is_empty() {
-                let (grass_mesh, flower_mesh) = world_gpu::mesh_ids_for_grass();
+                let (grass_mesh, flower_mesh) = world_gpu::mesh_ids_for_grass(f.mode);
                 rp.set_pipeline(&self.pipes.mesh_double);
                 rp.set_vertex_buffer(0, vb.slice(..));
                 rp.set_index_buffer(ib.slice(..), IndexFormat::Uint32);

@@ -103,6 +103,7 @@ fn upload_static(device: &Device, m: &MeshData, aabb: Aabb) -> StaticMeshGpu {
 /// index into it with `first` offset by `base`.
 pub fn gather_props(
     g: &WorldGpu,
+    mode: fn_core::game::GameMode,
     frustum: &Frustum,
     cam: Vec3,
     max_dist_scale: f32,
@@ -161,7 +162,7 @@ pub fn gather_props(
         }
         let kind = PROP_KINDS[i / 2];
         let lod = i % 2;
-        batches.push(Batch { mesh: kind.mesh(lod).idx(), first: base + out.len() as u32, count: list.len() as u32, shadow: false });
+        batches.push(Batch { mesh: fn_core::lego_models::mapped_mesh(kind.mesh(lod), mode).idx(), first: base + out.len() as u32, count: list.len() as u32, shadow: false });
         out.extend_from_slice(list);
     }
     batches
@@ -205,6 +206,6 @@ pub fn update_ground_cover(device: &Device, g: &mut WorldGpu, world: &World, cam
     g.grass.retain(|ci, _| centers[*ci].distance(cam_xz) < far);
 }
 
-pub fn mesh_ids_for_grass() -> (u16, u16) {
-    (MeshId::GrassTuft.idx(), MeshId::FlowerClump.idx())
+pub fn mesh_ids_for_grass(mode: fn_core::game::GameMode) -> (u16, u16) {
+    (fn_core::lego_models::mapped_mesh(MeshId::GrassTuft, mode).idx(), fn_core::lego_models::mapped_mesh(MeshId::FlowerClump, mode).idx())
 }

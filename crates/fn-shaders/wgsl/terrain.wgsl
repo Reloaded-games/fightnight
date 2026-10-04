@@ -68,6 +68,20 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
     let wet = 1.0 - smoothstep(0.0, 0.9, i.wpos.y - G.world.w);
     albedo = albedo * mix(1.0, 0.72, wet);
 
+    // A toy baseplate uses the same collision terrain, with anti-aliased stud
+    // rings and plate seams that fade before their detail can shimmer.
+    if (G.misc.w > 0.5) {
+        let tile = fract(i.wpos.xz / 4.0);
+        let aa = max(fwidth(tile), vec2<f32>(0.002));
+        let seam = 1.0 - smoothstep(0.0, aa.x * 2.0 + 0.016, min(tile.x, 1.0 - tile.x)) * smoothstep(0.0, aa.y * 2.0 + 0.016, min(tile.y, 1.0 - tile.y));
+        let stud = length(fract(i.wpos.xz / 0.8) - vec2<f32>(0.5));
+        let edge = max(fwidth(stud), 0.015);
+        let ring = smoothstep(0.24 - edge, 0.24 + edge, stud) * (1.0 - smoothstep(0.30 - edge, 0.30 + edge, stud));
+        let detail = 1.0 - smoothstep(18.0, 65.0, dist);
+        albedo *= 1.0 - (seam * 0.16 + ring * 0.18) * detail;
+        albedo += vec3<f32>(0.025) * (1.0 - smoothstep(0.0, 0.24, stud)) * detail;
+    }
+
     var col = light_surface(albedo, N, i.wpos, 1.0, 0.0, 1.0, 0.0);
     col = apply_storm(col, i.wpos);
     col = apply_fog(col, i.wpos);

@@ -14,17 +14,19 @@ use crate::game::cmd::{btn, Cmd};
 use crate::game::events::*;
 use crate::game::items::*;
 use crate::game::pieces::PieceKey;
-use crate::game::{Difficulty, GameConfig, Phase, PickupKind};
+use crate::game::{Difficulty, GameConfig, GameMode, Phase, PickupKind};
+use crate::game::vehicles::Vehicle;
 use crate::math::*;
 
 /// Bump when anything in this file changes shape; hosts and clients of different versions refuse each other.
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 /// Most people in one room, the host included.
 pub const MAX_HUMANS: usize = 8;
 /// Most commands a single packet may carry.
 pub const MAX_CMDS: usize = 16;
 const MAX_ACTORS: usize = 160;
 const MAX_PROJECTILES: usize = 64;
+const MAX_VEHICLES: usize = 64;
 const MAX_OPS: usize = 4096;
 const MAX_EVENTS: usize = 1024;
 
@@ -34,6 +36,7 @@ const MAX_EVENTS: usize = 1024;
 #[derive(Clone, Debug, PartialEq)]
 pub struct MatchSetup {
     pub seed: u32,
+    pub mode: GameMode,
     pub bots: u16,
     pub difficulty: Difficulty,
     pub skip_bus: bool,
@@ -47,6 +50,7 @@ impl MatchSetup {
     pub fn to_config(&self) -> GameConfig {
         GameConfig {
             seed: self.seed as u64,
+            mode: self.mode,
             bots: self.bots as usize,
             difficulty: self.difficulty,
             player_name: self.names.first().cloned().unwrap_or_else(|| "Host".into()),
@@ -62,6 +66,7 @@ impl MatchSetup {
 
     fn write(&self, w: &mut Writer) {
         w.u32(self.seed);
+        w.u8(match self.mode { GameMode::BattleRoyale => 0, GameMode::ZeroBuild => 1, GameMode::Lego => 2 });
         w.u16(self.bots);
         w.u8(match self.difficulty {
             Difficulty::Easy => 0,
@@ -79,6 +84,7 @@ impl MatchSetup {
 
     fn read(r: &mut Reader) -> Result<Self> {
         let seed = r.u32()?;
+        let mode = match r.u8()? { 0 => GameMode::BattleRoyale, 1 => GameMode::ZeroBuild, 2 => GameMode::Lego, _ => return Err(WireError::Invalid("game mode")) };
         let bots = r.u16()?;
         if bots > 120 {
             return Err(WireError::Invalid("bots"));
@@ -100,7 +106,7 @@ impl MatchSetup {
             return Err(WireError::Invalid("players"));
         }
         let names = (0..n).map(|_| r.str()).collect::<Result<Vec<_>>>()?;
-        Ok(MatchSetup { seed, bots, difficulty, skip_bus, storm_speed, start_mats, names })
+        Ok(MatchSetup { seed, mode, bots, difficulty, skip_bus, storm_speed, start_mats, names })
     }
 }
 
@@ -228,6 +234,8 @@ pub struct Snapshot {
     pub own: Own,
     pub actors: Vec<ActorNet>,
     pub projectiles: Vec<ProjNet>,
+    /// Host-owned cars, including their exclusive driver seat.
+    pub vehicles: Vec<Vehicle>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -645,6 +653,15 @@ impl Snapshot {
             w.u8(idx(&WeaponKind::ALL, p.kind));
             w.u8(idx(&Rarity::ALL, p.rarity));
         }
+        w.u16(self.vehicles.len() as u16);
+        for v in &self.vehicles {
+            w.u32(v.id);
+            w.vec3(v.pos);
+            w.f32(v.yaw);
+            w.f32(v.speed);
+            w.f32(v.steer);
+            w.opt_u8(v.driver);
+        }
     }
 
     fn read(r: &mut Reader) -> Result<Self> {
@@ -685,7 +702,22 @@ impl Snapshot {
         for _ in 0..n {
             projectiles.push(ProjNet { pos: r.vec3()?, vel: r.vec3()?, owner: r.u8()?, kind: read_weapon(r)?, rarity: read_rarity(r)? });
         }
-        Ok(Snapshot { time, echo, ack, phase, tie, winner, match_time, bus_active, bus_t, storm, own, actors, projectiles })
+        let n = r.count(MAX_VEHICLES, "vehicles")?;
+        let mut vehicles = Vec::with_capacity(n);
+        let mut drivers = std::collections::HashSet::new();
+        for _ in 0..n {
+            let id = r.u32()?;
+            let pos = r.vec3()?;
+            let yaw = r.f32()?;
+            let speed = r.f32()?;
+            let steer = r.f32()?;
+            let driver = r.opt_u8()?;
+            if speed.abs() > 100.0 || steer.abs() > 1.01 || driver.is_some_and(|d| d >= MAX_HUMANS || !drivers.insert(d)) || vehicles.iter().any(|v: &Vehicle| v.id == id) {
+                return Err(WireError::Invalid("vehicle state"));
+            }
+            vehicles.push(Vehicle { id, pos, yaw, speed, steer, driver });
+        }
+        Ok(Snapshot { time, echo, ack, phase, tie, winner, match_time, bus_active, bus_t, storm, own, actors, projectiles, vehicles })
     }
 }
 
@@ -1198,7 +1230,7 @@ mod tests {
     }
 
     fn setup() -> MatchSetup {
-        MatchSetup { seed: 1234, bots: 30, difficulty: Difficulty::Hard, skip_bus: true, storm_speed: 2.5, start_mats: 150, names: vec!["Host".into(), "Ada".into(), "ZoÃ«".into()] }
+        MatchSetup { seed: 1234, mode: GameMode::Lego, bots: 30, difficulty: Difficulty::Hard, skip_bus: true, storm_speed: 2.5, start_mats: 150, names: vec!["Host".into(), "Ada".into(), "ZoÃ«".into()] }
     }
 
     fn own() -> Own {
@@ -1266,6 +1298,7 @@ mod tests {
             own: own(),
             actors: (0..n as u8).map(actor).collect(),
             projectiles: vec![ProjNet { pos: v(1.0, 2.0, 3.0), vel: v(0.0, 0.0, -58.0), owner: 2, kind: WeaponKind::RocketLauncher, rarity: Rarity::Legendary }],
+            vehicles: vec![Vehicle { id: 17, pos: v(20.0, 2.0, 30.0), yaw: 1.2, speed: 12.0, steer: 0.3, driver: Some(1) }],
         }
     }
 
@@ -1359,6 +1392,7 @@ mod tests {
         assert_eq!(back.storm, s.storm);
         assert_eq!((back.time, back.echo, back.ack, back.phase, back.winner, back.match_time, back.bus_t), (s.time, s.echo, s.ack, s.phase, s.winner, s.match_time, s.bus_t));
         assert_eq!(back.projectiles, s.projectiles);
+        assert_eq!(back.vehicles, s.vehicles);
         assert_eq!(back.actors.len(), 5);
         for (a, b) in s.actors.iter().zip(&back.actors) {
             // everything else is exact; these are kept to the precision of the wire
@@ -1478,8 +1512,8 @@ mod tests {
         // 65535 actors announced in a snapshot that has none
         let mut bytes = ServerMsg::Snapshot(Box::new(snapshot(0))).encode();
         let n = bytes.len();
-        // the actor count sits before the projectile count (2 bytes) and the projectile (28 bytes)
-        let at = n - 2 - 29 - 2;
+        // counts, one projectile (29 bytes), and one vehicle (29 bytes)
+        let at = n - 2 - 29 - 2 - 29 - 2;
         bytes[at] = 0xff;
         bytes[at + 1] = 0xff;
         assert!(ServerMsg::decode(&bytes).is_err());

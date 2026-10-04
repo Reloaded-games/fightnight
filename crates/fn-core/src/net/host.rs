@@ -9,7 +9,7 @@ use crate::game::actor::{Action, Actor, MoveMode};
 use crate::game::events::Event;
 use crate::game::items::Item;
 use crate::game::pieces::PieceKey;
-use crate::game::{Difficulty, Game, PlayerInput, Storm, StormState};
+use crate::game::{Difficulty, Game, GameMode, PlayerInput, Storm, StormState};
 use crate::math::*;
 use crate::world::World;
 use std::collections::{HashMap, HashSet};
@@ -38,6 +38,7 @@ const OPS_PER_MESSAGE: usize = 300;
 #[derive(Clone, Debug)]
 pub struct StartParams {
     pub seed: u32,
+    pub mode: GameMode,
     pub bots: u16,
     pub difficulty: Difficulty,
     pub skip_bus: bool,
@@ -47,7 +48,7 @@ pub struct StartParams {
 
 impl Default for StartParams {
     fn default() -> Self {
-        Self { seed: 1234, bots: 39, difficulty: Difficulty::Normal, skip_bus: false, storm_speed: 1.0, start_mats: 100 }
+        Self { seed: 1234, mode: GameMode::BattleRoyale, bots: 39, difficulty: Difficulty::Normal, skip_bus: false, storm_speed: 1.0, start_mats: 100 }
     }
 }
 
@@ -163,7 +164,7 @@ impl Room {
             self.send(id, &ServerMsg::Reject { reason: "The match has already started.".into() });
         }
         self.peers.retain(|p| p.name.is_some());
-        let setup = MatchSetup { seed: p.seed, bots: p.bots, difficulty: p.difficulty, skip_bus: p.skip_bus, storm_speed: p.storm_speed, start_mats: p.start_mats, names: self.names() };
+        let setup = MatchSetup { seed: p.seed, mode: p.mode, bots: p.bots, difficulty: p.difficulty, skip_bus: p.skip_bus, storm_speed: p.storm_speed, start_mats: p.start_mats, names: self.names() };
         let ids: Vec<PeerId> = self.peers.iter().map(|p| p.id).collect();
         for (k, id) in ids.into_iter().enumerate() {
             self.send(id, &ServerMsg::Start { you: (k + 1) as u8, setup: setup.clone() });
@@ -549,6 +550,7 @@ impl Host {
                 own: own_of(me),
                 actors,
                 projectiles: projectiles.clone(),
+                vehicles: g.vehicles.clone(),
             };
             msgs.push((p.id, ServerMsg::Snapshot(Box::new(snap))));
         }

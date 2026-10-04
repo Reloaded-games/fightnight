@@ -102,7 +102,8 @@ pub fn step_ground(a: &mut Actor, it: &Intent, env: &Env, dt: f32, ev: &mut Vec<
     let moving_input = wish.length() > 0.1;
     let firing = it.fire && matches!(a.inv.selected_item(), Some(Item::Weapon { .. }));
     a.sprinting = it.sprint && moving_input && !a.ads && !a.crouching && !firing && a.on_ground;
-    let depth = env.water_depth(a.pos.x, a.pos.z);
+    // Water under a bridge/ramp must not slow its walker or pull them off the surface.
+    let depth = env.water_level(a.pos.x, a.pos.z).map_or(0.0, |level| (level - a.pos.y).max(0.0));
     let mut speed = RUN_SPEED * speed_mods(a);
     if a.crouching {
         speed *= CROUCH_MUL;
@@ -244,7 +245,7 @@ pub fn step_ground(a: &mut Actor, it: &Intent, env: &Env, dt: f32, ev: &mut Vec<
     }
 
     // ---- into the water? -------------------------------------------------------------------
-    let d = env.water_depth(a.pos.x, a.pos.z);
+    let d = env.water_level(a.pos.x, a.pos.z).map_or(0.0, |level| (level - a.pos.y).max(0.0));
     if d > 1.15 && a.on_ground {
         if let Some(l) = env.water_level(a.pos.x, a.pos.z) {
             a.mode = MoveMode::Swim;
@@ -783,6 +784,30 @@ mod tests {
             }
         }
         assert_eq!(a.mode, MoveMode::Ground, "should wade out at the shore (pos {:?})", a.pos);
+    }
+
+    #[test]
+    fn a_bridge_above_deep_water_stays_walkable_at_full_running_speed() {
+        let w = world();
+        let (mut a, mut pieces) = setup();
+        let lake = &w.layout.lakes[0];
+        let y = lake.level + 3.0;
+        assert!(w.hm.height_at(lake.center.x, lake.center.y) < lake.level - 1.15);
+        pieces.insert(crate::world::collision::Collider::aabb_box(
+            Vec3::new(lake.center.x - 12.0, y - 0.25, lake.center.y - 12.0),
+            Vec3::new(lake.center.x + 12.0, y, lake.center.y + 12.0),
+            crate::world::collision::Tag::Piece(0),
+        ));
+        let env = Env::new(w, &pieces);
+        a.pos = Vec3::new(lake.center.x, y, lake.center.y);
+        a.on_ground = true;
+        a.mode = MoveMode::Ground;
+        let start = a.pos;
+        run(&mut a, &Intent { wish: Vec2::X, ..Default::default() }, &env, 1.0);
+        assert_eq!(a.mode, MoveMode::Ground, "water below the floor must not engage swimming");
+        assert!((a.pos.y - y).abs() < 0.01);
+        assert!(a.speed_xz() > RUN_SPEED * 0.95);
+        assert!(a.pos.x - start.x > 5.5);
     }
 
     #[test]

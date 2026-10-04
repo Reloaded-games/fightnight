@@ -2,7 +2,7 @@
 import { RARITY, RARITY_DARK, AMMO_NAMES, MAT_COLORS, MAT_NAMES, PIECE_NAMES, drawItem, drawWeapon, drawAmmo, drawMaterial, drawPiece, drawSkull, drawPerson, drawStorm } from './icons.js';
 
 const FONT = '"Burbank Big Condensed","Bebas Neue","Oswald","Impact","Haettenschweiler","Arial Narrow Bold","Arial Narrow",system-ui,sans-serif';
-const WORLD = 1280;
+const WORLD = 1920; // matches fn_core::world::WORLD_SIZE
 const STORM_PHASES = 7; // matches PHASES in matchflow.rs
 
 // What each hotbar slot is, written under its icon (same order as WeaponKind::ALL / ConsumableKind::ALL in the game).
@@ -214,6 +214,7 @@ export class Hud {
       if (slot && slot.t === 'c') this.text(String(slot.c), x + w - 6 * S, y + 18 * S, 19 * S, '#fff', 'right');
     }
     // materials
+    if (s.gameMode === 'zero-build') return;
     const mx = x0 + total + 26 * S;
     for (let i = 0; i < 3; i++) {
       const act = s.build.on && s.build.mat === i;
@@ -233,6 +234,12 @@ export class Hud {
   // ---- ammo / building pieces ------------------------------------------------------------------------------------
   ammo(s, W, H, S) {
     const x = W - 40 * S, y = H - 60 * S;
+    if (s.vehicle) {
+      this.text('ISLAND BUGGY', x, y - 54 * S, 26 * S, '#ffe94a', 'right');
+      this.text(`${Math.round(Math.abs(s.vehicle.speed))} km/h`, x, y + 4 * S, 52 * S, '#fff', 'right');
+      this.text('WASD drive · Shift boost · Space brake · E exit', x, y + 32 * S, 18 * S, '#d2eaff', 'right');
+      return;
+    }
     if (s.build.on) {
       // piece picker
       const keys = ['Z', 'X', 'C', 'V'];
@@ -270,6 +277,7 @@ export class Hud {
 
   // ---- crosshair ------------------------------------------------------------------------------------------------------
   crosshair(s, W, H, S) {
+    if (s.vehicle) return;
     const ctx = this.ctx;
     const cx = W / 2, cy = H / 2;
     const w = s.wep;
@@ -409,6 +417,14 @@ export class Hud {
 
   /** Storm circles, bus route and so on, shared by the minimap and the full map. */
   mapOverlays(ctx, s, toX, toY, scale, half, mini, S) {
+    for (const car of s.vehicles || []) {
+      if (mini && car.occupied) continue;
+      const x = toX(car.x), y = toY(car.z), size = (mini ? 3.5 : 4.5) * S;
+      ctx.fillStyle = car.occupied ? '#ffbd66' : '#70efff';
+      ctx.strokeStyle = '#0a2440'; ctx.lineWidth = 1.5 * S;
+      ctx.fillRect(x - size, y - size * 0.6, size * 2, size * 1.2);
+      ctx.strokeRect(x - size, y - size * 0.6, size * 2, size * 1.2);
+    }
     const st = s.storm;
     if (st.on) {
       // purple storm outside the current circle
@@ -535,6 +551,7 @@ export class Hud {
 
   // ---- prompts ------------------------------------------------------------------------------------------------------------------------------
   prompt(s, W, H, S) {
+    if (s.vehicle) return; // driving controls already include E to exit
     const p = s.prompt;
     if (!p || s.mode === 'bus' || s.mode === 'freefall' || s.mode === 'glide') return;
     const w = 300 * S, h = 62 * S, x = W / 2 - w / 2 + 120 * S, y = H / 2 + 60 * S;
@@ -544,7 +561,7 @@ export class Hud {
     // key cap
     this.skew(x + 18 * S, y + 14 * S, 34 * S, 34 * S, '#fff', -0.15);
     this.text('E', x + 35 * S, y + 42 * S, 28 * S, '#10163d', 'center', { shadow: false });
-    this.text(p.kind === 'chest' ? 'OPEN CHEST' : p.kind === 'w' ? 'PICK UP' : 'COLLECT', x + 66 * S, y + 24 * S, 15 * S, '#b9c9ff');
+    this.text(p.kind === 'vehicle' ? 'VEHICLE' : p.kind === 'chest' ? 'OPEN CHEST' : p.kind === 'w' ? 'PICK UP' : 'COLLECT', x + 66 * S, y + 24 * S, 15 * S, '#b9c9ff');
     this.text(p.txt + (p.cnt > 1 ? `  x${p.cnt}` : ''), x + 66 * S, y + 50 * S, 24 * S, col);
   }
 

@@ -60,13 +60,13 @@ export function createMultiplayer(ctx) {
     fn.net_host_open(ctx.name());
     ctx.show('mp', false);
     ctx.show('lobby');
-    $('lobby-title').textContent = 'Your room';
+    $('lobby-title').textContent = 'Your room · You are the host';
     $('lobby-host').classList.remove('hidden');
     $('lobby-guest').classList.add('hidden');
     $('btn-lobby-start').classList.remove('hidden');
     $('invites').innerHTML = '';
     invites = 0;
-    msg('');
+    msg('You created this room. Your browser hosts the game and chooses the mode. Keep this tab open while everyone plays.');
     addInvite();
     startPolling();
   }
