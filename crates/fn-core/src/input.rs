@@ -235,6 +235,41 @@ mod tests {
     }
 
     #[test]
+    fn every_documented_key_maps_to_its_action() {
+        // the README controls table, key by key
+        let mut i = Input::new();
+        for (code, piece) in [("KeyZ", PieceKind::Wall), ("KeyX", PieceKind::Floor), ("KeyC", PieceKind::Ramp), ("KeyV", PieceKind::Roof)] {
+            i.key(code, true);
+            assert_eq!(i.take(0.002, false).piece, Some(piece), "{code}");
+            i.key(code, false);
+        }
+        for (n, code) in ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"].into_iter().enumerate() {
+            i.key(code, true);
+            assert_eq!(i.take(0.002, false).select, Some(n), "{code}");
+            i.key(code, false);
+        }
+        i.key("KeyQ", true);
+        i.key("KeyT", true);
+        i.key("KeyE", true);
+        i.key("KeyG", true);
+        let p = i.take(0.002, false);
+        assert!(p.toggle_build && p.cycle_mat && p.interact && p.drop_selected);
+        assert!(!i.take(0.002, false).toggle_build, "edges fire once");
+        i.key("Space", true);
+        let p = i.take(0.002, false);
+        assert!(p.jump && p.exit_bus && p.deploy, "Space jumps, leaves the bus and opens the glider");
+        i.key("Space", false);
+        i.key("ShiftLeft", true);
+        assert!(i.take(0.002, false).sprint);
+        i.button(2, true);
+        assert!(i.take(0.002, false).ads);
+        i.wheel(120.0);
+        assert_eq!(i.take(0.002, false).cycle, 1);
+        i.wheel(-120.0);
+        assert_eq!(i.take(0.002, false).cycle, -1);
+    }
+
+    #[test]
     fn build_and_slot_keys() {
         let mut i = Input::new();
         i.key("KeyZ", true);
