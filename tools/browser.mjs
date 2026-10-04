@@ -57,13 +57,13 @@ function flagSet(name) {
   return COMMON.concat(sets[name] || sets.default);
 }
 
-export async function launch({ width = 1280, height = 720, headless = true } = {}) {
+export async function launch({ width = 1280, height = 720, headless = true, dpr = +(process.env.FN_DPR || 1) } = {}) {
   const browser = await chromium.launch({
     executablePath: findChrome(),
     headless,
     args: flagSet(process.env.FN_FLAGS || 'default'),
   });
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr });
   const page = await context.newPage();
   const logs = [];
   page.on('console', (m) => { logs.push(`[${m.type()}] ${m.text()}`); });

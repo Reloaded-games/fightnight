@@ -261,7 +261,6 @@ impl Inventory {
 
 /// A rough power rating used by bots to choose what to carry.
 pub fn weapon_score(kind: WeaponKind, rarity: Rarity) -> f32 {
-    let d = kind.def();
     let base = match kind {
         WeaponKind::AssaultRifle => 100.0,
         WeaponKind::Shotgun => 92.0,
@@ -270,7 +269,6 @@ pub fn weapon_score(kind: WeaponKind, rarity: Rarity) -> f32 {
         WeaponKind::RocketLauncher => 70.0,
         WeaponKind::Pistol => 50.0,
     };
-    let _ = d;
     base * (1.0 + rarity.index() as f32 * 0.18)
 }
 

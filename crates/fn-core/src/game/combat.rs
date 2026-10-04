@@ -76,11 +76,9 @@ impl Game {
         let env = Env::new(&self.world, &self.pieces.grid);
         let mut best_t = range;
         let mut hit = TraceHit::None;
-        let mut normal_hit: Option<RayHit> = None;
         if let Some(h) = env.raycast(origin, dir, range, true) {
             best_t = h.t;
             hit = TraceHit::Env(h);
-            normal_hit = Some(h);
         }
         for a in &self.actors {
             if !a.alive || a.id == shooter || a.mode == MoveMode::Bus {
@@ -116,7 +114,6 @@ impl Game {
                 _ => {}
             }
         }
-        let _ = normal_hit;
         Trace { t: best_t, hit, point: origin + dir * best_t }
     }
 
@@ -503,8 +500,7 @@ impl Game {
 
     pub fn damage_piece(&mut self, id: u32, amount: f32, _by: Option<usize>) {
         let pos_mat = self.pieces.get(id).map(|p| (shape_center(p), p.mat));
-        if let Some(p) = self.pieces.damage(id, amount) {
-            let _ = p;
+        if self.pieces.damage(id, amount).is_some() {
             if let Some((pos, mat)) = pos_mat {
                 self.events.push(Event::PieceDestroyed { pos, mat });
             }

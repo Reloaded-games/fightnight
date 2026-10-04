@@ -567,12 +567,10 @@ impl App {
                 let p = g.actors[PLAYER].pos;
                 let yaw = g.actors[PLAYER].yaw;
                 let f = yaw_forward(yaw);
-                let r = yaw_right(yaw);
                 let base = p + f * 9.0;
                 let (cx, cz) = cell_of(base);
                 let y0 = g.world.hm.height_at(cx as f32 * TILE + TILE * 0.5, cz as f32 * TILE + TILE * 0.5);
                 let mats = [Mat::Wood, Mat::Stone, Mat::Metal];
-                let _ = r;
                 // a little fort: floor, 3 walls, ramp up the side, a roof
                 let mut n = 0;
                 for (i, m) in mats.iter().enumerate() {
@@ -586,8 +584,6 @@ impl App {
                     }
                     let key = PieceKey { kind: PieceKind::Ramp, x, z: cz + 1, level: 0, dir: 3 };
                     g.pieces.insert(key, *m, y0, PLAYER);
-                    let key = PieceKey { kind: PieceKind::Wall, x, z: cz + 1, level: 0, dir: 0 };
-                    let _ = key;
                 }
                 format!("placed {n}")
             }

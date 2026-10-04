@@ -1260,7 +1260,6 @@ impl Brain {
             return;
         }
         let a = &g.actors[i];
-        let near = a.pos.distance(tpos + Vec3::Y * 0.0);
         let reach = INTERACT_RANGE - 0.7;
         let center = a.pos + Vec3::Y * 0.9;
         if center.distance(tpos) < reach && self.interact_cd <= 0.0 {
@@ -1290,7 +1289,6 @@ impl Brain {
             }
             return;
         }
-        let _ = near;
         let (wish, _arrived) = self.walk_to(g, i, tpos, reach * 0.6);
         let a = &g.actors[i];
         let wish = self.unstick(a, wish, true, dt, it);
