@@ -822,7 +822,34 @@ mod monkey {
         assert!(g.projectiles.len() < 200);
     }
 
+    /// Everything the renderer and the audio engine are handed must stay finite and bounded.
+    fn check_outputs(scene: &scene::Scene, seed: u64, step: usize) {
+        for i in &scene.instances {
+            for v in i.m0.iter().chain(&i.m1).chain(&i.m2).chain(&i.color).chain(&i.params) {
+                assert!(v.is_finite(), "seed {seed} step {step}: non-finite instance {i:?}");
+            }
+        }
+        for p in scene.particles.iter().chain(&scene.particles_add) {
+            for v in p.a.iter().chain(&p.b).chain(&p.color).chain(&p.c) {
+                assert!(v.is_finite(), "seed {seed} step {step}: non-finite particle {p:?}");
+            }
+        }
+        assert!(scene.instances.len() < 12_000, "seed {seed} step {step}: {} instances", scene.instances.len());
+        assert!(scene.particles.len() + scene.particles_add.len() < 12_000, "seed {seed} step {step}: {} particles", scene.particles.len() + scene.particles_add.len());
+        let mut next = 0;
+        for b in &scene.batches {
+            assert_eq!(b.first, next, "seed {seed} step {step}: batches must be contiguous");
+            next += b.count;
+        }
+        assert_eq!(next as usize, scene.instances.len());
+    }
+
     fn run(seed: u64, bots: usize, seconds: f32, skip_bus: bool) {
+        static MESHES: std::sync::OnceLock<Vec<crate::mesh::MeshData>> = std::sync::OnceLock::new();
+        let meshes = MESHES.get_or_init(crate::meshlib::build_all);
+        let mut scene = scene::Scene::new(meshes);
+        let mut mixer = audio_map::Mixer::new();
+        let mut cues = vec![];
         let mut g = game_cfg(GameConfig { bots, skip_bus, seed, storm_speed: 3.0, god_mode: false, ..Default::default() });
         let mut rng = Rng::new(seed * 31 + 7);
         let dt = 1.0 / 30.0;
@@ -833,6 +860,15 @@ mod monkey {
             g.update(dt, &input);
             if step % 15 == 0 {
                 check(&g, seed, step);
+                let cam = g.camera(1.7);
+                scene.build(&g, &cam);
+                check_outputs(&scene, seed, step);
+                cues.clear();
+                mixer.process(&g, &cam, &mut cues);
+                assert!(cues.len() < 400, "seed {seed} step {step}: {} audio cues in one frame", cues.len());
+                for c in &cues {
+                    assert!(c.gain.is_finite() && c.pan.is_finite() && c.pitch.is_finite() && c.lowpass.is_finite() && c.delay.is_finite(), "seed {seed} step {step}: bad cue {c:?}");
+                }
             }
             if g.phase == Phase::Over && g.actors[PLAYER].dead_time > 5.0 {
                 break;
