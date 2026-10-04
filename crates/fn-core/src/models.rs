@@ -45,26 +45,80 @@ fn grey(v: f32) -> Vec3 {
 // Characters
 // =======================================================================================
 
+const CHEST_C: Vec3 = Vec3::new(0.0, 0.345, 0.0);
+const CHEST_R: Vec3 = Vec3::new(0.235, 0.21, 0.145);
+const WAIST_C: Vec3 = Vec3::new(0.0, 0.11, 0.0);
+const WAIST_R: Vec3 = Vec3::new(0.175, 0.14, 0.125);
+
+/// Z of the front (-Z) surface of the torso at sideways offset `x` and height `y` (0 when outside the body).
+fn torso_front_z(x: f32, y: f32) -> f32 {
+    let ell = |c: Vec3, r: Vec3| {
+        let (dx, dy) = ((x - c.x) / r.x, (y - c.y) / r.y);
+        let k = 1.0 - dx * dx - dy * dy;
+        if k > 0.0 {
+            c.z - r.z * k.sqrt()
+        } else {
+            0.0
+        }
+    };
+    ell(CHEST_C, CHEST_R).min(ell(WAIST_C, WAIST_R))
+}
+
+/// A box with rounded vertical edges: a plus-shaped pair of boxes with a cylinder in each corner.
+fn rounded_prism(b: &mut MeshBuilder, c: Vec3, half: Vec3, r: f32, seg: u32) {
+    let r = r.min(half.x).min(half.z) * 0.999;
+    b.box_faces(c - Vec3::new(half.x, half.y, half.z - r), c + Vec3::new(half.x, half.y, half.z - r), 0b001111);
+    b.box_faces(c - Vec3::new(half.x - r, half.y, half.z), c + Vec3::new(half.x - r, half.y, half.z), 0b111100);
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            b.cylinder(c + Vec3::new(sx * (half.x - r), -half.y, sz * (half.z - r)), r, r, half.y * 2.0, seg, false, true);
+        }
+    }
+}
+
 pub fn char_torso() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH);
     // waist and belly
     b.color(grey(0.94)).ao(0.7, 1.0);
-    b.blob(Vec3::new(0.0, 0.11, 0.0), Vec3::new(0.175, 0.14, 0.125), 2, 0.0, 0, true);
+    b.blob(WAIST_C, WAIST_R, 2, 0.0, 0, true);
     // chest and shoulders: one broad ellipsoid
     b.color(grey(1.0)).ao(0.8, 1.0);
-    b.blob(Vec3::new(0.0, 0.345, 0.0), Vec3::new(0.235, 0.21, 0.145), 2, 0.0, 0, true);
+    b.blob(CHEST_C, CHEST_R, 2, 0.0, 0, true);
     // shoulder caps
     b.color(grey(0.97));
     for s in [-1.0f32, 1.0] {
-        b.sphere(Vec3::new(s * SHOULDER_X * 0.97, SHOULDER_Y, 0.0), 0.082, 2);
+        b.sphere(Vec3::new(s * SHOULDER_X * 0.97, SHOULDER_Y, 0.0), 0.082, 1);
     }
     // collar band + neck
     b.color(grey(0.72)).ao(0.8, 1.0);
     b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.02, 0.0), 0.092, 0.075, 0.05, 12, false, true);
     b.mat(mat::SKIN).color(grey(1.0));
     b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.05, 0.0), 0.06, 0.055, NECK_Y - SHOULDER_Y - 0.03, 10, false, false);
+    // chest pockets with flaps (a darker shade of the shirt)
+    b.mat(mat::CLOTH).color(grey(0.8)).ao(0.8, 1.0);
+    for s in [-1.0f32, 1.0] {
+        let (x, y) = (s * 0.105, 0.285);
+        let z = torso_front_z(x, y) - 0.004;
+        b.push_xf(Mat4::from_translation(Vec3::new(x, y, z)) * rot_x(0.12));
+        b.box_center(Vec3::ZERO, Vec3::new(0.05, 0.036, 0.011));
+        b.pop_xf();
+    }
+    // zipper line down the front, with a pull tab
+    b.mat(mat::METAL).tinted(false).hex(0x30333a).ao(1.0, 1.0);
+    for k in 0..9 {
+        let y = 0.07 + k as f32 * 0.043;
+        b.box_center(Vec3::new(0.0, y, torso_front_z(0.0, y) - 0.004), Vec3::new(0.007, 0.021, 0.006));
+    }
+    b.hex(0xd9d4c4);
+    b.box_center(Vec3::new(0.0, 0.47, torso_front_z(0.0, 0.47) - 0.008), Vec3::new(0.012, 0.016, 0.006));
+    // pocket buttons
+    b.hex(0xe9e4d4);
+    for s in [-1.0f32, 1.0] {
+        let (x, y) = (s * 0.105, 0.262);
+        b.box_center(Vec3::new(x, y, torso_front_z(x, y) - 0.017), Vec3::new(0.009, 0.009, 0.004));
+    }
     b.finish()
 }
 
@@ -74,18 +128,34 @@ pub fn char_trim() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.8, 1.0);
-    // shoulder pads
+    // shoulder pads: a cap with a darker rim
     for s in [-1.0f32, 1.0] {
+        b.color(grey(1.0));
         b.blob(Vec3::new(s * (SHOULDER_X + 0.012), SHOULDER_Y + 0.045, 0.0), Vec3::new(0.088, 0.062, 0.095), 2, 0.0, 0, true);
+        b.color(grey(0.74));
+        b.push_xf(Mat4::from_translation(Vec3::new(s * (SHOULDER_X + 0.02), SHOULDER_Y + 0.0, 0.0)) * Mat4::from_rotation_z(-s * 0.35));
+        b.cylinder(Vec3::new(0.0, -0.01, 0.0), 0.086, 0.09, 0.03, 12, false, false);
+        b.pop_xf();
     }
     // chest band
     b.color(grey(0.95));
     b.push_xf(Mat4::from_scale(Vec3::new(1.0, 1.0, 0.64)));
     b.cylinder(Vec3::new(0.0, 0.215, 0.0), 0.222, 0.228, 0.05, 16, false, false);
     b.pop_xf();
-    // collar
+    // collar, with a standing back
     b.color(grey(0.9));
     b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.0, 0.0), 0.097, 0.082, 0.06, 14, false, false);
+    // a chest badge: a small diamond with a light centre
+    let (bx, by) = (0.1f32, 0.375f32);
+    let bz = torso_front_z(bx, by) - 0.006;
+    b.color(grey(0.9));
+    b.push_xf(Mat4::from_translation(Vec3::new(bx, by, bz)) * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_4));
+    b.box_center(Vec3::ZERO, Vec3::new(0.026, 0.026, 0.008));
+    b.pop_xf();
+    b.tinted(false).mat(mat::FLAT).hex(0xfaf6ea);
+    b.push_xf(Mat4::from_translation(Vec3::new(bx, by, bz - 0.006)) * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_4));
+    b.box_center(Vec3::ZERO, Vec3::new(0.013, 0.013, 0.004));
+    b.pop_xf();
     b.finish()
 }
 
@@ -100,6 +170,19 @@ pub fn char_pelvis() -> MeshData {
     b.pop_xf();
     b.mat(mat::METAL).tinted(false).color(Vec3::new(0.86, 0.78, 0.5));
     b.box_center(Vec3::new(0.0, 0.058, -0.13), Vec3::new(0.04, 0.026, 0.009));
+    b.color(Vec3::new(0.3, 0.28, 0.24));
+    b.box_center(Vec3::new(0.0, 0.058, -0.1395), Vec3::new(0.022, 0.012, 0.003));
+    // belt pouches on the hips (leather, a darker shade than the belt)
+    b.mat(mat::CLOTH).hex(0x4a3a2c).ao(0.8, 1.0);
+    for s in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(s * 0.152, 0.0, -0.062), Vec3::new(0.034, 0.05, 0.036));
+        b.hex(0x6a5338);
+        b.box_center(Vec3::new(s * 0.152, 0.042, -0.062), Vec3::new(0.037, 0.014, 0.039));
+        b.hex(0x4a3a2c);
+    }
+    // the back of the belt carries a small buckle strap
+    b.color(grey(0.2));
+    b.box_center(Vec3::new(0.0, 0.03, 0.128), Vec3::new(0.05, 0.026, 0.006));
     b.finish()
 }
 
@@ -112,54 +195,151 @@ pub fn char_head() -> MeshData {
     // jaw / chin
     b.blob(c + Vec3::new(0.0, -0.06, -0.02), Vec3::new(0.115, 0.09, 0.12), 2, 0.0, 0, true);
     // nose and ears
-    b.sphere(c + Vec3::new(0.0, -0.012, -0.152), 0.03, 2);
+    b.sphere(c + Vec3::new(0.0, -0.012, -0.152), 0.03, 1);
+    b.sphere(c + Vec3::new(0.0, -0.034, -0.14), 0.017, 0);
     for s in [-1.0f32, 1.0] {
         b.sphere(c + Vec3::new(s * 0.152, -0.005, 0.01), 0.036, 1);
+    }
+    // rosy cheeks (a warm shade of whatever the skin is)
+    b.color(Vec3::new(1.0, 0.82, 0.8)).ao(1.0, 1.0);
+    for s in [-1.0f32, 1.0] {
+        b.push_xf(Mat4::from_translation(c + Vec3::new(s * 0.088, -0.04, -0.128)) * Mat4::from_rotation_y(s * 0.55));
+        b.blob(Vec3::ZERO, Vec3::new(0.028, 0.02, 0.012), 1, 0.0, 0, true);
+        b.pop_xf();
     }
     // eyes (kept untinted so they stay white and dark whatever the skin tone)
     b.tinted(false).mat(mat::FLAT);
     for s in [-1.0f32, 1.0] {
-        b.color(grey(0.98));
-        b.box_center(c + Vec3::new(s * 0.062, 0.025, -0.1435), Vec3::new(0.034, 0.027, 0.012));
-        b.color(Vec3::new(0.1, 0.16, 0.3));
-        b.box_center(c + Vec3::new(s * 0.062 - s * 0.004, 0.02, -0.152), Vec3::new(0.019, 0.022, 0.007));
-        b.color(Vec3::new(0.05, 0.05, 0.08));
-        b.box_center(c + Vec3::new(s * 0.062 - s * 0.004, 0.02, -0.1575), Vec3::new(0.0095, 0.012, 0.004));
+        // white, a little rounder than a plain box: a wide box plus a taller inner one
+        b.color(grey(0.99));
+        b.box_center(c + Vec3::new(s * 0.062, 0.025, -0.1435), Vec3::new(0.034, 0.025, 0.012));
+        b.box_center(c + Vec3::new(s * 0.062, 0.025, -0.1435), Vec3::new(0.028, 0.031, 0.0115));
+        // iris, pupil and a glint
+        b.color(Vec3::new(0.16, 0.3, 0.5));
+        b.box_center(c + Vec3::new(s * 0.062 - s * 0.004, 0.021, -0.152), Vec3::new(0.019, 0.023, 0.007));
+        b.color(Vec3::new(0.04, 0.05, 0.08));
+        b.box_center(c + Vec3::new(s * 0.062 - s * 0.004, 0.021, -0.1578), Vec3::new(0.0095, 0.013, 0.004));
+        b.color(grey(1.0));
+        b.box_center(c + Vec3::new(s * 0.062 - s * 0.009, 0.03, -0.1612), Vec3::new(0.0045, 0.0045, 0.002));
+        // upper lid line and brow, tilted so the outer end rises
+        b.color(Vec3::new(0.12, 0.09, 0.08));
+        b.box_center(c + Vec3::new(s * 0.062, 0.05, -0.1468), Vec3::new(0.037, 0.005, 0.006));
+        b.push_xf(Mat4::from_translation(c + Vec3::new(s * 0.064, 0.074, -0.1465)) * Mat4::from_rotation_z(-s * 0.07));
         b.color(Vec3::new(0.22, 0.15, 0.1));
-        b.box_center(c + Vec3::new(s * 0.062, 0.068, -0.145), Vec3::new(0.038, 0.008, 0.008));
+        b.box_center(Vec3::ZERO, Vec3::new(0.04, 0.0085, 0.008));
+        b.pop_xf();
     }
-    // smile
-    b.color(Vec3::new(0.6, 0.22, 0.22));
-    b.box_center(c + Vec3::new(0.0, -0.082, -0.14), Vec3::new(0.034, 0.007, 0.008));
-    b.box_center(c + Vec3::new(-0.04, -0.074, -0.138), Vec3::new(0.008, 0.007, 0.008));
-    b.box_center(c + Vec3::new(0.04, -0.074, -0.138), Vec3::new(0.008, 0.007, 0.008));
+    // smile: a shallow curve of small segments with a lighter lip line under it
+    b.color(Vec3::new(0.5, 0.17, 0.17));
+    for k in -3..=3i32 {
+        let t = k as f32 / 3.0;
+        b.box_center(c + Vec3::new(t * 0.036, -0.084 + t * t * 0.01, -0.1405), Vec3::new(0.0068, 0.0048, 0.008));
+    }
+    b.color(Vec3::new(0.86, 0.46, 0.42));
+    b.box_center(c + Vec3::new(0.0, -0.095, -0.138), Vec3::new(0.014, 0.0035, 0.006));
     b.finish()
 }
 
+/// Part of an ellipsoid shell around `c`, open at the bottom. Azimuth `t` is 0 at the front (-Z) and grows toward
+/// +X; each column runs from polar angle `from(t)` to `to(t)` (0 is straight up, PI/2 the equator). Used for hair
+/// lines, caps and helmets whose lower rim follows the head.
+#[allow(clippy::too_many_arguments)]
+fn dome(b: &mut MeshBuilder, c: Vec3, r: Vec3, rings: u32, seg: u32, from: &dyn Fn(f32) -> f32, to: &dyn Fn(f32) -> f32, ao_lo: f32) {
+    let mut ids: Vec<Vec<u32>> = Vec::new();
+    for i in 0..=seg {
+        let t = (i % seg) as f32 / seg as f32 * TAU_F;
+        let (st, ct) = t.sin_cos();
+        let (f0, f1) = (from(t), to(t));
+        let mut col = Vec::new();
+        for j in 0..=rings {
+            let phi = f0 + (f1 - f0) * j as f32 / rings as f32;
+            let (sp, cp) = phi.sin_cos();
+            let d = Vec3::new(sp * st, cp, -sp * ct);
+            let n = Vec3::new(d.x / r.x, d.y / r.y, d.z / r.z).normalize_or_zero();
+            let ao = ao_lo + (1.0 - ao_lo) * ((cp * 0.5 + 0.5).clamp(0.0, 1.0));
+            col.push(b.vert(c + d * r, n, ao));
+        }
+        ids.push(col);
+    }
+    for i in 0..seg as usize {
+        for j in 0..rings as usize {
+            b.quad(ids[i][j], ids[i + 1][j], ids[i + 1][j + 1], ids[i][j + 1]);
+        }
+    }
+}
+
+/// Head centre and size (what `char_head` is built from), for hair and hats to wrap.
+const HEAD_CTR: Vec3 = Vec3::new(0.0, dims::HEAD_C + 0.01, 0.0);
+const HEAD_RAD: Vec3 = Vec3::new(0.15, 0.165, 0.155);
+
+/// A hairline: low at the back, high on the forehead.
+fn hairline(front: f32, back: f32) -> impl Fn(f32) -> f32 {
+    move |t: f32| {
+        let k = (t * 0.5).sin().powi(2);
+        front + (back - front) * k
+    }
+}
+
 pub fn hair(style: u8) -> MeshData {
-    use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
-    let c = Vec3::new(0.0, HEAD_C, 0.0);
+    let c = HEAD_CTR;
+    let shell = HEAD_RAD + Vec3::splat(0.012);
+    let top = |_t: f32| 0.0;
     match style {
         1 => {
-            // short crop: covers the crown and the back of the head
-            b.blob(c + Vec3::new(0.0, 0.045, 0.012), Vec3::new(0.146, 0.125, 0.152), 2, 0.05, 3, true);
-            b.blob(c + Vec3::new(0.0, 0.1, -0.06), Vec3::new(0.12, 0.05, 0.07), 1, 0.05, 5, true);
+            // short crop: a close shell with a low hairline, a swept fringe, sideburns and a tuft
+            b.color(grey(1.0));
+            dome(&mut b, c, shell, 7, 22, &top, &hairline(0.95, 1.9), 0.7);
+            b.color(grey(0.93));
+            for (k, x) in [-0.075f32, -0.025, 0.03, 0.082].iter().enumerate() {
+                b.push_xf(Mat4::from_translation(c + Vec3::new(*x, 0.105 - (k % 2) as f32 * 0.008, -0.114)) * Mat4::from_rotation_z(0.2 - k as f32 * 0.12));
+                b.blob(Vec3::ZERO, Vec3::new(0.046, 0.034, 0.03), 1, 0.08, 11 + k as u32, true);
+                b.pop_xf();
+            }
+            b.color(grey(0.86));
+            for s in [-1.0f32, 1.0] {
+                b.blob(c + Vec3::new(s * 0.148, 0.01, -0.03), Vec3::new(0.016, 0.05, 0.038), 1, 0.05, 21, true);
+            }
+            b.color(grey(1.0));
+            b.blob(c + Vec3::new(0.0, 0.155, -0.02), Vec3::new(0.07, 0.034, 0.09), 1, 0.12, 23, true);
         }
         2 => {
-            // long hair falling over the shoulders
-            b.blob(c + Vec3::new(0.0, 0.045, 0.012), Vec3::new(0.148, 0.128, 0.155), 2, 0.05, 3, true);
+            // long hair falling over the shoulders, with a swept fringe
+            b.color(grey(1.0));
+            dome(&mut b, c, shell, 7, 22, &top, &hairline(0.95, 2.05), 0.7);
+            b.color(grey(0.9));
             b.blob(c + Vec3::new(0.0, -0.1, 0.07), Vec3::new(0.135, 0.2, 0.085), 2, 0.04, 9, true);
-            b.blob(c + Vec3::new(0.0, 0.1, -0.06), Vec3::new(0.12, 0.05, 0.07), 1, 0.05, 5, true);
+            for s in [-1.0f32, 1.0] {
+                b.color(grey(0.85));
+                b.blob(c + Vec3::new(s * 0.128, -0.06, 0.0), Vec3::new(0.032, 0.14, 0.07), 1, 0.04, 14, true);
+                b.color(grey(1.0));
+                b.push_xf(Mat4::from_translation(c + Vec3::new(s * 0.06, 0.105, -0.114)) * Mat4::from_rotation_z(s * 0.5));
+                b.blob(Vec3::ZERO, Vec3::new(0.068, 0.034, 0.03), 1, 0.06, 17, true);
+                b.pop_xf();
+            }
         }
         3 => {
-            // ponytail
-            b.blob(c + Vec3::new(0.0, 0.045, 0.012), Vec3::new(0.146, 0.125, 0.152), 2, 0.05, 3, true);
-            b.blob(c + Vec3::new(0.0, 0.1, -0.06), Vec3::new(0.12, 0.05, 0.07), 1, 0.05, 5, true);
-            b.sphere(c + Vec3::new(0.0, 0.06, 0.16), 0.045, 1);
-            b.push_xf(Mat4::from_translation(c + Vec3::new(0.0, 0.05, 0.17)) * rot_x(PI * 0.62));
-            b.cylinder(Vec3::ZERO, 0.04, 0.012, 0.3, 8, false, false);
+            // ponytail: swept-back cap, a tie in a contrasting colour and a swishing tail
+            b.color(grey(1.0));
+            dome(&mut b, c, shell, 7, 22, &top, &hairline(0.9, 1.85), 0.7);
+            b.color(grey(0.95));
+            b.push_xf(Mat4::from_translation(c + Vec3::new(0.0, 0.108, -0.114)));
+            b.blob(Vec3::ZERO, Vec3::new(0.105, 0.032, 0.03), 1, 0.06, 15, true);
+            b.pop_xf();
+            let base = c + Vec3::new(0.0, 0.03, 0.15);
+            b.color(grey(1.0));
+            b.sphere(base, 0.05, 1);
+            let mut p = base + Vec3::new(0.0, -0.01, 0.04);
+            for (k, (dy, dz, r)) in [(-0.04f32, 0.045f32, 0.048f32), (-0.07, 0.03, 0.044), (-0.085, 0.01, 0.038), (-0.075, -0.015, 0.03)].iter().enumerate() {
+                p += Vec3::new(0.0, *dy, *dz);
+                b.color(grey(1.0 - k as f32 * 0.05));
+                b.blob(p, Vec3::new(*r, *r * 1.35, *r), 1, 0.05, 31 + k as u32, true);
+            }
+            // tie
+            b.tinted(false).mat(mat::FLAT).hex(0xf2f0e8);
+            b.push_xf(Mat4::from_translation(base + Vec3::new(0.0, -0.01, 0.045)) * rot_x(0.3));
+            b.cylinder(Vec3::new(0.0, -0.015, 0.0), 0.034, 0.034, 0.03, 8, false, false);
             b.pop_xf();
         }
         _ => {}
@@ -168,46 +348,97 @@ pub fn hair(style: u8) -> MeshData {
 }
 
 pub fn headgear(kind: u8) -> MeshData {
-    use dims::*;
     let mut b = MeshBuilder::new();
-    let c = Vec3::new(0.0, HEAD_C, 0.0);
+    let c = HEAD_CTR;
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
+    let top = |_t: f32| 0.0;
     match kind {
         1 => {
-            // baseball cap
-            b.blob(c + Vec3::new(0.0, 0.055, 0.0), Vec3::new(0.152, 0.115, 0.158), 2, 0.0, 0, true);
-            b.color(grey(0.8));
-            b.push_xf(Mat4::from_translation(c + Vec3::new(0.0, 0.065, -0.17)) * rot_x(0.12));
-            b.box_center(Vec3::ZERO, Vec3::new(0.1, 0.008, 0.075));
-            b.pop_xf();
+            // baseball cap: a six-panel dome, a curved bill (three flat segments), a button and a logo patch
+            let shell = HEAD_RAD + Vec3::new(0.016, 0.02, 0.018);
+            dome(&mut b, c, shell, 7, 24, &top, &hairline(1.0, 1.5), 0.7);
+            b.color(grey(0.82));
+            for (a, x) in [(-0.62f32, -0.085f32), (0.0, 0.0), (0.62, 0.085)] {
+                b.push_xf(Mat4::from_translation(c + Vec3::new(x, 0.088, -0.168 - a.abs() * 0.04)) * Mat4::from_rotation_y(a) * rot_x(0.14));
+                b.box_center(Vec3::ZERO, Vec3::new(0.055, 0.007, 0.07));
+                b.pop_xf();
+            }
             b.color(grey(0.6)).spec(0.1);
-            b.sphere(c + Vec3::new(0.0, 0.17, 0.0), 0.02, 1);
+            b.sphere(c + Vec3::new(0.0, 0.192, 0.0), 0.02, 1);
+            // a light logo patch on the front
+            b.tinted(false).mat(mat::FLAT).hex(0xf4f0e2);
+            b.push_xf(Mat4::from_translation(c + Vec3::new(0.0, 0.1, -0.1595)) * rot_x(-0.5));
+            b.box_center(Vec3::ZERO, Vec3::new(0.03, 0.022, 0.004));
+            b.pop_xf();
         }
         2 => {
-            // beanie with a bobble
-            b.blob(c + Vec3::new(0.0, 0.06, 0.0), Vec3::new(0.152, 0.13, 0.156), 2, 0.0, 0, true);
+            // beanie: a snug dome, a ribbed turn-up band with a light stripe, a fluffy bobble
+            let shell = HEAD_RAD + Vec3::new(0.014, 0.022, 0.016);
+            let edge = hairline(1.22, 1.72);
+            dome(&mut b, c, shell, 7, 24, &top, &|t| edge(t) - 0.3, 0.7);
             b.color(grey(0.72));
-            b.cylinder(c + Vec3::new(0.0, 0.0, 0.0), 0.156, 0.154, 0.06, 12, false, false);
-            b.color(grey(1.0));
-            b.sphere(c + Vec3::new(0.0, 0.2, 0.0), 0.042, 1);
+            let band = shell + Vec3::splat(0.008);
+            dome(&mut b, c, band, 3, 24, &|t| edge(t) - 0.3, &edge, 0.7);
+            // ribs
+            b.color(grey(0.6));
+            for k in 0..16 {
+                let t = k as f32 / 16.0 * TAU_F;
+                let phi = edge(t) - 0.15;
+                let (sp, cp) = phi.sin_cos();
+                let p = c + Vec3::new(sp * t.sin() * band.x, cp * band.y, -sp * t.cos() * band.z);
+                b.push_xf(Mat4::from_translation(p) * Mat4::from_rotation_y(-t));
+                b.box_center(Vec3::new(0.0, 0.0, -0.004), Vec3::new(0.005, 0.034, 0.005));
+                b.pop_xf();
+            }
+            b.mat(mat::CLOTH).tinted(true).color(grey(1.0));
+            b.blob(c + Vec3::new(0.0, 0.215, 0.0), Vec3::splat(0.048), 1, 0.14, 5, false);
         }
         3 => {
-            // helmet
+            // helmet: a metal shell with a ridge, a brow plate, ear guards, a rim band and a chin strap
             b.mat(mat::METAL).spec(0.7);
-            b.blob(c + Vec3::new(0.0, 0.035, 0.005), Vec3::new(0.168, 0.15, 0.17), 2, 0.0, 0, true);
-            b.color(grey(0.75));
-            b.box_center(c + Vec3::new(0.0, 0.14, 0.0), Vec3::new(0.02, 0.03, 0.17));
-            b.color(grey(0.6));
-            b.push_xf(Mat4::from_translation(c + Vec3::new(0.0, 0.1, -0.17)) * rot_x(0.2));
-            b.box_center(Vec3::ZERO, Vec3::new(0.11, 0.008, 0.05));
+            let shell = HEAD_RAD + Vec3::new(0.024, 0.026, 0.026);
+            dome(&mut b, c, shell, 8, 26, &top, &hairline(0.82, 1.95), 0.65);
+            // a crest along the top, following the curve of the shell
+            b.color(grey(0.72));
+            for k in 0..9 {
+                let phi = -1.3 + k as f32 * 0.29;
+                let p = c + Vec3::new(0.0, phi.cos() * (shell.y + 0.006), -phi.sin() * (shell.z + 0.006));
+                b.push_xf(Mat4::from_translation(p) * rot_x(-phi));
+                b.box_center(Vec3::ZERO, Vec3::new(0.017, 0.012, 0.0345));
+                b.pop_xf();
+            }
+            b.color(grey(0.62));
+            b.push_xf(Mat4::from_translation(c + Vec3::new(0.0, 0.068, -0.172)) * rot_x(0.22));
+            b.box_center(Vec3::ZERO, Vec3::new(0.1, 0.008, 0.05));
             b.pop_xf();
+            // rounded ear guards with a rivet
+            for s in [-1.0f32, 1.0] {
+                b.color(grey(0.82));
+                b.blob(c + Vec3::new(s * 0.166, -0.005, 0.016), Vec3::new(0.022, 0.05, 0.056), 1, 0.0, 0, true);
+                b.tinted(false).mat(mat::METAL).hex(0xd9d9dc);
+                b.sphere(c + Vec3::new(s * 0.186, 0.005, 0.016), 0.011, 1);
+                b.mat(mat::METAL).tinted(true);
+            }
+            // dark chin strap
+            b.tinted(false).mat(mat::CLOTH).hex(0x2a2c31);
+            for s in [-1.0f32, 1.0] {
+                b.box_center(c + Vec3::new(s * 0.158, -0.082, -0.01), Vec3::new(0.008, 0.075, 0.012));
+            }
         }
         4 => {
-            // wide hat
-            b.cylinder(c + Vec3::new(0.0, 0.075, 0.0), 0.27, 0.27, 0.014, 18, true, true);
+            // wide hat: a dished brim with an upturned rim, a pinched crown, a band and a feather
+            b.cylinder(c + Vec3::new(0.0, 0.07, 0.0), 0.2, 0.27, 0.012, 18, true, true);
+            b.cylinder(c + Vec3::new(0.0, 0.074, 0.0), 0.27, 0.285, 0.026, 18, false, false);
             b.cylinder(c + Vec3::new(0.0, 0.075, 0.0), 0.15, 0.125, 0.14, 14, false, true);
-            b.color(grey(0.6));
-            b.cylinder(c + Vec3::new(0.0, 0.082, 0.0), 0.153, 0.151, 0.03, 14, false, false);
+            b.color(grey(0.8));
+            b.blob(c + Vec3::new(0.0, 0.215, 0.0), Vec3::new(0.12, 0.022, 0.12), 1, 0.0, 0, true);
+            b.color(grey(0.55));
+            b.cylinder(c + Vec3::new(0.0, 0.082, 0.0), 0.153, 0.151, 0.034, 14, false, false);
+            // feather
+            b.tinted(false).mat(mat::FLAT).hex(0xf4ede0);
+            b.push_xf(Mat4::from_translation(c + Vec3::new(0.12, 0.1, -0.08)) * Mat4::from_rotation_z(-0.35) * rot_x(0.2));
+            b.blob(Vec3::new(0.0, 0.08, 0.0), Vec3::new(0.012, 0.085, 0.03), 1, 0.0, 0, true);
+            b.pop_xf();
         }
         _ => {}
     }
@@ -219,8 +450,13 @@ pub fn char_arm_up() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.75, 1.0);
     b.cylinder(Vec3::new(0.0, -UPPER_ARM, 0.0), 0.056, 0.068, UPPER_ARM, 10, false, false);
-    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.07, 2);
+    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.07, 1);
     b.sphere(Vec3::new(0.0, -UPPER_ARM, 0.0), 0.058, 2);
+    // sleeve seam below the shoulder pad and a patch on the elbow
+    b.color(grey(0.84));
+    b.cylinder(Vec3::new(0.0, -0.1, 0.0), 0.0675, 0.0665, 0.014, 10, false, false);
+    b.color(grey(0.78));
+    b.blob(Vec3::new(0.0, -UPPER_ARM + 0.01, 0.045), Vec3::new(0.04, 0.045, 0.02), 1, 0.0, 0, true);
     b.finish()
 }
 
@@ -232,14 +468,27 @@ pub fn char_arm_low() -> MeshData {
     // cuff
     b.color(grey(0.72));
     b.cylinder(Vec3::new(0.0, -FOREARM, 0.0), 0.054, 0.054, 0.045, 10, false, true);
+    // a dark strap just above the cuff
+    b.tinted(false).hex(0x2b2e34);
+    b.cylinder(Vec3::new(0.0, -FOREARM + 0.06, 0.0), 0.0535, 0.0545, 0.02, 10, false, false);
     b.finish()
 }
 
 pub fn char_hand() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::SKIN).color(grey(1.0)).ao(0.8, 1.0);
-    b.blob(Vec3::new(0.0, -0.05, 0.0), Vec3::new(0.052, 0.062, 0.045), 2, 0.0, 0, true);
-    b.sphere(Vec3::new(0.0, -0.05, -0.048), 0.027, 1);
+    // palm and a curled block of fingers with three dark grooves between them
+    b.blob(Vec3::new(0.0, -0.045, 0.0), Vec3::new(0.05, 0.05, 0.04), 2, 0.0, 0, true);
+    b.blob(Vec3::new(0.0, -0.088, -0.012), Vec3::new(0.047, 0.03, 0.02), 1, 0.0, 0, true);
+    b.tinted(true).color(grey(0.72));
+    for k in 0..3 {
+        b.box_center(Vec3::new(-0.023 + k as f32 * 0.023, -0.092, -0.0305), Vec3::new(0.0014, 0.022, 0.0035));
+    }
+    // thumb pointing forward along the grip
+    b.color(grey(1.0));
+    b.push_xf(Mat4::from_translation(Vec3::new(0.0, -0.058, -0.04)) * rot_x(-0.5));
+    b.blob(Vec3::ZERO, Vec3::new(0.0165, 0.0165, 0.034), 1, 0.0, 0, true);
+    b.pop_xf();
     b.finish()
 }
 
@@ -248,8 +497,14 @@ pub fn char_leg_up() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
     b.cylinder(Vec3::new(0.0, -THIGH, 0.0), 0.078, 0.098, THIGH, 12, false, false);
-    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.098, 2);
+    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.098, 1);
     b.sphere(Vec3::new(0.0, -THIGH, 0.0), 0.08, 2);
+    // a stitched seam down the front and a hip pocket flap
+    b.color(grey(0.8)).ao(0.8, 1.0);
+    b.box_center(Vec3::new(0.0, -0.2, -0.0865), Vec3::new(0.007, 0.15, 0.004));
+    b.push_xf(Mat4::from_translation(Vec3::new(0.0, -0.1, -0.09)) * rot_x(0.05));
+    b.box_center(Vec3::ZERO, Vec3::new(0.038, 0.032, 0.009));
+    b.pop_xf();
     b.finish()
 }
 
@@ -258,6 +513,12 @@ pub fn char_leg_low() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
     b.cylinder(Vec3::new(0.0, -SHIN, 0.0), 0.062, 0.078, SHIN, 12, false, false);
+    // knee pad: a padded plate at the front, darker than the trousers
+    b.color(grey(0.55)).ao(0.9, 1.0);
+    b.blob(Vec3::new(0.0, -0.02, -0.058), Vec3::new(0.062, 0.058, 0.032), 2, 0.0, 0, true);
+    // turn-up at the ankle
+    b.color(grey(0.82)).ao(0.8, 1.0);
+    b.cylinder(Vec3::new(0.0, -SHIN, 0.0), 0.0675, 0.0675, 0.04, 12, false, false);
     b.finish()
 }
 
@@ -268,32 +529,68 @@ pub fn char_boot() -> MeshData {
     b.cylinder(Vec3::new(0.0, -0.065, 0.0), 0.083, 0.078, 0.145, 12, false, true);
     // foot
     b.blob(Vec3::new(0.0, -0.045, -0.05), Vec3::new(0.075, 0.055, 0.15), 2, 0.0, 0, true);
+    // toe cap
+    b.color(grey(0.8));
+    b.blob(Vec3::new(0.0, -0.062, -0.158), Vec3::new(0.068, 0.04, 0.062), 1, 0.0, 0, true);
     // sole
     b.color(grey(0.3)).ao(1.0, 1.0);
     b.box_min_max(Vec3::new(-0.074, -0.098, -0.2), Vec3::new(0.074, -0.068, 0.09));
+    // light rubber rim and laces (untinted)
+    b.tinted(false).mat(mat::FLAT).hex(0xe9e4d6);
+    b.box_min_max(Vec3::new(-0.0755, -0.075, -0.2015), Vec3::new(0.0755, -0.068, 0.0915));
+    b.hex(0xf2eee2);
+    for k in 0..3 {
+        b.box_center(Vec3::new(0.0, -0.01 - k as f32 * 0.022, -0.0875 - k as f32 * 0.016), Vec3::new(0.026, 0.004, 0.005));
+    }
+    b.hex(0x2b2e34);
+    b.box_center(Vec3::new(0.0, -0.012, 0.0795), Vec3::new(0.02, 0.03, 0.006));
     b.finish()
 }
 
 pub fn char_backpack() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.6, 1.0);
-    b.box_center(Vec3::new(0.0, 0.3, 0.165), Vec3::new(0.145, 0.19, 0.075));
-    b.color(grey(0.85));
-    b.box_center(Vec3::new(0.0, 0.5, 0.17), Vec3::new(0.15, 0.035, 0.08));
-    for s in [-1.0f32, 1.0] {
-        b.color(grey(0.9));
-        b.box_center(Vec3::new(s * 0.1, 0.14, 0.165), Vec3::new(0.05, 0.07, 0.08));
-    }
-    // rolled mat
-    b.color(grey(0.5)).tinted(false).color(Vec3::new(0.35, 0.37, 0.4));
-    b.push_xf(Mat4::from_translation(Vec3::new(0.0, 0.07, 0.17)) * Mat4::from_rotation_z(FRAC_PI_2));
-    b.cylinder(Vec3::new(0.0, -0.13, 0.0), 0.045, 0.045, 0.26, 8, true, true);
+    // main body with rounded vertical edges
+    rounded_prism(&mut b, Vec3::new(0.0, 0.3, 0.185), Vec3::new(0.14, 0.17, 0.074), 0.045, 8);
+    // domed lid
+    b.color(grey(0.9)).ao(0.8, 1.0);
+    b.push_xf(Mat4::from_translation(Vec3::new(0.0, 0.47, 0.185)) * Mat4::from_rotation_z(FRAC_PI_2));
+    b.cylinder(Vec3::new(0.0, -0.14, 0.0), 0.078, 0.078, 0.28, 10, true, true);
     b.pop_xf();
-    // straps
-    b.tinted(true).color(grey(0.35));
+    // side pockets and a back pocket (a darker shade)
+    b.color(grey(0.8)).ao(0.7, 1.0);
+    for s in [-1.0f32, 1.0] {
+        rounded_prism(&mut b, Vec3::new(s * 0.162, 0.2, 0.19), Vec3::new(0.026, 0.07, 0.048), 0.02, 6);
+    }
+    rounded_prism(&mut b, Vec3::new(0.0, 0.2, 0.268), Vec3::new(0.1, 0.075, 0.02), 0.016, 6);
+    // cream stripes across the back and a zip line above the pocket
+    b.tinted(false).mat(mat::FLAT).hex(0xf1e9d2).ao(1.0, 1.0);
+    b.box_center(Vec3::new(0.0, 0.345, 0.2605), Vec3::new(0.1385, 0.011, 0.002));
+    b.box_center(Vec3::new(0.0, 0.385, 0.2605), Vec3::new(0.1385, 0.011, 0.002));
+    b.hex(0x2b2e34);
+    b.box_center(Vec3::new(0.0, 0.282, 0.2895), Vec3::new(0.095, 0.004, 0.002));
+    b.hex(0xd9d4c4);
+    b.box_center(Vec3::new(0.03, 0.282, 0.291), Vec3::new(0.012, 0.009, 0.003));
+    // rolled mat under the pack, with two straps
+    b.mat(mat::CLOTH).hex(0x59606c);
+    b.push_xf(Mat4::from_translation(Vec3::new(0.0, 0.07, 0.19)) * Mat4::from_rotation_z(FRAC_PI_2));
+    b.cylinder(Vec3::new(0.0, -0.15, 0.0), 0.048, 0.048, 0.3, 10, true, true);
+    b.pop_xf();
+    b.hex(0xc9a56a);
+    for s in [-1.0f32, 1.0] {
+        b.push_xf(Mat4::from_translation(Vec3::new(s * 0.09, 0.07, 0.19)) * Mat4::from_rotation_z(FRAC_PI_2));
+        b.cylinder(Vec3::new(0.0, -0.012, 0.0), 0.0505, 0.0505, 0.024, 10, false, false);
+        b.pop_xf();
+    }
+    // straps over the shoulders and a waist strap
+    b.mat(mat::CLOTH).hex(0x2e3138);
     for s in [-1.0f32, 1.0] {
         b.box_center(Vec3::new(s * 0.1, 0.38, 0.0), Vec3::new(0.018, 0.17, 0.1));
+        b.hex(0xcfc9b8);
+        b.box_center(Vec3::new(s * 0.1, 0.4, -0.0), Vec3::new(0.0195, 0.014, 0.1015));
+        b.hex(0x2e3138);
     }
+    b.box_center(Vec3::new(0.0, 0.1, 0.12), Vec3::new(0.15, 0.015, 0.04));
     b.finish()
 }
 
@@ -1111,5 +1408,27 @@ mod tests {
         let untinted = head.verts.iter().filter(|v| v.col[3] == 0).count();
         let tinted = head.verts.iter().filter(|v| v.col[3] == 255).count();
         assert!(untinted >= 16 && tinted > 100, "eyes untinted {untinted}, skin tinted {tinted}");
+    }
+
+    #[test]
+    fn backpack_sits_behind_the_torso_and_the_whole_character_stays_light() {
+        let bp = char_backpack().bounds();
+        assert!(bp.max.z > 0.2 && bp.max.z < 0.4 && bp.max.x < 0.25 && bp.min.y > 0.0 && bp.max.y < 0.6, "backpack {bp:?}");
+        // a character is drawn as ~17 rigid parts: keep the total small enough for dozens of them on screen
+        let parts = [char_torso(), char_trim(), char_pelvis(), char_head(), hair(2), headgear(3), char_backpack(), char_boot(), char_boot()];
+        let one_each: usize = parts.iter().map(|m| m.tri_count()).sum();
+        let limbs: usize = [char_arm_up(), char_arm_low(), char_hand(), char_leg_up(), char_leg_low()].iter().map(|m| m.tri_count()).sum::<usize>() * 2;
+        assert!(one_each + limbs < 12_000, "{} triangles per character", one_each + limbs);
+    }
+
+    #[test]
+    fn hair_and_hats_wrap_the_head() {
+        let head = char_head().bounds();
+        for (name, m) in [("hair1", hair(1)), ("hair2", hair(2)), ("hair3", hair(3)), ("cap", headgear(1)), ("beanie", headgear(2)), ("helmet", headgear(3)), ("hat", headgear(4))] {
+            let bb = m.bounds();
+            // reaches over the crown but stays on the head: nothing floats above or far from it
+            assert!(bb.max.y > head.max.y - 0.04 && bb.max.y < head.max.y + 0.2, "{name}: top {} vs head top {}", bb.max.y, head.max.y);
+            assert!(bb.min.z > -0.31 && bb.max.z < 0.45 && bb.max.x < 0.3 && bb.min.x > -0.3, "{name}: {bb:?}");
+        }
     }
 }
