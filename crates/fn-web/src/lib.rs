@@ -274,6 +274,12 @@ pub fn net_poll() -> Vec<u8> {
     with_app(vec![], |app| app.net_poll())
 }
 
+/// Advance a multiplayer match without rendering (used while the loading screen waits for the other players).
+#[wasm_bindgen]
+pub fn net_tick(dt: f32) {
+    with_app((), |app| app.net_tick(dt));
+}
+
 /// JSON about the room or the match: `{state, names, ...}`.
 #[wasm_bindgen]
 pub fn net_status() -> String {

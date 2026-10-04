@@ -59,6 +59,12 @@ pub struct Instance {
 }
 
 impl Instance {
+    /// Every number is finite and the colour is not negative. One NaN in what the GPU draws turns into a black square once the
+    /// bloom has smeared it, so nothing else is let through (see `Scene::finish`).
+    pub fn is_sane(&self) -> bool {
+        self.m0.iter().chain(&self.m1).chain(&self.m2).chain(&self.params).all(|v| v.is_finite()) && self.color.iter().all(|v| v.is_finite() && *v >= 0.0)
+    }
+
     pub fn from_mat4(m: Mat4, color: [f32; 4]) -> Self {
         let c = m.to_cols_array_2d();
         Self {
@@ -92,6 +98,13 @@ pub struct Particle {
     pub b: [f32; 4],
     pub color: [f32; 4],
     pub c: [f32; 4],
+}
+
+impl Particle {
+    /// See [`Instance::is_sane`]; also nothing may be negative-sized or have a zero axis where one is needed.
+    pub fn is_sane(&self) -> bool {
+        self.a.iter().chain(&self.b).chain(&self.c).all(|v| v.is_finite()) && self.color.iter().all(|v| v.is_finite() && *v >= 0.0)
+    }
 }
 
 pub mod shape {

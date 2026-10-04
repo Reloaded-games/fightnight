@@ -1,8 +1,8 @@
 //! Multiplayer glue: the page owns the WebRTC connections and hands bytes in and out; this is where they meet the lobby,
 //! the host's match and the guest's copy of it.
 
-use crate::app::{App, Lobby, Mode};
-use fn_core::game::GameConfig;
+use crate::app::{now_ms, App, Lobby, Mode};
+use fn_core::game::{GameConfig, PlayerInput};
 use fn_core::net::client::Client;
 use fn_core::net::guest::GuestRoom;
 use fn_core::net::host::{Host, PeerId, Room, StartParams};
@@ -142,6 +142,25 @@ impl App {
             _ => s.push_str("{\"state\":\"none\"}"),
         }
         s
+    }
+
+    /// Keep a multiplayer match ticking without drawing anything (the loading screen waits for the others this way).
+    pub fn net_tick(&mut self, dt: f32) {
+        if !self.net_live {
+            return;
+        }
+        let idle = PlayerInput::default();
+        match &mut self.mode {
+            Mode::Host(h) => {
+                h.update(dt, &idle);
+                self.net_out.extend(h.drain());
+            }
+            Mode::Guest(c) => {
+                c.update(dt, &idle, now_ms() as u32);
+                self.net_out.extend(c.drain());
+            }
+            Mode::Solo(_) => {}
+        }
     }
 
     /// The host presses start: close the room and tell the guests, so they begin building the island too. Follow with

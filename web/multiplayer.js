@@ -196,9 +196,9 @@ export function createMultiplayer(ctx) {
     const t0 = performance.now();
     let last = t0;
     for (;;) {
-      // the match only advances when frames run: the host's clock (and so the wait for slow players) is the frame time
+      // the match only advances when it is ticked: the host's clock (and so the wait for slow players) is this time
       const now = performance.now();
-      fn.frame(Math.min(0.1, (now - last) / 1000));
+      fn.net_tick(Math.min(0.1, (now - last) / 1000));
       last = now;
       pump();
       const st = status();
@@ -210,7 +210,7 @@ export function createMultiplayer(ctx) {
         if (st.synced) return true;
         ctx.setProgress(0.9, 'Waiting for the host');
       } else return false;
-      if (performance.now() - t0 > 60000) throw new Error('The match did not start. Check your connection.');
+      if (performance.now() - t0 > 90000) throw new Error('The match did not start. Check your connection.');
       await new Promise((r) => setTimeout(r, 100));
     }
   }

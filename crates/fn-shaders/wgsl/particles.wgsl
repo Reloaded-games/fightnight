@@ -55,24 +55,25 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
     var a = 0.0;
     switch (shape) {
         case 0: { // soft glow
-            a = exp(-r * r * 3.2) * smoothstep(1.0, 0.8, r);
+            a = exp(-r * r * 3.2) * (1.0 - smoothstep(0.8, 1.0, r));
         }
         case 1: { // smoke puff
             let n = fbm2(i.uv * 1.8 + vec2<f32>(i.c.w * 7.0, i.c.w * 3.0));
-            a = smoothstep(1.0, 0.25, r + (n - 0.5) * 0.9) * 0.9;
+            a = (1.0 - smoothstep(0.25, 1.0, r + (n - 0.5) * 0.9)) * 0.9;
         }
         case 2: { // spark (stretched, centred)
             let along = abs(i.uv.y);
             a = exp(-i.uv.x * i.uv.x * 7.0) * (1.0 - along * along * along);
         }
         case 3: { // expanding ring
-            a = smoothstep(0.16, 0.0, abs(r - 0.82)) * smoothstep(1.0, 0.7, r);
+            a = (1.0 - smoothstep(0.0, 0.16, abs(r - 0.82))) * (1.0 - smoothstep(0.7, 1.0, r));
         }
         case 4: { // loot beam (base at uv.y = -1, tip at +1)
             let v = i.uv.y * 0.5 + 0.5;
             let core = pow(max(1.0 - abs(i.uv.x), 0.0), 1.6);
             let flick = 0.88 + 0.12 * sin(G.cam_pos.w * 3.0 + i.c.w * 6.28 + v * 8.0);
-            a = core * pow(1.0 - v, 0.9) * flick;
+            // (interpolation can push v a hair past 1: a negative base in pow() is NaN, and one NaN pixel turns into a black square after bloom)
+            a = core * pow(clamp(1.0 - v, 0.0, 1.0), 0.9) * flick;
         }
         case 5: { // tracer: bright head at the tip
             let v = i.uv.y * 0.5 + 0.5;
@@ -82,15 +83,16 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
             let x = abs(i.uv.x);
             let y = abs(i.uv.y);
             let star = max(exp(-(x * 9.0 + y * 1.2)), exp(-(y * 9.0 + x * 1.2)));
-            a = max(star, exp(-r * r * 5.0) * 0.8) * smoothstep(1.0, 0.85, r);
+            a = max(star, exp(-r * r * 5.0) * 0.8) * (1.0 - smoothstep(0.85, 1.0, r));
         }
         default: {
-            a = smoothstep(1.0, 0.0, r);
+            a = 1.0 - smoothstep(0.0, 1.0, r);
         }
     }
     a = a * i.color.a;
-    if (a < 0.003) { discard; }
-    var rgb = i.color.rgb;
+    // (written so that a NaN fails the test too)
+    if (!(a >= 0.003)) { discard; }
+    var rgb = clamp(i.color.rgb, vec3<f32>(0.0), vec3<f32>(100.0));
     rgb = apply_fog(rgb, i.wpos);
     return vec4<f32>(rgb * a, a);
 }
