@@ -19,7 +19,9 @@ export class GameAudio {
   unlock() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    if (!this.ctx) this.ctx = new AC({ latencyHint: 'interactive' });
+    if (!this.ctx) {
+      try { this.ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { return; } // no audio device: play silently
+    }
     this.resume();
   }
 

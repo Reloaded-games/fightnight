@@ -245,6 +245,7 @@ async function startMatch() {
   // gesture: loading the island can take longer than the browser keeps that gesture alive.
   lockPointer();
   audio.unlock();
+  $('click-to-play').style.display = 'none';
   state = 'loading';
   $('tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
   for (const id of ['menu', 'over', 'pause', 'settings', 'help', 'inventory', 'map']) show(id, false);
@@ -291,6 +292,7 @@ function toMenu() {
   audio.silenceLoops();
   show('pause', false); show('over', false); show('inventory', false); show('map', false); show('settings', false); stopConfetti();
   show('menu');
+  $('click-to-play').style.display = 'none';
   document.activeElement?.blur?.();
   unlockPointer();
 }
