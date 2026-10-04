@@ -122,6 +122,17 @@ explicitly because headless Chromium cannot screenshot a WebGPU canvas). The pag
 console (`window.__game.fn.debug("tp 52 28")`, `give ar epic`, `chest_here`, `build_demo`, `ff 120`, ...) that
 the harnesses use.
 
+## Notes and limitations
+
+* Single player against bots: there is no networking or matchmaking, and no structure editing.
+* Desktop only (keyboard and mouse). Quality presets exist because GPUs vary; start on Medium or Low if
+  Graphics: High stutters.
+* Development was done on a machine without a GPU: the browser tests and screenshots run in headless
+  Chromium with software WebGPU (SwiftShader), so frame rates on real hardware have not been measured.
+  The CPU side (simulation, scene building, draw submission) costs roughly 1–2 ms per frame with 39 bots.
+* The art is deliberately simple and procedural; it aims at the look and feel of the genre, not at
+  reproducing any game's assets.
+
 ## Licence
 
 MIT, see [LICENSE](LICENSE).
