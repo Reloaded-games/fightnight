@@ -59,7 +59,7 @@ ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub 
 | `W A S D` / mouse | Move / look |
 | `Shift` (auto-sprint on by default) | Sprint |
 | `Space` | Jump · leave the bus · open the glider |
-| `Ctrl` | Crouch |
+| `Ctrl` or `F` | Crouch (browsers reserve Ctrl+W and Ctrl+1–6, so `F` is safer; fullscreen captures them too) |
 | Left mouse | Fire · swing the pickaxe · place the selected piece |
 | Right mouse | Aim down sights |
 | `R` | Reload |

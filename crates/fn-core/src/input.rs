@@ -63,7 +63,8 @@ impl Input {
                 }
             }
             "ShiftLeft" | "ShiftRight" => self.sprint = down,
-            "ControlLeft" | "ControlRight" => self.crouch = down,
+            // Ctrl is the Fortnite default, but Ctrl+W and Ctrl+1..6 are browser shortcuts a page cannot cancel
+            "ControlLeft" | "ControlRight" | "KeyF" => self.crouch = down,
             "Space" => {
                 if down && !self.jump {
                     self.jump_edge = true;
@@ -196,6 +197,19 @@ mod tests {
         assert!(p.fire && p.fire_pressed && p.reload);
         let p = i.take(0.002, false);
         assert!(p.fire && !p.fire_pressed && !p.reload, "held, not re-triggered");
+    }
+
+    #[test]
+    fn crouch_works_on_ctrl_and_on_f() {
+        let mut i = Input::new();
+        i.key("ControlLeft", true);
+        assert!(i.take(0.002, false).crouch);
+        i.key("ControlLeft", false);
+        assert!(!i.take(0.002, false).crouch);
+        i.key("KeyF", true);
+        assert!(i.take(0.002, false).crouch);
+        i.key("KeyF", false);
+        assert!(!i.take(0.002, false).crouch);
     }
 
     #[test]

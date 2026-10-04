@@ -357,6 +357,20 @@ window.addEventListener('mousedown', (e) => {
 window.addEventListener('mouseup', (e) => { if (state === 'playing') fn.mouse_button(e.button, false); });
 window.addEventListener('wheel', (e) => { if (state === 'playing' && !overlay && locked()) fn.wheel(e.deltaY); }, { passive: true });
 window.addEventListener('contextmenu', (e) => e.preventDefault());
+// Ctrl is the crouch key, and Ctrl+W (close tab) / Ctrl+R can be hit by accident while crouch-walking:
+// ask before leaving a running match.
+window.addEventListener('beforeunload', (e) => {
+  if (state === 'playing' || state === 'paused') { e.preventDefault(); e.returnValue = ''; }
+});
+// In fullscreen Chromium can hand us the keys that are normally browser shortcuts (Ctrl+W, Ctrl+1..6, ...).
+document.addEventListener('fullscreenchange', () => {
+  const kb = navigator.keyboard;
+  if (!kb || !kb.lock) return;
+  try {
+    if (document.fullscreenElement) kb.lock(['ControlLeft', 'ControlRight', 'KeyW', 'KeyT', 'KeyN', 'KeyQ', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6']).catch(() => {});
+    else kb.unlock();
+  } catch (e) { /* not supported or not allowed */ }
+});
 window.addEventListener('resize', resizeAll);
 
 // ------------------------------------------------------------------------------------------------
