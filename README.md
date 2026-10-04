@@ -9,6 +9,8 @@ model or audio files.
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
   weapon bloom and recoil, **reloading**, headshots and damage falloff.
 * **39 enemy bots** (adjustable) that land, loot, heal, build cover, fight and run from the storm.
+* **Multiplayer**: one player hosts a room, up to seven friends join with a copy-and-paste code (no server, no
+  account: the browsers connect to each other over WebRTC), and bots fill the island. See [Multiplayer](#multiplayer).
 * **Loot**: chests, floor weapons with rarity beams (common → legendary), ammo, bandages, medkits, shield
   potions, Chug Jugs. 5 hotbar slots + pickaxe, health + shield, materials.
 * **Building**: walls, floors, ramps and roofs on a Fortnite-style grid in wood, stone and metal — ramp-rush
@@ -79,6 +81,34 @@ ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub 
 Tips: hold forward and click with a ramp selected to ramp-rush up a cliff; walls block bullets, so build
 cover before you heal; the next safe circle is the dashed white ring on the map.
 
+## Multiplayer
+
+Press **Multiplayer** in the main menu.
+
+* **Host a game** opens your room. Press *+ Invite a player* for every friend: it makes an **invite code**; send it
+  to them (chat, mail, anything). They choose **Join a game**, paste it, press *Continue*, and send back the
+  **reply code** they get. Paste that into the matching box on your side and press *Connect*: they appear in
+  the player list. When everybody is in, set the number of bots and the difficulty and press **Start match**.
+* **Join a game**: paste the host's invite, send back your reply, and wait for the host to start.
+
+Everybody drops from the same Battle Bus into the same island; the last one standing (human or bot) wins. If a
+player leaves or loses their connection, a bot takes over their character. Eliminated players can spectate.
+
+How it works: the host's browser is the authority. It runs the whole simulation, with the people in the room as
+extra human actors beside the bots, and sends each player 30 snapshots a second plus every change to the loot,
+chests and buildings and the one-shot events (shots, hits, pickups) that player could see or hear. Each guest
+runs its own copy of the match: its own character is **predicted** with the very same movement code the host
+runs and corrected from the host's acknowledgements (the controls never wait for the network), the others are
+**interpolated** about 100 ms in the past, and the HUD, sounds and effects work on that copy exactly as they do
+in a single-player match. Messages are a small hand-written binary format over two WebRTC data channels per
+player (one reliable and ordered, one unreliable for commands and snapshots); `crates/fn-core/src/net/` has the
+protocol, the host, the guest and tests that drive them through a simulated lossy network.
+
+Limits: connections are direct, so two players behind strict (symmetric) NATs may not be able to reach each other
+(there is no relay server; a public STUN server is used to find addresses); the match cannot be joined once it has
+started; there is no lag compensation for shots (on a good connection you will not notice, on a slow one you
+will have to lead your targets a little more); and the host has the advantage of zero latency.
+
 ## How it is put together
 
 ```
@@ -88,12 +118,16 @@ crates/
                so almost everything is unit tested without a browser.
     src/world/   island: terrain + biomes, lakes, roads, towns and buildings, props, colliders, nav grid, minimap
     src/game/    actors, movement/physics, combat, loot, building pieces, storm + bus, bot AI, rig (animation),
-                 scene (draw lists), fx (particles), hud (JSON snapshot), audio_map (positional cues)
+                 scene (draw lists), fx (particles), hud (JSON snapshot), audio_map (positional cues),
+                 cmd + remote (the commands a networked player sends and how the host applies them)
+    src/net/     multiplayer: wire format, protocol, the host (room + authoritative match), the guest's lobby and
+                 predicted copy of the match; no I/O, so it is tested natively through an in-memory network
     src/models.rs, meshlib.rs   every mesh in the game (characters, weapons, items, trees, building pieces...)
     src/audio_synth.rs          all sound effects synthesised from oscillators and noise
   fn-shaders/  WGSL shaders (+ a naga validation test so a shader typo fails `cargo test`)
   fn-web/      the wasm module: wgpu WebGPU renderer, app loop, and the exports used by the page
-web/           index.html, CSS and the JS for menus, HUD drawing (Canvas2D), icons and WebAudio playback
+web/           index.html, CSS and the JS for menus, HUD drawing (Canvas2D), icons and WebAudio playback;
+               net.js / multiplayer.js: WebRTC data channels, invite codes and the lobby screens
 scripts/       build script (cargo → wasm-bindgen → dist/)
 tools/         headless-Chromium helpers: screenshots and the end-to-end tests
 ```
@@ -115,6 +149,7 @@ cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only ma
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
                                            #   e2e.mjs      gameplay: move, shoot, reload, build, harvest, chests, kills...
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
+                                           #   mp_e2e.mjs   two browsers host/join through the real invite codes over WebRTC
                                            # npm run fuzz   random keys/clicks/blur/lock releases against the UI state machine
 ```
 
@@ -126,7 +161,8 @@ the harnesses use.
 
 ## Notes and limitations
 
-* Single player against bots: there is no networking or matchmaking, and no structure editing.
+* Multiplayer is peer-to-peer with hand-exchanged codes: no matchmaking, no relay server, no late joining
+  (see [Multiplayer](#multiplayer)). There is no structure editing.
 * Desktop only (keyboard and mouse). Quality presets exist because GPUs vary: if the frame rate stays under
   roughly 30 fps for a few seconds the game steps the preset down by itself (never up; switch it off in
   Settings).

@@ -114,6 +114,14 @@ export class Hud {
     if (!dead || s.spec) this.nameTags(s, W, H, S);
     this.damageNumbers(s, W, H, S);
     if (this.showPerf) this.text(this.perf, 12, H - 14, 15 * S, '#9dffb0', 'left', { italic: false, weight: 600 });
+    if (s.net) this.netInfo(s.net, W, H, S);
+  }
+
+  // Multiplayer: who is playing and how good the connection is, small, in the bottom right.
+  netInfo(n, W, H, S) {
+    const ping = n.role === 'guest' ? `${n.ping} ms` : 'host';
+    const col = n.role === 'guest' ? (n.ping < 70 ? '#9dffb0' : n.ping < 150 ? '#ffe08a' : '#ff8f9a') : '#9dffb0';
+    this.text(`${n.players} players  \u00b7  ${ping}`, W - 12, H - 8, 13 * S, col, 'right', { italic: false, weight: 600 });
   }
 
   // Detect pickups / changes between frames for the notification list.

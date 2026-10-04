@@ -29,6 +29,7 @@
   <div class="left">
     <div class="logo big"><b>Fight</b> Night<small>Battle Royale</small></div>
     <button class="btn primary play" id="btn-play"><span>Play</span></button>
+    <button class="btn" id="btn-multi" style="align-self:flex-start"><span>Multiplayer</span></button>
     <div class="row">
       <button class="btn ghost" id="btn-settings"><span>Settings</span></button>
       <button class="btn ghost" id="btn-help"><span>How to play</span></button>
@@ -46,6 +47,50 @@
     </div>
   </div>
   <div class="credit">Rust + WebAssembly + WebGPU &middot; everything you see and hear is generated in code</div>
+</section>
+
+<!-- multiplayer: host or join -->
+<section id="mp" class="screen" style="z-index:25;background:rgba(5,8,35,.86);backdrop-filter:blur(6px)">
+  <div class="panel" style="width:min(640px,94vw)">
+    <h3>Multiplayer</h3>
+    <p class="mp-note">Play with friends: one of you hosts the match and the others join with a code. There is no server and no account: the browsers connect to each other directly. Up to 8 people can play, and bots fill the rest of the island.</p>
+    <div class="mp-choices">
+      <button class="btn primary" id="btn-mp-host" style="font-size:36px;padding:14px 44px"><span>Host a game</span></button>
+      <button class="btn" id="btn-mp-join"><span>Join a game</span></button>
+    </div>
+    <div style="display:flex;justify-content:center;margin-top:18px"><button class="btn ghost" id="btn-mp-back"><span>Back</span></button></div>
+  </div>
+</section>
+
+<!-- multiplayer: the room before the match -->
+<section id="lobby" class="screen" style="z-index:25;background:rgba(5,8,35,.9);backdrop-filter:blur(6px);overflow-y:auto">
+  <div class="panel lobby-panel">
+    <h3 id="lobby-title">Your room</h3>
+    <div class="players" id="lobby-players"></div>
+    <div id="lobby-host" class="hidden">
+      <p class="mp-note">Invite each friend with a code: send them the invite, they send you back a reply, paste it in and press Connect. They show up in the list above. Start when everybody is in.</p>
+      <div id="invites"></div>
+      <button class="btn ghost small" id="btn-add-invite"><span>+ Invite a player</span></button>
+      <div class="lobby-settings">
+        <div class="field"><label>Bots</label><span><input type="range" id="lb-bots" min="0" max="59" step="5" value="30"> <span class="val" id="lb-val-bots">30</span></span></div>
+        <div class="field"><label>Difficulty</label><div class="seg" id="lb-diff"><button data-v="easy">Easy</button><button data-v="normal" class="on">Normal</button><button data-v="hard">Hard</button></div></div>
+        <div class="field"><label for="lb-skipbus">Skip the bus</label><input type="checkbox" id="lb-skipbus"></div>
+      </div>
+    </div>
+    <div id="lobby-guest" class="hidden">
+      <label class="mp-label" for="join-invite">1. Paste the host's invite code</label>
+      <textarea id="join-invite" rows="3" spellcheck="false" placeholder="FN1...."></textarea>
+      <div class="mp-actions"><button class="btn small" id="btn-join-continue"><span>Continue</span></button></div>
+      <label class="mp-label" for="join-reply">2. Send this reply code back to the host</label>
+      <textarea id="join-reply" rows="3" readonly spellcheck="false" placeholder="(appears after step 1)"></textarea>
+      <div class="mp-actions"><button class="btn small ghost" id="btn-copy-reply"><span>Copy reply</span></button></div>
+    </div>
+    <div id="lobby-msg" class="mp-msg"></div>
+    <div class="mp-actions" style="justify-content:center;margin-top:12px">
+      <button class="btn primary hidden" id="btn-lobby-start" style="font-size:36px;padding:12px 50px"><span>Start match</span></button>
+      <button class="btn ghost" id="btn-lobby-leave"><span>Leave</span></button>
+    </div>
+  </div>
 </section>
 
 <!-- settings -->
