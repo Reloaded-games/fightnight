@@ -66,6 +66,23 @@ check('building places a wall', (await st()).pieces > pieces0, `pieces ${(await 
 await page.keyboard.press('KeyQ');
 await frames(2);
 
+// ---- jumping and chests ----------------------------------------------------------------------------------------
+await dbg('tp 21 -171'); await frames(3);
+const gy = (await st()).pos[1];
+await page.keyboard.down('Space');
+await frames(3);
+const jy = (await st()).pos[1];
+await page.keyboard.up('Space');
+check('Space makes the player jump', jy > gy + 0.2, `y ${gy.toFixed(2)} -> ${jy.toFixed(2)}`);
+await frames(12);
+await dbg('chest 0'); await frames(3);
+const atChest = await hud();
+check('standing at a chest shows the Chest prompt', !!atChest.prompt && atChest.prompt.kind === 'chest', JSON.stringify(atChest.prompt));
+await page.keyboard.press('KeyE');
+await frames(6);
+const afterE = await hud();
+check('E opens the chest', !(afterE.prompt && afterE.prompt.kind === 'chest'));
+
 // ---- harvesting --------------------------------------------------------------------------------------------------
 await dbg('tree 0');
 await frames(2);
@@ -85,9 +102,12 @@ await dbg('give ar epic');
 await dbg('aim 1');
 await frames(2);
 const kills0 = (await hud()).kills;
+await page.mouse.down({ button: 'right' }); // aim down sights for accuracy
+await frames(3);
 await page.mouse.down({ button: 'left' });
-await frames(16);
+await frames(28);
 await page.mouse.up({ button: 'left' });
+await page.mouse.up({ button: 'right' });
 await frames(2);
 const h3 = await hud();
 check('shooting a bot eliminates it', h3.kills > kills0, `kills ${kills0} -> ${h3.kills}`);

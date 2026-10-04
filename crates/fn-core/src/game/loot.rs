@@ -113,11 +113,9 @@ impl Game {
         for (k, d) in drops.into_iter().enumerate() {
             // fan the loot out in front of the chest
             let spread = (k as f32 - (n as f32 - 1.0) / 2.0) * 0.55;
-            let ang = -yaw + std::f32::consts::FRAC_PI_2 * 0.0 + spread;
-            let out = Vec3::new(-ang.sin().abs() * 0.0 + (yaw + spread).sin(), 0.0, (yaw + spread).cos());
+            let out = Vec3::new((yaw + spread).sin(), 0.0, (yaw + spread).cos());
             let id = self.new_id();
             let vel = out * rng.range(2.2, 3.4) + Vec3::Y * rng.range(5.0, 6.5);
-            let _ = ang;
             self.pickups.push(Pickup { id, pos: pos + Vec3::Y * 0.8 + out * 0.5, vel, kind: PickupKind::from_drop(d), age: 0.0, grounded: false, spin: rng.range(0.0, std::f32::consts::TAU) });
         }
     }
