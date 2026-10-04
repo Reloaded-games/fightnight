@@ -4,6 +4,7 @@ pub mod buildings;
 pub mod collision;
 pub mod gen;
 pub mod heightmap;
+pub mod minimap;
 pub mod nav;
 pub mod props;
 pub mod splat;

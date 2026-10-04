@@ -15,6 +15,7 @@ pub mod matchflow;
 pub mod movement;
 pub mod pieces;
 pub mod rig;
+pub mod scene;
 
 use crate::camera::Camera;
 use crate::math::*;

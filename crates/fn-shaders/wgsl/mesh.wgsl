@@ -17,7 +17,7 @@ struct VOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) wpos: vec3<f32>,
     @location(1) nrm: vec3<f32>,
-    @location(2) col: vec3<f32>,
+    @location(2) col: vec4<f32>,
     @location(3) attr: vec4<f32>,
     @location(4) ipar: vec4<f32>,
     @location(5) lpos: vec3<f32>,
@@ -52,7 +52,7 @@ fn vs_main(v: VIn) -> VOut {
     o.clip = G.view_proj * vec4<f32>(wp, 1.0);
     o.wpos = wp;
     o.nrm = n;
-    o.col = v.col.rgb;
+    o.col = v.col;
     o.attr = v.attr;
     o.ipar = v.ipar;
     o.lpos = v.pos;
@@ -124,7 +124,8 @@ fn fs_main(i: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32
     var N = normalize(i.nrm);
     if (!front) { N = -N; }
     let mat_id = i32(i.attr.y * 255.0 + 0.5);
-    var albedo = srgb_to_linear(i.col) * i.tint.rgb;
+    // vertex alpha is the tint weight: 1 follows the instance colour, 0 keeps the baked colour
+    var albedo = srgb_to_linear(i.col.rgb) * mix(vec3<f32>(1.0), i.tint.rgb, i.col.a);
     var ao = i.attr.x;
     var spec = i.attr.w;
     var shin = 28.0;

@@ -57,8 +57,15 @@ impl Game {
         }
     }
 
+    /// Where the weapon's muzzle is right now (tracers and flashes start here).
     pub fn muzzle_pos(&self, idx: usize) -> Vec3 {
         let a = &self.actors[idx];
+        if a.inv.selected_weapon().is_some() && matches!(a.mode, MoveMode::Ground | MoveMode::Swim) {
+            let m = rig::pose(a).muzzle;
+            if m.is_finite() {
+                return m;
+            }
+        }
         let dir = look_dir(a.yaw, a.pitch);
         let right = yaw_right(a.yaw);
         a.eye_pos() + right * 0.30 - Vec3::Y * 0.32 + dir * 0.9

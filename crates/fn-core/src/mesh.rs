@@ -29,6 +29,8 @@ pub mod mat {
     pub const PLASTER: u8 = 13;
     pub const ASPHALT: u8 = 14;
     pub const BARK: u8 = 15;
+    /// Player-built pieces: the instance's `params.z` picks wood (0), stone (1) or metal (2).
+    pub const BUILD: u8 = 16;
 }
 
 #[repr(C)]
@@ -197,6 +199,8 @@ pub struct MeshBuilder {
     spec: u8,
     ao_lo: f32,
     ao_hi: f32,
+    /// Whether vertices take the instance colour (false keeps their own colour, e.g. eyes).
+    tinted: bool,
 }
 
 impl Default for MeshBuilder {
@@ -218,6 +222,7 @@ impl MeshBuilder {
             spec: 0,
             ao_lo: 1.0,
             ao_hi: 1.0,
+            tinted: true,
         }
     }
 
@@ -236,6 +241,11 @@ impl MeshBuilder {
     }
     pub fn mat(&mut self, m: u8) -> &mut Self {
         self.mat = m;
+        self
+    }
+    /// Choose whether following geometry is multiplied by the instance colour (default) or not.
+    pub fn tinted(&mut self, on: bool) -> &mut Self {
+        self.tinted = on;
         self
     }
     pub fn sway(&mut self, s: f32) -> &mut Self {
@@ -260,6 +270,7 @@ impl MeshBuilder {
         self.spec = 0;
         self.ao_lo = 1.0;
         self.ao_hi = 1.0;
+        self.tinted = true;
         self
     }
 
@@ -291,7 +302,7 @@ impl MeshBuilder {
         self.mesh.verts.push(Vertex {
             pos: wp.to_array(),
             nrm: wn.to_array(),
-            col: self.col,
+            col: [self.col[0], self.col[1], self.col[2], if self.tinted { 255 } else { 0 }],
             attr: [(ao.clamp(0.0, 1.0) * 255.0) as u8, self.mat, self.sway, self.spec],
         });
         (self.mesh.verts.len() - 1) as u32
@@ -299,7 +310,10 @@ impl MeshBuilder {
     /// Add a vertex with an explicit colour (for gradients).
     pub fn vert_c(&mut self, p: Vec3, n: Vec3, ao: f32, c: Vec3) -> u32 {
         let i = self.vert(p, n, ao);
-        self.mesh.verts[i as usize].col = to_srgb8(c);
+        let alpha = if self.tinted { 255 } else { 0 };
+        let mut col = to_srgb8(c);
+        col[3] = alpha;
+        self.mesh.verts[i as usize].col = col;
         i
     }
     pub fn set_sway(&mut self, v: u32, sway: f32) {

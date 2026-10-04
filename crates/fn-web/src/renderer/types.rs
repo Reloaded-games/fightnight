@@ -40,14 +40,7 @@ impl Quality {
     }
 }
 
-/// A contiguous run of instances drawn with one mesh.
-#[derive(Clone, Copy, Debug)]
-pub struct Batch {
-    pub mesh: u16,
-    pub first: u32,
-    pub count: u32,
-    pub shadow: bool,
-}
+pub use fn_core::game::scene::Batch;
 
 pub struct FrameInput<'a> {
     pub time: f32,
