@@ -2,7 +2,7 @@
 import init, * as fn from './pkg/fightnight.js';
 import { Hud, drawFullMap } from './hud.js';
 import { GameAudio } from './audio.js';
-import { RARITY, RARITY_NAMES, RARITY_DARK, drawItem, AMMO_NAMES, AMMO_COLORS, MAT_NAMES, MAT_COLORS, WEAPON_NAMES } from './icons.js';
+import { RARITY, RARITY_NAMES, RARITY_DARK, drawItem, AMMO_NAMES, AMMO_COLORS, MAT_NAMES, MAT_COLORS } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);

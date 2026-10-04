@@ -1,7 +1,6 @@
 // Usage: node ui_shot.mjs out.png [--eval "page js" --w 1280 --h 720 --opts "..." --cmd "tp ..|..." --keys "KeyW:300" --wait 1500 --state menu|playing --click "#btn-play" --after "js"]
 // Boots index.html (the real UI). The WebGPU frame is read back and frozen into a 2D canvas so the
 // regular screenshot includes menus, the HUD canvas and DOM overlays.
-import fs from 'node:fs';
 import { serve, launch } from './browser.mjs';
 
 const args = process.argv.slice(2);

@@ -514,7 +514,6 @@ export class Hud {
   prompt(s, W, H, S) {
     const p = s.prompt;
     if (!p || s.mode === 'bus' || s.mode === 'freefall' || s.mode === 'glide') return;
-    const ctx = this.ctx;
     const w = 300 * S, h = 62 * S, x = W / 2 - w / 2 + 120 * S, y = H / 2 + 60 * S;
     const col = RARITY[p.rar] || '#fff';
     this.skew(x, y, w, h, 'rgba(8,12,44,.82)', -0.25);
