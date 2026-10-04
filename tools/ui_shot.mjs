@@ -19,8 +19,9 @@ try {
 } catch (e) { console.log('timeout waiting for state', want, await page.evaluate(() => window.__game && window.__game.state)); }
 await page.waitForTimeout(+opt('settle', 800));
 for (const c of (opt('cmd', '')).split('|').filter(Boolean)) console.log('>', c, '=>', await page.evaluate((c) => window.__game.fn.debug(c), c));
-if (opt('keys')) {
-  for (const k of opt('keys').split(',')) {
+async function runKeys(spec) {
+  for (const k of spec.split(',')) {
+    if (k.startsWith('Wait')) { await page.waitForTimeout(+k.split(':')[1] || 100); continue; }
     let [code, ms] = k.split(':');
     let mode = 'tap';
     if (code.startsWith('+')) { mode = 'down'; code = code.slice(1); } else if (code.startsWith('-')) { mode = 'up'; code = code.slice(1); }
@@ -32,6 +33,9 @@ if (opt('keys')) {
     else { await (mode === 'down' ? page.keyboard.down(code) : page.keyboard.up(code)); await page.waitForTimeout(+ms || 100); }
   }
 }
+if (opt('keys')) await runKeys(opt('keys'));
+if (opt('after')) for (const c of opt('after').split('|')) console.log('>', c, '=>', await page.evaluate((c) => window.__game.fn.debug(c), c));
+if (opt('keys2')) await runKeys(opt('keys2'));
 if (opt('click')) { await page.click(opt('click')); await page.waitForTimeout(400); }
 if (opt('eval')) console.log('eval =>', await page.evaluate(opt('eval')));
 await page.waitForTimeout(+opt('wait', 1200));

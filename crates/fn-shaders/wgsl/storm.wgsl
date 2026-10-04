@@ -16,7 +16,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
     let seg = f32(vi / 6u);
     let k = vi % 6u;
     let a = (seg + cx[k]) / SEGS * 6.2831853;
-    let h = cy[k] * 520.0 - 30.0;
+    let h = cy[k] * 1800.0 - 30.0;
     let p = vec3<f32>(G.storm.x + cos(a) * G.storm.z, h, G.storm.y + sin(a) * G.storm.z);
     var o: VOut;
     o.clip = G.view_proj * vec4<f32>(p, 1.0);
@@ -35,7 +35,11 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
     let n2 = vnoise(vec2<f32>(arc * 4.0 - t * 0.2, i.h * 0.05 - t * 0.9));
     let bands = 0.55 + 0.45 * n1 + 0.25 * n2;
     let low = 1.0 - smoothstep(0.0, 380.0, max(i.h, 0.0));
-    let alpha = (0.30 + 0.38 * bands) * (0.35 + 0.65 * low);
+    // the column dissolves into the sky (no visible rim) and is only visible when you are near it
+    let sky_fade = 1.0 - smoothstep(250.0, 1500.0, max(i.h, 0.0));
+    let dcam = distance(i.wpos.xz, G.cam_pos.xz);
+    let near = 1.0 - smoothstep(300.0, 850.0, dcam);
+    let alpha = (0.30 + 0.38 * bands) * (0.35 + 0.65 * low) * sky_fade * near;
     let base = vec3<f32>(0.46, 0.12, 0.95);
     let hot = vec3<f32>(0.85, 0.35, 1.25);
     var rgb = mix(base, hot, n2 * 0.8) * (0.7 + bands);

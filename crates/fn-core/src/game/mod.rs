@@ -741,3 +741,148 @@ pub(crate) mod testutil {
         Game::new(World::generate(1234), cfg)
     }
 }
+
+#[cfg(test)]
+mod monkey {
+    //! Randomised "monkey" play: the human mashes inputs while bots fight, checking invariants every step.
+    use super::testutil::game_cfg;
+    use super::*;
+
+    fn random_input(rng: &mut Rng, t: f32, g: &Game) -> PlayerInput {
+        // sticky choices make the monkey behave more like a person than pure noise
+        let phase = (t * 0.7) as i32;
+        let mut s = Rng::new(phase as u64 ^ 0x77);
+        let mv = Vec2::new(s.range(-1.0, 1.0).round(), s.range(-1.0, 1.0).round());
+        let mut p = PlayerInput {
+            move_axis: mv,
+            look: Vec2::new(rng.range(-0.06, 0.06), rng.range(-0.03, 0.03)),
+            jump: rng.chance(0.04),
+            sprint: s.chance(0.5),
+            crouch: s.chance(0.1),
+            fire: s.chance(0.35),
+            fire_pressed: rng.chance(0.05),
+            ads: s.chance(0.25),
+            reload: rng.chance(0.01),
+            interact: rng.chance(0.08),
+            select: if rng.chance(0.02) { Some(rng.below(6)) } else { None },
+            cycle: if rng.chance(0.01) { 1 } else { 0 },
+            drop_selected: rng.chance(0.002),
+            toggle_build: rng.chance(0.01),
+            piece: if rng.chance(0.02) { Some(PieceKind::ALL[rng.below(4)]) } else { None },
+            place: s.chance(0.3),
+            cycle_mat: rng.chance(0.005),
+            exit_bus: rng.chance(0.03),
+            deploy: rng.chance(0.02),
+            spectate: if rng.chance(0.01) { 1 } else { 0 },
+        };
+        if g.actors[PLAYER].mode == MoveMode::Bus && t > 3.0 {
+            p.exit_bus = true;
+        }
+        p
+    }
+
+    fn check(g: &Game, seed: u64, step: usize) {
+        for a in &g.actors {
+            let ctx = format!("seed {seed} step {step} actor {} ({:?})", a.id, a.mode);
+            assert!(a.pos.is_finite() && a.vel.is_finite(), "{ctx}: non-finite state {:?} {:?}", a.pos, a.vel);
+            assert!(a.yaw.is_finite() && a.pitch.is_finite(), "{ctx}: angles");
+            assert!(a.hp <= 100.01 && a.shield <= 100.01, "{ctx}: hp {} shield {}", a.hp, a.shield);
+            if a.alive {
+                assert!(a.hp > 0.0, "{ctx}: alive with hp {}", a.hp);
+                assert!(a.pos.y > -20.0 && a.pos.y < 600.0, "{ctx}: y {}", a.pos.y);
+                if matches!(a.mode, MoveMode::Ground | MoveMode::Swim) {
+                    assert!(a.pos.x.abs() < 900.0 && a.pos.z.abs() < 900.0, "{ctx}: out of the world {:?}", a.pos);
+                }
+                if matches!(a.mode, MoveMode::Ground) {
+                    let th = g.world.hm.height_at(a.pos.x, a.pos.z);
+                    assert!(a.pos.y > th - 1.0, "{ctx}: under the terrain {} < {th}", a.pos.y);
+                }
+            }
+            assert!(a.inv.selected < 6);
+            for (i, s) in a.inv.slots.iter().enumerate() {
+                if i == 0 {
+                    assert!(matches!(s, Some(items::Item::Pickaxe)), "{ctx}: slot 0 must keep the pickaxe");
+                } else if let Some(items::Item::Pickaxe) = s {
+                    panic!("{ctx}: stray pickaxe in slot {i}");
+                }
+            }
+            for k in 0..3 {
+                assert!(a.inv.mats[k] <= 999);
+            }
+        }
+        assert!(g.pickups.len() < 5000, "pickup leak: {}", g.pickups.len());
+        assert!(g.fx.count() <= 5000);
+        assert!(g.projectiles.len() < 200);
+    }
+
+    fn run(seed: u64, bots: usize, seconds: f32, skip_bus: bool) {
+        let mut g = game_cfg(GameConfig { bots, skip_bus, seed, storm_speed: 3.0, god_mode: false, ..Default::default() });
+        let mut rng = Rng::new(seed * 31 + 7);
+        let dt = 1.0 / 30.0;
+        let steps = (seconds / dt) as usize;
+        for step in 0..steps {
+            let t = step as f32 * dt;
+            let input = random_input(&mut rng, t, &g);
+            g.update(dt, &input);
+            if step % 15 == 0 {
+                check(&g, seed, step);
+            }
+            if g.phase == Phase::Over && g.actors[PLAYER].dead_time > 5.0 {
+                break;
+            }
+        }
+        check(&g, seed, steps);
+        // the HUD and scene builders must cope with whatever state the match ended in
+        let cam = g.camera(1.7);
+        let json = hud::hud_json(&g, &cam, true);
+        assert!(json.starts_with('{') && !json.contains("NaN"));
+    }
+
+    #[test]
+    fn monkey_with_the_bus() {
+        run(1, 24, 150.0, false);
+    }
+
+    #[test]
+    fn monkey_on_the_ground_a() {
+        run(2, 30, 180.0, true);
+    }
+
+    #[test]
+    fn monkey_on_the_ground_b() {
+        run(3, 18, 180.0, true);
+    }
+
+    /// Many seeds; slower, run with `cargo test --release -- --ignored monkey_marathon`.
+    #[test]
+    #[ignore]
+    fn monkey_marathon() {
+        for seed in 10..70 {
+            run(seed, 10 + (seed as usize % 30), 200.0, seed % 3 != 0);
+        }
+    }
+
+    #[test]
+    fn monkey_builders_and_fighters() {
+        // lots of building materials and weapons make for more interesting collisions
+        let mut g = game_cfg(GameConfig { bots: 20, skip_bus: true, seed: 5, storm_speed: 2.0, start_mats: 900, ..Default::default() });
+        for kind in items::WeaponKind::ALL {
+            g.actors[PLAYER].inv.add_weapon(kind, items::Rarity::Epic, kind.def().mag);
+        }
+        for k in items::AmmoKind::ALL {
+            g.actors[PLAYER].inv.ammo[k.index()] = k.cap();
+        }
+        let mut rng = Rng::new(99);
+        for step in 0..5400 {
+            let t = step as f32 / 30.0;
+            let mut input = random_input(&mut rng, t, &g);
+            input.piece = if rng.chance(0.1) { Some(PieceKind::ALL[rng.below(4)]) } else { None };
+            input.place = true;
+            g.update(1.0 / 30.0, &input);
+            if step % 15 == 0 {
+                check(&g, 5, step);
+            }
+        }
+        assert!(g.pieces.count() > 0);
+    }
+}

@@ -33,7 +33,7 @@ struct Globals {
 @group(0) @binding(5) var lin_samp: sampler;
 
 const PI: f32 = 3.14159265;
-const HORIZON: vec3<f32> = vec3<f32>(0.60, 0.80, 1.00);
+const HORIZON: vec3<f32> = vec3<f32>(0.44, 0.69, 0.98);
 
 fn saturate(x: f32) -> f32 { return clamp(x, 0.0, 1.0); }
 fn saturate3(x: vec3<f32>) -> vec3<f32> { return clamp(x, vec3<f32>(0.0), vec3<f32>(1.0)); }

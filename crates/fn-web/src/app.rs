@@ -253,6 +253,16 @@ impl App {
                 a.on_ground = false;
                 "ok".into()
             }
+            "glide" => {
+                let (x, y, z) = (num(1, 0.0), num(2, 80.0), num(3, 0.0));
+                let a = &mut g.actors[PLAYER];
+                a.pos = Vec3::new(x, y, z);
+                a.mode = MoveMode::Glide;
+                a.vel = Vec3::new(0.0, -6.0, -12.0);
+                a.on_ground = false;
+                a.glide_deployed = true;
+                "ok".into()
+            }
             "look" => {
                 let a = &mut g.actors[PLAYER];
                 a.yaw = num(1, 0.0).to_radians();
@@ -412,6 +422,91 @@ impl App {
                     self.debug_orbit = Some((num(1, 0.0).to_radians(), num(2, -5.0).to_radians(), num(3, 3.0), num(4, 1.0)));
                 }
                 "ok".into()
+            }
+            "chest" => {
+                // stand next to the nth unopened chest, looking at it
+                let idx = num(1, 0.0) as usize;
+                if let Some(c) = g.chests.get(idx % g.chests.len().max(1)).cloned() {
+                    let fwd = yaw_forward(c.yaw);
+                    let p = c.pos + fwd * 2.4;
+                    let a = &mut g.actors[PLAYER];
+                    a.pos = Vec3::new(p.x, c.pos.y, p.z);
+                    a.mode = MoveMode::Ground;
+                    a.on_ground = true;
+                    a.yaw = c.yaw + std::f32::consts::PI;
+                    a.pitch = -0.1;
+                    a.eye_smooth = c.pos.y;
+                    if g.phase == Phase::Bus {
+                        g.phase = Phase::Playing;
+                        g.bus.active = false;
+                    }
+                }
+                "ok".into()
+            }
+            "chest_here" => {
+                // drop an unopened chest (and some loot) in front of the player
+                let p = g.actors[PLAYER].pos;
+                let yaw = g.actors[PLAYER].yaw;
+                let f = yaw_forward(yaw);
+                let pos = p + f * num(1, 5.0);
+                let pos = Vec3::new(pos.x, g.world.hm.height_at(pos.x, pos.z), pos.z);
+                let id = g.new_id();
+                g.chests.push(Chest { id, pos, yaw: yaw + std::f32::consts::PI, open_t: 0.0, opened: false });
+                for (k, kind) in [WeaponKind::Pistol, WeaponKind::Smg, WeaponKind::AssaultRifle, WeaponKind::Shotgun, WeaponKind::Sniper, WeaponKind::RocketLauncher].into_iter().enumerate() {
+                    let q = pos + yaw_right(yaw) * ((k as f32 - 2.5) * 1.3) + f * 3.5;
+                    let q = Vec3::new(q.x, g.world.hm.height_at(q.x, q.z), q.z);
+                    g.spawn_pickup(q, PickupKind::Weapon { kind, rarity: Rarity::from_index(k % 5), ammo: kind.def().mag }, false);
+                }
+                for (k, kind) in AmmoKind::ALL.into_iter().enumerate() {
+                    let q = pos + yaw_right(yaw) * ((k as f32 - 2.0) * 1.1) + f * 6.5;
+                    let q = Vec3::new(q.x, g.world.hm.height_at(q.x, q.z), q.z);
+                    g.spawn_pickup(q, PickupKind::Ammo { kind, amount: 30 }, false);
+                }
+                for (k, kind) in ConsumableKind::ALL.into_iter().enumerate() {
+                    let q = pos + yaw_right(yaw) * ((k as f32 - 2.0) * 1.2) + f * 9.5;
+                    let q = Vec3::new(q.x, g.world.hm.height_at(q.x, q.z), q.z);
+                    g.spawn_pickup(q, PickupKind::Consumable { kind, count: 1 }, false);
+                }
+                "ok".into()
+            }
+            "storm_set" => {
+                // centre x z, radius: makes the wall visible near the player
+                g.storm.active = true;
+                g.storm.center = Vec2::new(num(1, 0.0), num(2, 0.0));
+                g.storm.radius = num(3, 60.0);
+                g.storm.from_radius = g.storm.radius;
+                g.storm.to_radius = g.storm.radius * 0.5;
+                g.storm.to_center = g.storm.center;
+                "ok".into()
+            }
+            "build_demo" => {
+                use fn_core::game::pieces::*;
+                let p = g.actors[PLAYER].pos;
+                let yaw = g.actors[PLAYER].yaw;
+                let f = yaw_forward(yaw);
+                let r = yaw_right(yaw);
+                let base = p + f * 9.0;
+                let (cx, cz) = cell_of(base);
+                let y0 = g.world.hm.height_at(cx as f32 * TILE + TILE * 0.5, cz as f32 * TILE + TILE * 0.5);
+                let mats = [Mat::Wood, Mat::Stone, Mat::Metal];
+                let _ = r;
+                // a little fort: floor, 3 walls, ramp up the side, a roof
+                let mut n = 0;
+                for (i, m) in mats.iter().enumerate() {
+                    let x = cx + i as i32 * 2;
+                    for (kind, dx, dz, dir, level) in [(PieceKind::Floor, 0, 0, 0u8, 0i32), (PieceKind::Wall, 0, 0, 0, 0), (PieceKind::Wall, 0, 0, 1, 0), (PieceKind::Wall, 1, 0, 1, 0), (PieceKind::Roof, 0, 0, 0, 0)] {
+                        let key = PieceKey { kind, x: x + dx, z: cz + dz, level, dir };
+                        if g.pieces.at(&key).is_none() {
+                            g.pieces.insert(key, *m, y0, PLAYER);
+                            n += 1;
+                        }
+                    }
+                    let key = PieceKey { kind: PieceKind::Ramp, x, z: cz + 1, level: 0, dir: 3 };
+                    g.pieces.insert(key, *m, y0, PLAYER);
+                    let key = PieceKey { kind: PieceKind::Wall, x, z: cz + 1, level: 0, dir: 0 };
+                    let _ = key;
+                }
+                format!("placed {n}")
             }
             "ff" => {
                 // fast-forward the simulation (idle human) without rendering: for scripted tests

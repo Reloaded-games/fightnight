@@ -33,7 +33,7 @@ const gpuCanvas = $('gpu');
 const hudCanvas = $('hud');
 const mapImage = document.createElement('canvas');
 const hud = new Hud(hudCanvas, mapImage);
-window.__game = { get state() { return state; }, get hud() { return hudState; }, fn, cfg };
+window.__game = { get state() { return state; }, get hud() { return hudState; }, fn, cfg, frames: 0, audio };
 // Test helper: read back the rendered frame and paint it into a plain 2D canvas so a normal page
 // screenshot (which cannot see the WebGPU swapchain in headless mode) shows the whole UI.
 window.__game.freezeFrame = async () => {
@@ -443,6 +443,7 @@ function loop(t) {
   if (!ready) return;
   if (state === 'loading') { return; }
   fn.frame(dt);
+  window.__game.frames++;
   if (state === 'playing' || state === 'paused') {
     try { hudState = JSON.parse(fn.hud()); } catch (e) { hudState = null; }
     if (hudState) {

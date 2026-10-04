@@ -235,10 +235,13 @@ impl Scene {
     // ---- loose items -------------------------------------------------------------------------------------------------
 
     fn beam(&mut self, base: Vec3, color: Vec3, height: f32, width: f32, strength: f32, seed: f32) {
-        let c = [color.x.powf(2.2) * 2.4 * strength, color.y.powf(2.2) * 2.4 * strength, color.z.powf(2.2) * 2.4 * strength, 0.65];
+        let c = [color.x.powf(2.2) * 2.6 * strength, color.y.powf(2.2) * 2.6 * strength, color.z.powf(2.2) * 2.6 * strength, 0.55];
         self.particles_add.push(Particle::stretched(base, Vec3::Y, height, width, c, shape::BEAM, seed));
-        let g = [color.x.powf(2.2) * 1.6 * strength, color.y.powf(2.2) * 1.6 * strength, color.z.powf(2.2) * 1.6 * strength, 0.55];
-        self.particles_add.push(Particle::billboard(base + Vec3::Y * 0.2, width * 3.0, g, shape::GLOW, 0.0, seed));
+        // a tight core so the pillar reads as a bright line
+        let core = [color.x.powf(2.2) * 3.0 * strength + 0.5, color.y.powf(2.2) * 3.0 * strength + 0.5, color.z.powf(2.2) * 3.0 * strength + 0.5, 0.5];
+        self.particles_add.push(Particle::stretched(base, Vec3::Y, height * 0.8, width * 0.28, core, shape::BEAM, seed + 0.3));
+        let g = [color.x.powf(2.2) * 1.4 * strength, color.y.powf(2.2) * 1.4 * strength, color.z.powf(2.2) * 1.4 * strength, 0.5];
+        self.particles_add.push(Particle::billboard(base + Vec3::Y * 0.15, width * 2.2, g, shape::GLOW, 0.0, seed));
     }
 
     fn pickups(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
@@ -263,7 +266,7 @@ impl Scene {
             self.push(mesh, m, tint);
             if d < 120.0 {
                 let fade = if d > 80.0 { (120.0 - d) / 40.0 } else { 1.0 };
-                self.beam(p.pos + Vec3::Y * 0.05, glow_col, beam_h, 0.34, fade, (p.id % 97) as f32 / 97.0);
+                self.beam(p.pos + Vec3::Y * 0.05, glow_col, beam_h, 0.2, fade, (p.id % 97) as f32 / 97.0);
             }
         }
     }
@@ -283,7 +286,7 @@ impl Scene {
             if !c.opened && d < 160.0 {
                 let pulse = 0.85 + 0.15 * (t * 3.0 + c.id as f32).sin();
                 let fade = if d > 110.0 { (160.0 - d) / 50.0 } else { 1.0 };
-                self.beam(c.pos + Vec3::Y * 0.2, Vec3::new(1.0, 0.78, 0.2), 7.0, 0.55, pulse * fade, (c.id % 89) as f32 / 89.0);
+                self.beam(c.pos + Vec3::Y * 0.2, Vec3::new(1.0, 0.78, 0.2), 8.0, 0.32, pulse * fade, (c.id % 89) as f32 / 89.0);
             } else if c.opened && c.open_t < 1.0 {
                 // golden light pours out as the lid opens
                 self.particles_add.push(Particle::billboard(c.pos + Vec3::Y * 0.7, 1.8, [3.0, 2.2, 0.6, 0.5 * (1.0 - c.open_t)], shape::GLOW, 0.0, 0.0));
