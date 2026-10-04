@@ -682,8 +682,15 @@ impl Game {
         let dir = look_dir(a.yaw, a.pitch);
         let right = yaw_right(a.yaw);
         let shoulder = if a.ads { 0.55 } else { 0.62 };
-        let pivot = Vec3::new(a.pos.x, a.eye_smooth.max(a.pos.y - 0.5) + if a.crouching { 1.08 } else { 1.52 }, a.pos.z) + right * shoulder;
-        (pivot, dir)
+        let axis = Vec3::new(a.pos.x, a.eye_smooth.max(a.pos.y - 0.5) + if a.crouching { 1.08 } else { 1.52 }, a.pos.z);
+        // The shoulder sits further out than the body is wide, so pressed against a wall it lies inside the wall (or beyond it),
+        // and a ray that starts inside a box never hits it: shots and swings would go straight through, and the camera
+        // would sit in the wall. Keep the pivot on this side of whatever stands between it and the body.
+        let reach = match self.env().probe(axis, right, shoulder + 0.05) {
+            Some(h) => (h.t - 0.05).clamp(0.0, shoulder),
+            None => shoulder,
+        };
+        (axis + right * reach, dir)
     }
 
     pub fn camera(&self, aspect: f32) -> Camera {
@@ -773,6 +780,30 @@ pub(crate) mod testutil {
 
     pub fn game_cfg(cfg: GameConfig) -> Game {
         Game::new(World::generate(1234), cfg)
+    }
+
+    /// A flat, dry patch of ground at the middle of a build cell with no static geometry within 16 m.
+    pub fn free_spot(g: &Game) -> Vec3 {
+        let w = &g.world;
+        for r in (40..300).step_by(10) {
+            for a in 0..24 {
+                let ang = a as f32 / 24.0 * std::f32::consts::TAU;
+                let (x, z) = (ang.cos() * r as f32, ang.sin() * r as f32);
+                let (cx, cz) = ((x / pieces::TILE).floor(), (z / pieces::TILE).floor());
+                let (x, z) = ((cx + 0.5) * pieces::TILE, (cz + 0.5) * pieces::TILE);
+                let h = w.hm.height_at(x, z);
+                if h < 4.0 || w.hm.slope_at(x, z) > 0.06 {
+                    continue;
+                }
+                let q = crate::math::Aabb::new(Vec3::new(x - 16.0, -50.0, z - 16.0), Vec3::new(x + 16.0, 200.0, z + 16.0));
+                let mut free = true;
+                w.statics.query(&q, |_, _| free = false);
+                if free {
+                    return Vec3::new(x, h, z);
+                }
+            }
+        }
+        panic!("no free spot");
     }
 }
 

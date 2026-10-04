@@ -30,6 +30,9 @@ pub struct Trace {
     pub point: Vec3,
 }
 
+/// Share of an explosion's damage and knock-back that reaches a target hidden behind a wall or a hill.
+pub const SPLASH_COVER: f32 = 0.25;
+
 pub fn noise_radius(kind: WeaponKind) -> f32 {
     match kind {
         WeaponKind::Pistol => 60.0,
@@ -447,7 +450,13 @@ impl Game {
         let side = dir.cross(Vec3::Y).normalize_or_zero();
         let mut tr = self.trace(i, origin, dir, PICKAXE_REACH);
         if matches!(tr.hit, TraceHit::None) {
+            let env = self.env();
             for off in [side * 0.32, -side * 0.32, Vec3::Y * 0.4, -Vec3::Y * 0.4] {
+                // a fan ray must not start on the far side of a wall
+                let len = off.length();
+                if len > 1e-3 && env.probe(origin, off / len, len).is_some() {
+                    continue;
+                }
                 let t = self.trace(i, origin + off, dir, PICKAXE_REACH);
                 if !matches!(t.hit, TraceHit::None) && (matches!(tr.hit, TraceHit::None) || t.t < tr.t) {
                     tr = t;
@@ -543,9 +552,11 @@ impl Game {
                 return false;
             }
         }
-        let (on_shield, hp_after);
+        let (on_shield, hp_after, dealt);
         {
             let a = &mut self.actors[victim];
+            // what this hit can actually take off the victim: overkill is not damage dealt
+            dealt = amount.min(a.hp.max(0.0) + if bypass_shield { 0.0 } else { a.shield });
             let mut remain = amount;
             let mut absorbed = 0.0;
             if !bypass_shield && a.shield > 0.0 {
@@ -566,7 +577,7 @@ impl Game {
         self.events.push(Event::Damage { target: victim, attacker, amount, on_shield, headshot, pos: hit_pos });
         if let Some(at) = attacker {
             if at != victim {
-                self.actors[at].damage_dealt += amount;
+                self.actors[at].damage_dealt += dealt;
                 if at == PLAYER {
                     self.events.push(Event::HitConfirm { head: headshot, shield: on_shield, kill: killed });
                 }
@@ -623,24 +634,31 @@ impl Game {
         self.events.push(Event::Explosion { pos, radius });
         self.events.push(Event::Noise { pos, radius: 140.0, source: owner });
         let base = def.damage * rarity.damage_mul();
-        let n = self.actors.len();
-        for j in 0..n {
-            let a = &self.actors[j];
-            if !a.alive || a.mode == MoveMode::Bus {
-                continue;
+        // (actor, damage, push direction, knock-back strength, chest) for everyone the blast reaches; walls and hills between
+        // the blast and a target soak most of it, so building cover works against rockets too
+        let mut hits = Vec::new();
+        {
+            let env = Env::new(&self.world, &self.pieces.grid);
+            for (j, a) in self.actors.iter().enumerate() {
+                if !a.alive || a.mode == MoveMode::Bus {
+                    continue;
+                }
+                let chest = a.chest();
+                let d = chest.distance(pos);
+                if d >= radius + 0.4 {
+                    continue;
+                }
+                let cover = if env.line_clear(pos, chest) { 1.0 } else { SPLASH_COVER };
+                let k = (1.0 - d / (radius + 0.4)).clamp(0.0, 1.0) * cover;
+                let mut dmg = base * (0.15 * cover + 0.85 * k);
+                if j == owner {
+                    dmg *= 0.5;
+                }
+                hits.push((j, dmg, (chest - pos).normalize_or_zero(), k, chest));
             }
-            let d = a.chest().distance(pos);
-            if d >= radius + 0.4 {
-                continue;
-            }
-            let k = (1.0 - d / (radius + 0.4)).clamp(0.0, 1.0);
-            let mut dmg = base * (0.15 + 0.85 * k);
-            if j == owner {
-                dmg *= 0.5;
-            }
-            let push = (a.chest() - pos).normalize_or_zero();
-            let hp = a.chest();
-            self.damage_actor(j, dmg, Some(owner), def.name, false, hp, false);
+        }
+        for (j, dmg, push, k, chest) in hits {
+            self.damage_actor(j, dmg, Some(owner), def.name, false, chest, false);
             if self.actors[j].alive && self.actors[j].mode == MoveMode::Ground {
                 let a = &mut self.actors[j];
                 a.vel += push * 7.0 * k + Vec3::Y * 3.0 * k;
@@ -709,7 +727,7 @@ pub fn update_projectiles(g: &mut Game, dt: f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::testutil::game;
+    use super::super::testutil::{free_spot, game};
     use super::*;
 
     /// Put `a` and `b` facing each other on open ground, `d` metres apart.
@@ -841,6 +859,110 @@ mod tests {
             g.actors[a].yaw = yaw_of(Vec2::new(to.x, to.z));
             g.actors[a].pitch = (to.y / Vec2::new(to.x, to.z).length()).atan();
         }
+    }
+
+    #[test]
+    fn a_wall_at_the_shooters_shoulder_stops_their_bullets() {
+        // the aim ray starts at the right shoulder, 0.62 m from the body axis; pressed against a 0.26 m wall that point
+        // is inside the wall, and a ray that starts inside a box never hits it
+        for ads in [true, false] {
+            let mut g = game(2, true);
+            let spot = free_spot(&g);
+            let (cx, cz) = pieces::cell_of(spot);
+            let base = pieces::structure_base(&g.pieces, &g.env(), cx, cz);
+            // a wall along Z on the east edge of the cell; the shooter faces -Z with it on their right, an enemy stands on the far side
+            let key = pieces::PieceKey { kind: PieceKind::Wall, x: cx + 1, z: cz, level: 0, dir: 1 };
+            let wall = g.pieces.insert(key, Mat::Wood, base, PLAYER);
+            let bb = pieces::shape_of(&key, base).aabb();
+            let (a, b) = (PLAYER, 1);
+            let (px, pz) = (bb.min.x - 0.40, bb.max.z - 0.7);
+            let (ex, ez) = (bb.max.x + 2.0, pz - 3.0);
+            for (k, (x, z)) in [(a, (px, pz)), (b, (ex, ez))] {
+                let h = g.world.hm.height_at(x, z);
+                g.actors[k].pos = Vec3::new(x, h, z);
+                g.actors[k].mode = MoveMode::Ground;
+                g.actors[k].on_ground = true;
+                g.actors[k].brain = None;
+            }
+            equip(&mut g, a, WeaponKind::AssaultRifle, Rarity::Common);
+            g.update(1.0 / 60.0, &PlayerInput::default());
+            let hp0 = g.actors[b].hp;
+            let wall_hp0 = g.pieces.get(wall).unwrap().hp;
+            for _ in 0..40 {
+                for _ in 0..4 {
+                    g.actors[a].ads = ads;
+                    let (o, _) = g.aim_ray(a);
+                    let to = g.actors[b].chest() - o;
+                    g.actors[a].yaw = yaw_of(Vec2::new(to.x, to.z));
+                    g.actors[a].pitch = (to.y / Vec2::new(to.x, to.z).length()).atan();
+                }
+                let (o, _) = g.aim_ray(a);
+                assert!(!(o.x > bb.min.x && o.x < bb.max.x && o.z > bb.min.z && o.z < bb.max.z && o.y > bb.min.y && o.y < bb.max.y), "ads {ads}: the aim origin {o:?} is inside the wall {bb:?}");
+                g.update(1.0 / 60.0, &PlayerInput { fire: true, ads, ..Default::default() });
+            }
+            assert_eq!(g.actors[b].hp, hp0, "ads {ads}: the enemy behind the wall must not be hurt");
+            assert!(g.pieces.get(wall).is_none_or(|p| p.hp < wall_hp0), "ads {ads}: the wall takes the bullets");
+        }
+    }
+
+    #[test]
+    fn damage_dealt_does_not_count_overkill() {
+        let mut g = game(2, true);
+        let (a, b) = duel(&mut g, 14.0);
+        g.actors[b].hp = 5.0;
+        g.actors[b].shield = 10.0;
+        let before = g.actors[a].damage_dealt;
+        let chest = g.actors[b].chest();
+        assert!(g.damage_actor(b, 105.0, Some(a), "Test", false, chest, false));
+        let dealt = g.actors[a].damage_dealt - before;
+        assert!((dealt - 15.0).abs() < 1e-3, "a 105 hit on 5 hp + 10 shield deals 15, not {dealt}");
+        // a hit that pierces the shield only counts the hit points
+        g.actors[b].alive = true;
+        g.actors[b].mode = MoveMode::Ground;
+        g.actors[b].hp = 5.0;
+        g.actors[b].shield = 10.0;
+        let before = g.actors[a].damage_dealt;
+        g.damage_actor(b, 105.0, Some(a), "The Storm", false, chest, true);
+        assert!((g.actors[a].damage_dealt - before - 5.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn walls_shield_the_target_from_rocket_splash() {
+        let mut g = game(2, true);
+        let spot = free_spot(&g);
+        let (cx, cz) = pieces::cell_of(spot);
+        let base = pieces::structure_base(&g.pieces, &g.env(), cx, cz);
+        let key = pieces::PieceKey { kind: PieceKind::Wall, x: cx + 1, z: cz, level: 0, dir: 1 };
+        let bb = pieces::shape_of(&key, base).aabb();
+        let z = (bb.min.z + bb.max.z) / 2.0;
+        let (a, b) = (PLAYER, 1);
+        let (bx, vx) = (bb.min.x - 0.6, bb.max.x + 1.6);
+        let h = g.world.hm.height_at(bx, z);
+        for (k, x) in [(a, bx - 6.0), (b, vx)] {
+            g.actors[k].pos = Vec3::new(x, g.world.hm.height_at(x, z), z);
+            g.actors[k].mode = MoveMode::Ground;
+            g.actors[k].on_ground = true;
+            g.actors[k].brain = None;
+        }
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let blast = Vec3::new(bx, h + 1.2, z);
+        // open ground first
+        g.actors[b].hp = 100.0;
+        g.actors[b].shield = 0.0;
+        g.explode(blast, a, WeaponKind::RocketLauncher, Rarity::Common);
+        let open = 100.0 - g.actors[b].hp;
+        assert!(open > 50.0, "a rocket 2.5 m away hurts: {open}");
+        // the same blast with a wall in between
+        let wall = g.pieces.insert(key, Mat::Stone, base, PLAYER);
+        g.actors[b].alive = true;
+        g.actors[b].mode = MoveMode::Ground;
+        g.actors[b].hp = 100.0;
+        g.actors[b].vel = Vec3::ZERO;
+        g.explode(blast, a, WeaponKind::RocketLauncher, Rarity::Common);
+        let covered = 100.0 - g.actors[b].hp;
+        assert!(covered > 0.0 && covered < open * 0.4, "the wall soaks the blast: {covered} behind it vs {open} in the open");
+        assert!(g.actors[b].vel.length() < 3.0, "and the target is not thrown through it: {:?}", g.actors[b].vel);
+        let _ = wall;
     }
 
     #[test]

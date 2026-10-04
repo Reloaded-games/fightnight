@@ -84,31 +84,8 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
-    use super::super::testutil::game;
+    use super::super::testutil::{free_spot, game};
     use super::*;
-
-    fn free_spot(g: &Game) -> Vec3 {
-        let w = &g.world;
-        for r in (40..300).step_by(10) {
-            for a in 0..24 {
-                let ang = a as f32 / 24.0 * std::f32::consts::TAU;
-                let (x, z) = (ang.cos() * r as f32, ang.sin() * r as f32);
-                let (cx, cz) = ((x / TILE).floor(), (z / TILE).floor());
-                let (x, z) = ((cx + 0.5) * TILE, (cz + 0.5) * TILE);
-                let h = w.hm.height_at(x, z);
-                if h < 4.0 || w.hm.slope_at(x, z) > 0.06 {
-                    continue;
-                }
-                let q = crate::math::Aabb::new(Vec3::new(x - 16.0, -50.0, z - 16.0), Vec3::new(x + 16.0, 200.0, z + 16.0));
-                let mut free = true;
-                w.statics.query(&q, |_, _| free = false);
-                if free {
-                    return Vec3::new(x, h, z);
-                }
-            }
-        }
-        panic!("no free spot");
-    }
 
     #[test]
     fn building_costs_materials_and_places_a_wall_that_blocks() {
