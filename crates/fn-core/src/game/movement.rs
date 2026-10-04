@@ -159,6 +159,9 @@ pub fn step_ground(a: &mut Actor, it: &Intent, env: &Env, dt: f32, ev: &mut Vec<
     p.x += vh.x * dt;
     p.z += vh.y * dt;
     let h = a.height();
+    // what the colliders pushed us back by; summing the push vectors themselves (rather than comparing the
+    // position before and after) keeps f32 rounding of `pos + v*dt` — which grows with |pos| — from looking like a wall
+    let mut pushed = Vec2::ZERO;
     for _ in 0..3 {
         let push = env.push_out(p, RADIUS, h, STEP_HEIGHT);
         if push.length_squared() < 1e-9 {
@@ -166,17 +169,14 @@ pub fn step_ground(a: &mut Actor, it: &Intent, env: &Env, dt: f32, ev: &mut Vec<
         }
         p.x += push.x;
         p.z += push.y;
+        pushed += push;
     }
-    let intended = vh * dt;
-    let moved = Vec2::new(p.x - old.x, p.z - old.z);
-    if intended.length() > 1e-6 {
-        let corr = moved - intended;
-        if corr.length() > 1e-5 {
-            let n = corr.normalize();
-            let vn = vh.dot(n);
-            if vn < 0.0 {
-                vh -= n * vn;
-            }
+    // slide: drop the part of the velocity that points into whatever pushed us
+    if pushed.length_squared() > 1e-10 {
+        let n = pushed.normalize();
+        let vn = vh.dot(n);
+        if vn < 0.0 {
+            vh -= n * vn;
         }
     }
     a.vel.x = vh.x;
@@ -489,6 +489,64 @@ mod tests {
         // release: decelerates to a stop quickly
         run(&mut a, &Intent::default(), &env, 0.6);
         assert!(a.speed_xz() < 0.05, "should stop: {}", a.speed_xz());
+    }
+
+    /// A start point on dry, gentle, obstacle-free ground with `len` metres of clear run along `dir`,
+    /// whose coordinate along the run is at least `min_abs` from the origin (either side).
+    fn clear_run(env: &Env, dir: Vec2, min_abs: f32, len: f32) -> Option<Vec3> {
+        let along = |p: Vec2| p.dot(dir);
+        let mut o = -420.0;
+        while o <= 420.0 {
+            let mut c = min_abs + 4.0;
+            while c <= 560.0 {
+                for sign in [1.0f32, -1.0] {
+                    let start = dir * (sign * c) + Vec2::new(-dir.y, dir.x) * o;
+                    let ok = (0..=len as i32).all(|k| {
+                        let p = start + dir * k as f32;
+                        let y = env.terrain(p.x, p.y);
+                        env.water_depth(p.x, p.y) == 0.0
+                            && along(p).abs() >= min_abs
+                            && env.world.hm.gradient_at(p.x, p.y).length() < 0.2
+                            && env.push_out(Vec3::new(p.x, y, p.y), RADIUS + 1.5, HEIGHT, STEP_HEIGHT).length() == 0.0
+                    });
+                    if ok {
+                        return Some(Vec3::new(start.x, env.terrain(start.x, start.y), start.y));
+                    }
+                }
+                c += 12.0;
+            }
+            o += 20.0;
+        }
+        None
+    }
+
+    #[test]
+    fn run_speed_is_the_same_far_from_the_world_origin() {
+        // f32 rounding of `pos + v*dt` grows with the coordinate; beyond 256 m it exceeded the tolerance used to
+        // detect wall hits and zeroed the run velocity every other frame (a crawl across most of the island)
+        let w = world();
+        let (mut a, pieces) = setup();
+        let env = Env::new(w, &pieces);
+        for dir in [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y] {
+            let start = clear_run(&env, dir, 262.0, 14.0).unwrap_or_else(|| panic!("no clear run along {dir:?}"));
+            for hz in [30.0f32, 60.0, 144.0, 240.0] {
+                let dt = 1.0 / hz;
+                a.pos = start;
+                a.vel = Vec3::ZERO;
+                a.on_ground = true;
+                let it = Intent { wish: dir, ..Default::default() };
+                let mut ev = vec![];
+                let mut travelled = 0.0;
+                for _ in 0..(1.2 * hz) as usize {
+                    let before = a.pos;
+                    step_ground(&mut a, &it, &env, dt, &mut ev);
+                    travelled += Vec2::new(a.pos.x - before.x, a.pos.z - before.z).length();
+                }
+                // 1.2 s at 6.4 m/s with a 0.14 s ramp-up is about 7.0 m
+                assert!(travelled > 6.4, "{hz} Hz along {dir:?} from {start:?}: only {travelled:.2} m in 1.2 s (speed {:.2})", a.speed_xz());
+                assert!(a.speed_xz() > RUN_SPEED * 0.95, "{hz} Hz along {dir:?} from {start:?}: speed {:.2}", a.speed_xz());
+            }
+        }
     }
 
     #[test]
