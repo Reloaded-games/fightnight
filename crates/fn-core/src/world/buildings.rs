@@ -615,8 +615,13 @@ pub fn gen_house(rng: &mut Rng, w: f32, d: f32, st: &Style) -> Geom {
     }
     // exterior band between floors
     if floors == 2 {
+        // (four boards around the outside: as one box it would cover the whole upper floor)
         let y = FLOOR_Y + STORY_H;
-        b.bx(Vec3::new(-hx - 0.06, y - 0.12, -hz - 0.06), Vec3::new(hx + 0.06, y + 0.12, hz + 0.06), st.trim, mat::FLAT, false);
+        let (y0, y1) = (y - 0.12, y + 0.12);
+        b.bx(Vec3::new(-hx - 0.06, y0, hz), Vec3::new(hx + 0.06, y1, hz + 0.06), st.trim, mat::FLAT, false);
+        b.bx(Vec3::new(-hx - 0.06, y0, -hz - 0.06), Vec3::new(hx + 0.06, y1, -hz), st.trim, mat::FLAT, false);
+        b.bx(Vec3::new(-hx - 0.06, y0, -hz), Vec3::new(-hx, y1, hz), st.trim, mat::FLAT, false);
+        b.bx(Vec3::new(hx, y0, -hz), Vec3::new(hx + 0.06, y1, hz), st.trim, mat::FLAT, false);
     }
 
     // --- stairs + upper floor
@@ -1340,6 +1345,34 @@ mod tests {
                 assert!((l.x - c.x).abs() < p.footprint_half.x + 0.1 && (l.z - c.z).abs() < p.footprint_half.y + 0.1, "rot {rot}: loot outside");
             }
         }
+    }
+
+    /// Total area of the upward-facing triangles of `m` that lie flat at height `y`.
+    fn top_area_at(m: &MeshData, y: f32) -> f32 {
+        let mut area = 0.0;
+        for t in m.idx.chunks(3) {
+            let v: Vec<Vec3> = t.iter().map(|&i| Vec3::from(m.verts[i as usize].pos)).collect();
+            let n = (v[1] - v[0]).cross(v[2] - v[0]);
+            if v.iter().all(|p| (p.y - y).abs() < 0.005) && n.y > 0.0 {
+                area += n.length() * 0.5;
+            }
+        }
+        area
+    }
+
+    #[test]
+    fn the_band_between_floors_does_not_cover_the_upper_floor() {
+        // the trim band around the outside of a two-story house once was one box across the whole footprint, which put a
+        // plain slab of trim colour 12 cm above the boards of the upper floor
+        let mut r = Rng::new(5);
+        let st = Style { floors: 2, ..random_style(&mut r, 2) };
+        let (w, d) = (10.0, 11.0);
+        let g = gen_house(&mut r, w, d, &st);
+        let band_top = FLOOR_Y + STORY_H + 0.12;
+        let boards = top_area_at(&g.mesh, FLOOR_Y + STORY_H);
+        let band = top_area_at(&g.mesh, band_top);
+        assert!(boards > 30.0, "the upper floor shows its boards: {boards} m2");
+        assert!(band < 4.0, "the trim band is a thin ring, not a floor: {band} m2");
     }
 
     #[test]
