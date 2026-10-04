@@ -14,6 +14,10 @@ pub enum Surface {
     Water,
 }
 
+impl Surface {
+    pub const ALL: [Surface; 6] = [Surface::Grass, Surface::Sand, Surface::Stone, Surface::Wood, Surface::Metal, Surface::Water];
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImpactKind {
     Dirt,
@@ -26,12 +30,20 @@ pub enum ImpactKind {
     Water,
 }
 
+impl ImpactKind {
+    pub const ALL: [ImpactKind; 8] = [ImpactKind::Dirt, ImpactKind::Stone, ImpactKind::Wood, ImpactKind::Metal, ImpactKind::Flesh, ImpactKind::Shield, ImpactKind::Foliage, ImpactKind::Water];
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickupSound {
     Weapon,
     Ammo,
     Heal,
     Material,
+}
+
+impl PickupSound {
+    pub const ALL: [PickupSound; 4] = [PickupSound::Weapon, PickupSound::Ammo, PickupSound::Heal, PickupSound::Material];
 }
 
 #[derive(Clone, Debug)]

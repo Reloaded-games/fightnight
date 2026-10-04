@@ -19,6 +19,10 @@ pub enum MoveMode {
     Dead,
 }
 
+impl MoveMode {
+    pub const ALL: [MoveMode; 6] = [MoveMode::Bus, MoveMode::Freefall, MoveMode::Glide, MoveMode::Ground, MoveMode::Swim, MoveMode::Dead];
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PieceKind {
     Wall,
@@ -78,7 +82,7 @@ impl Outfit {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
     None,
     Reload { t: f32, dur: f32 },
