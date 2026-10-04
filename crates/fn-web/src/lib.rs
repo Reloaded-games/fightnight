@@ -54,6 +54,7 @@ fn parse_opts(opts: &str) -> (GameConfig, String) {
                 }
             }
             "name" => cfg.player_name = v.chars().take(18).collect::<String>().trim().to_string(),
+            "outfit" => cfg.player_outfit = match v { "ranger" => 1, "pilot" => 2, "vanguard" => 3, _ => 0 },
             "seed" => cfg.seed = v.parse().unwrap_or(1234),
             "skipbus" => cfg.skip_bus = v == "1",
             "god" => cfg.god_mode = v == "1",

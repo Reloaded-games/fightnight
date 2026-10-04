@@ -1,6 +1,5 @@
-//! Procedural mesh generation. All game geometry (terrain, trees, houses,
-//! characters, weapons...) is authored in code with `MeshBuilder`, so the game
-//! ships without a single model file.
+//! Shared GPU mesh layout and procedural generation for terrain, buildings and
+//! fallback models. Blender-authored cartoon geometry uses this same layout.
 //!
 //! Conventions: right handed, Y up, counter-clockwise front faces. Colours are
 //! authored in sRGB; the shaders convert them to linear.
@@ -38,7 +37,7 @@ pub mod mat {
 pub struct Vertex {
     pub pos: [f32; 3],
     pub nrm: [f32; 3],
-    /// sRGB colour, alpha unused (kept for alignment / future use).
+    /// sRGB colour; alpha is the instance tint weight (0 = fixed, 255 = recolored).
     pub col: [u8; 4],
     /// [ambient occlusion, material id, wind sway weight, specular]
     pub attr: [u8; 4],

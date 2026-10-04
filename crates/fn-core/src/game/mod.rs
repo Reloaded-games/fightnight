@@ -47,6 +47,8 @@ pub struct GameConfig {
     pub bots: usize,
     pub difficulty: Difficulty,
     pub player_name: String,
+    /// Scout, Ranger, Pilot or Vanguard for the solo player (0..3).
+    pub player_outfit: u8,
     /// How many of the first actors are people rather than bots (a multiplayer room); `bots` more actors follow them.
     pub humans: usize,
     /// Names of the humans after the first (missing ones are called "Player N").
@@ -62,7 +64,7 @@ pub struct GameConfig {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        Self { seed: 1, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), humans: 1, human_names: vec![], start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
+        Self { seed: 1, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, humans: 1, human_names: vec![], start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
     }
 }
 
@@ -308,8 +310,9 @@ impl Game {
         rng.shuffle(&mut name_pool);
         let humans = cfg.humans.max(1);
         for i in 0..humans + cfg.bots {
-            let outfit = Outfit::random(&mut rng);
+            let random_outfit = Outfit::random(&mut rng);
             let human = i < humans;
+            let outfit = if i == PLAYER { Outfit::preset(cfg.player_outfit) } else { random_outfit };
             let name = if i == PLAYER {
                 cfg.player_name.clone()
             } else if human {

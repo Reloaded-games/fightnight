@@ -611,6 +611,7 @@ fn unit_cone() -> MeshData {
 
 /// Build the mesh for one id. Panics on `Count`.
 pub fn build_mesh(id: MeshId) -> MeshData {
+    if let Some(mesh) = crate::cartoon_assets::mesh(id) { return mesh; }
     use MeshId::*;
     match id {
         UnitBox => unit_box(),

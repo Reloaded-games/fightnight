@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FightNight - Battle Royale</title>
-<meta name="description" content="A Fortnite-style battle royale that runs in your browser: Rust, WebAssembly and WebGPU, with everything generated in code.">
+<meta name="description" content="Fightnight cartoon battle royale: Blender characters and animated movement, running in your browser with Rust, WebAssembly and WebGPU.">
 <meta name="theme-color" content="#14289c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2314289c'/%3E%3Cpath d='M22 12h28l-3 10H33l-1.500 7H46l-3 10H29l-3 13H15z' fill='%23f6e500'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
@@ -40,13 +40,14 @@
     <div class="panel">
       <h3>Match</h3>
       <div class="field"><label for="opt-name">Name</label><input type="text" id="opt-name" maxlength="16" value="You" spellcheck="false"></div>
+      <div class="field"><label>Solo character</label><div class="seg" id="seg-outfit"><button data-v="scout" class="on">Scout</button><button data-v="ranger">Ranger</button><button data-v="pilot">Pilot</button><button data-v="vanguard">Vanguard</button></div></div>
       <div class="field"><label>Bots</label><span><input type="range" id="opt-bots" min="9" max="59" step="5" value="39"> <span class="val" id="val-bots">39</span></span></div>
       <div class="field"><label>Difficulty</label><div class="seg" id="seg-diff"><button data-v="easy">Easy</button><button data-v="normal" class="on">Normal</button><button data-v="hard">Hard</button></div></div>
       <div class="field"><label>Graphics</label><div class="seg" id="seg-quality"><button data-v="low">Low</button><button data-v="medium">Med</button><button data-v="high" class="on">High</button></div></div>
       <div class="field"><label for="opt-skipbus">Skip the bus</label><input type="checkbox" id="opt-skipbus"></div>
     </div>
   </div>
-  <div class="credit">Rust + WebAssembly + WebGPU &middot; everything you see and hear is generated in code</div>
+  <div class="credit">Original Blender models &middot; Rust + WebAssembly + WebGPU</div>
 </section>
 
 <!-- multiplayer: host or join -->

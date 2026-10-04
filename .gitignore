@@ -6,3 +6,5 @@ node_modules/
 /tools/node_modules
 /tools/shots
 /tools/*.png
+.venv/
+*.blend1

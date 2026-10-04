@@ -54,7 +54,7 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
     // splat layers
     let dirt = vec3<f32>(0.46, 0.34, 0.20) * (0.88 + n_fine * 0.3);
     let asphalt = vec3<f32>(0.080, 0.085, 0.095) * (0.85 + n_fine * 0.4);
-    let lawn = srgb_to_linear(vec3<f32>(0.55, 0.88, 0.32)) * (0.94 + n_mid * 0.14);
+    let lawn = srgb_to_linear(vec3<f32>(0.43, 0.66, 0.31)) * (0.94 + n_mid * 0.14);
     let soil = srgb_to_linear(vec3<f32>(0.78, 0.66, 0.34));
     // farmland rows
     let rows = 0.5 + 0.5 * sin(i.wpos.x * 3.2 + sin(i.wpos.z * 0.4) * 0.5);

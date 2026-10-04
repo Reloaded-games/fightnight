@@ -279,10 +279,10 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
                 tint = tint_of(*rng.pick(&[0x379048, 0x2f8043, 0x3d9c52, 0x35884b]), 1.2, 0.12, &mut rng);
             } else if r < 0.62 {
                 kind = PropKind::Oak;
-                tint = tint_of(*rng.pick(&[0x5fb23a, 0x4fa233, 0x74bf3f, 0x62ad45]), 1.2, 0.1, &mut rng);
+                tint = tint_of(*rng.pick(&[0x42884a, 0x367640, 0x53964e, 0x447f4f]), 1.05, 0.1, &mut rng);
             } else if r < 0.84 {
                 kind = PropKind::Birch;
-                tint = tint_of(*rng.pick(&[0x7bc24a, 0x8cca4f, 0x6fb844]), 1.2, 0.1, &mut rng);
+                tint = tint_of(*rng.pick(&[0x659b50, 0x79a856, 0x5e954c]), 1.05, 0.1, &mut rng);
             } else {
                 kind = PropKind::Pine;
                 tint = tint_of(*rng.pick(&[0x379048, 0x3d9c52]), 1.2, 0.12, &mut rng);
@@ -435,12 +435,12 @@ pub fn scatter_ground_cover(world: &super::World, cx: usize, cz: usize) -> (Vec<
             }
             let tone = hash2f(ix, iz, seed ^ 0x64);
             let aut = world.painter.autumn(p.x, p.y);
-            let base_hex: u32 = if aut > 0.5 { 0xd0a43c } else if tone < 0.3 { 0x5fb23a } else if tone < 0.7 { 0x76c445 } else { 0x4ea231 };
+            let base_hex: u32 = if aut > 0.5 { 0xc0a154 } else if tone < 0.3 { 0x69984e } else if tone < 0.7 { 0x87b15e } else { 0x558b47 };
             let tint = srgb_lin(base_hex);
             let sc = 0.9 + hash2f(ix, iz, seed ^ 0x65) * 0.8;
             let pos = Vec3::new(p.x, h - 0.03, p.y);
             let yaw = hash2f(ix, iz, seed ^ 0x66) * std::f32::consts::TAU;
-            grass.push(Instance::at(pos, yaw, sc, [tint[0] * 1.5, tint[1] * 1.5, tint[2] * 1.5, 1.0]));
+            grass.push(Instance::at(pos, yaw, sc, [tint[0] * 1.15, tint[1] * 1.15, tint[2] * 1.15, 1.0]));
             // flowers in meadows
             let meadow = smoothstep(0.55, 0.7, crate::noise::fbm01(p.x / 55.0 + 4.0, p.y / 55.0 - 9.0, 3, seed ^ 0xF1));
             if meadow > 0.0 && r < density * 0.11 * meadow && slope < 0.4 {

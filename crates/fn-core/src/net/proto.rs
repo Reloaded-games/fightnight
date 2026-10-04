@@ -50,6 +50,7 @@ impl MatchSetup {
             bots: self.bots as usize,
             difficulty: self.difficulty,
             player_name: self.names.first().cloned().unwrap_or_else(|| "Host".into()),
+            player_outfit: 0,
             humans: self.names.len().max(1),
             human_names: self.names.iter().skip(1).cloned().collect(),
             start_mats: self.start_mats as u32,
@@ -1197,7 +1198,7 @@ mod tests {
     }
 
     fn setup() -> MatchSetup {
-        MatchSetup { seed: 1234, bots: 30, difficulty: Difficulty::Hard, skip_bus: true, storm_speed: 2.5, start_mats: 150, names: vec!["Host".into(), "Ada".into(), "Zoë".into()] }
+        MatchSetup { seed: 1234, bots: 30, difficulty: Difficulty::Hard, skip_bus: true, storm_speed: 2.5, start_mats: 150, names: vec!["Host".into(), "Ada".into(), "ZoÃ«".into()] }
     }
 
     fn own() -> Own {
@@ -1433,7 +1434,7 @@ mod tests {
         let cfg = setup().to_config();
         assert_eq!((cfg.seed, cfg.bots, cfg.humans, cfg.skip_bus, cfg.start_mats), (1234, 30, 3, true, 150));
         assert_eq!(cfg.player_name, "Host");
-        assert_eq!(cfg.human_names, vec!["Ada".to_string(), "Zoë".to_string()]);
+        assert_eq!(cfg.human_names, vec!["Ada".to_string(), "ZoÃ«".to_string()]);
         assert_eq!(cfg.difficulty, Difficulty::Hard);
     }
 
