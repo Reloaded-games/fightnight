@@ -194,9 +194,14 @@ pub fn check_victory(g: &mut Game) {
         g.phase = Phase::Over;
         if let Some(&w) = alive.first() {
             g.winner = Some(w);
-            g.actors[w].placement = 1;
-            g.actors[w].emoting = true;
-            g.actors[w].anim.emote_clock = 0.0;
+            // the match is decided: whatever the winner was doing (reloading, healing, building) stops for the dance
+            let a = &mut g.actors[w];
+            a.placement = 1;
+            a.action = Action::None;
+            a.build_mode = false;
+            a.ads = false;
+            a.emoting = true;
+            a.anim.emote_clock = 0.0;
             g.events.push(Event::Victory { winner: w });
         }
     }
@@ -319,6 +324,26 @@ mod tests {
         assert!((1.0..5.0).contains(&to_cam.length()), "orbit distance {}", to_cam.length());
         assert!(to_cam.normalize().dot(front) > 0.8, "camera should sit on the dancer's face side");
         assert!(cam.fwd.dot(-to_cam.normalize()) > 0.9, "camera should look at the dancer");
+    }
+
+    #[test]
+    fn a_winner_caught_mid_reload_still_dances() {
+        let mut g = game(2, true);
+        for i in 1..g.actors.len() {
+            g.actors[i].alive = false;
+            g.actors[i].mode = MoveMode::Dead;
+        }
+        g.actors[PLAYER].mode = MoveMode::Ground;
+        g.actors[PLAYER].on_ground = true;
+        g.actors[PLAYER].action = Action::Reload { t: 0.5, dur: 2.0 };
+        g.actors[PLAYER].build_mode = true;
+        let idle = PlayerInput::default();
+        g.update(0.1, &idle);
+        for _ in 0..5 {
+            g.update(0.1, &idle);
+        }
+        assert!(g.actors[PLAYER].emoting, "the victory dance must survive an in-progress action");
+        assert!(!g.actors[PLAYER].build_mode);
     }
 
     #[test]
