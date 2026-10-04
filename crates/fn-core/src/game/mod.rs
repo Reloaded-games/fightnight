@@ -243,6 +243,8 @@ pub struct Game {
     pub winner: Option<usize>,
     pub spectating: Option<usize>,
     pub cam_dist: f32,
+    /// Sideways offset of the camera pivot from the body axis (m): the shoulder reach, eased over time (see [`Game::tick_camera`]).
+    pub cam_reach: f32,
     /// Vertical field of view in degrees (player setting).
     pub fov_deg: f32,
     pub cam_shake: f32,
@@ -316,6 +318,7 @@ impl Game {
             winner: None,
             spectating: None,
             cam_dist: 3.4,
+            cam_reach: 0.62,
             fov_deg: 62.0,
             cam_shake: 0.0,
             fov_t: 0.0,
@@ -678,27 +681,41 @@ impl Game {
         }
     }
 
-    /// Shoulder pivot used for both the camera and the aim ray.
-    pub fn aim_ray(&self, idx: usize) -> (Vec3, Vec3) {
+    /// The point on the body axis at shoulder height, from which the shoulder pivot sits out to the right.
+    fn pivot_axis(&self, idx: usize) -> Vec3 {
         let a = &self.actors[idx];
-        let dir = look_dir(a.yaw, a.pitch);
-        let right = yaw_right(a.yaw);
+        Vec3::new(a.pos.x, a.eye_smooth.max(a.pos.y - 0.5) + if a.crouching { 1.08 } else { 1.52 }, a.pos.z)
+    }
+
+    /// How far out to the right of the body axis the shoulder pivot sits. The shoulder is further out than the body is
+    /// wide, so pressed against a wall it lies inside the wall (or beyond it), and a ray that starts inside a box never hits
+    /// it: shots and swings would go straight through. The reach is cut short by whatever stands between the pivot and the body.
+    fn shoulder_reach(&self, idx: usize) -> f32 {
+        let a = &self.actors[idx];
         let shoulder = if a.ads { 0.55 } else { 0.62 };
-        let axis = Vec3::new(a.pos.x, a.eye_smooth.max(a.pos.y - 0.5) + if a.crouching { 1.08 } else { 1.52 }, a.pos.z);
-        // The shoulder sits further out than the body is wide, so pressed against a wall it lies inside the wall (or beyond it),
-        // and a ray that starts inside a box never hits it: shots and swings would go straight through, and the camera
-        // would sit in the wall. Keep the pivot on this side of whatever stands between it and the body.
-        let reach = match self.env().probe(axis, right, shoulder + 0.05) {
+        match self.env().probe(self.pivot_axis(idx), yaw_right(a.yaw), shoulder + 0.05) {
             Some(h) => (h.t - 0.05).clamp(0.0, shoulder),
             None => shoulder,
-        };
-        (axis + right * reach, dir)
+        }
+    }
+
+    /// Where a shot or a pickaxe swing starts, and which way it points: the right shoulder, kept on this side of any wall.
+    pub fn aim_ray(&self, idx: usize) -> (Vec3, Vec3) {
+        let a = &self.actors[idx];
+        (self.pivot_axis(idx) + yaw_right(a.yaw) * self.shoulder_reach(idx), look_dir(a.yaw, a.pitch))
+    }
+
+    /// The camera orbits the same shoulder, but its sideways offset is the eased [`Game::cam_reach`] so the view does not
+    /// jump when a window frame, the end of a wall or a trunk passes the shoulder.
+    fn camera_pivot(&self, idx: usize) -> (Vec3, Vec3) {
+        let a = &self.actors[idx];
+        (self.pivot_axis(idx) + yaw_right(a.yaw) * self.cam_reach, look_dir(a.yaw, a.pitch))
     }
 
     pub fn camera(&self, aspect: f32) -> Camera {
         let idx = self.camera_actor();
         let a = &self.actors[idx];
-        let (pivot, dir) = self.aim_ray(idx);
+        let (pivot, dir) = self.camera_pivot(idx);
         let env = self.env();
         let airborne = matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
         let mut back = if airborne { 7.5 } else { lerp(self.cam_dist, self.cam_dist * 0.62, a.anim.aim) };
@@ -769,6 +786,10 @@ impl Game {
     pub fn tick_camera(&mut self, dt: f32) {
         // the camera distance eases back out after being pulled in; nothing to do besides keeping state sane
         self.cam_dist = lerp(self.cam_dist, 3.4, damp(3.0, dt));
+        // the shoulder pivot follows its wall-cut reach: quickly in (the camera should not sit in a wall), slowly back out
+        let want = self.shoulder_reach(self.camera_actor());
+        let rate = if want < self.cam_reach { 20.0 } else { 6.0 };
+        self.cam_reach = lerp(self.cam_reach, want, damp(rate, dt));
     }
 }
 

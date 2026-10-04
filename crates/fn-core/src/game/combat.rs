@@ -910,6 +910,55 @@ mod tests {
     }
 
     #[test]
+    fn the_camera_pivot_eases_past_the_end_of_a_wall_while_the_aim_origin_stays_exact() {
+        // walking along a wall with a gap in it, the wall on the right: the shoulder is cut short at the wall and free at
+        // the gap. The aim origin must follow that exactly (a shot may not start inside a wall) but the camera must not jump
+        let mut g = game(2, true);
+        let spot = free_spot(&g);
+        let (cx, cz) = pieces::cell_of(spot);
+        let base = pieces::structure_base(&g.pieces, &g.env(), cx, cz);
+        let mut wall_x = 0.0;
+        for z in [cz - 1, cz + 1] {
+            let key = pieces::PieceKey { kind: PieceKind::Wall, x: cx + 1, z, level: 0, dir: 1 };
+            g.pieces.insert(key, Mat::Wood, base, PLAYER);
+            wall_x = pieces::shape_of(&key, base).aabb().min.x;
+        }
+        // start south of the walls, facing north (-Z) with the wall on the right
+        let (x, z) = (wall_x - 0.4, (cz + 3) as f32 * pieces::TILE);
+        let h = g.world.hm.height_at(x, z);
+        let a = &mut g.actors[PLAYER];
+        a.pos = Vec3::new(x, h, z);
+        a.mode = MoveMode::Ground;
+        a.on_ground = true;
+        a.yaw = 0.0;
+        a.inv.selected = 0;
+        g.actors[1].brain = None;
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        g.cam_reach = g.shoulder_reach(PLAYER);
+        let (mut prev_hard, mut prev_cam) = (g.shoulder_reach(PLAYER), g.cam_reach);
+        let (mut max_hard, mut max_cam, mut gap_seen, mut wall_seen) = (0.0f32, 0.0f32, false, false);
+        for _ in 0..260 {
+            g.update(1.0 / 60.0, &PlayerInput { move_axis: Vec2::new(0.0, 1.0), ..Default::default() });
+            g.tick_camera(1.0 / 60.0);
+            let hard = g.shoulder_reach(PLAYER);
+            max_hard = max_hard.max((hard - prev_hard).abs());
+            max_cam = max_cam.max((g.cam_reach - prev_cam).abs());
+            gap_seen |= hard > 0.6;
+            wall_seen |= hard < 0.45;
+            (prev_hard, prev_cam) = (hard, g.cam_reach);
+        }
+        assert!(gap_seen && wall_seen, "the walk must pass both wall and gap (hard reach {prev_hard})");
+        assert!(max_hard > 0.2, "the aim origin follows the wall exactly: it jumps {max_hard:.2} m at a wall end");
+        assert!(max_cam < 0.1, "the camera pivot must ease instead: it jumped {max_cam:.2} m in one frame");
+        // and it settles on the aim origin once the player stands still beside the wall
+        for _ in 0..120 {
+            g.update(1.0 / 60.0, &PlayerInput::default());
+            g.tick_camera(1.0 / 60.0);
+        }
+        assert!((g.cam_reach - g.shoulder_reach(PLAYER)).abs() < 0.02, "{} vs {}", g.cam_reach, g.shoulder_reach(PLAYER));
+    }
+
+    #[test]
     fn damage_dealt_does_not_count_overkill() {
         let mut g = game(2, true);
         let (a, b) = duel(&mut g, 14.0);
