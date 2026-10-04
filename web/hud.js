@@ -3,6 +3,7 @@ import { RARITY, RARITY_DARK, AMMO_NAMES, MAT_COLORS, MAT_NAMES, PIECE_NAMES, dr
 
 const FONT = '"Burbank Big Condensed","Bebas Neue","Oswald","Impact","Haettenschweiler","Arial Narrow Bold","Arial Narrow",system-ui,sans-serif';
 const WORLD = 1280;
+const STORM_PHASES = 7; // matches PHASES in matchflow.rs
 
 function fmtTime(s) {
   s = Math.max(0, Math.ceil(s));
@@ -93,6 +94,7 @@ export class Hud {
     } else {
       this.spectating(s, W, H, S);
     }
+    if (!dead || s.spec) this.nameTags(s, W, H, S);
     this.damageNumbers(s, W, H, S);
     if (this.showPerf) this.text(this.perf, 12, H - 14, 15 * S, '#9dffb0', 'left', { italic: false, weight: 600 });
   }
@@ -418,12 +420,13 @@ export class Hud {
     const x = W - size - 22 * S - 0, y = (this.minimapBottom || 270 * S) + 10 * S;
     const w = size, h = 46 * S;
     const closing = st.state === 1;
+    const done = st.state === 2; // the final circle has closed: nothing left to count down
     const col = closing ? '#ff9a3d' : '#b78bff';
     this.skew(x, y, w, h, 'rgba(8,12,44,.72)', -0.25, col);
     drawStorm(ctx, x + 26 * S, y + h / 2, 34 * S, col);
-    this.text(closing ? 'STORM CLOSING' : 'STORM FORMS IN', x + 54 * S, y + 18 * S, 15 * S, '#cfd8ff');
-    this.text(fmtTime(st.timer), x + 54 * S, y + h - 8 * S, 28 * S, '#fff');
-    this.text(`PHASE ${st.phase + 1}`, x + w - 10 * S, y + h - 10 * S, 16 * S, col, 'right');
+    this.text(closing ? 'STORM CLOSING' : done ? 'FINAL ZONE' : 'STORM FORMS IN', x + 54 * S, y + 18 * S, 15 * S, '#cfd8ff');
+    this.text(done ? 'GO!' : fmtTime(st.timer), x + 54 * S, y + h - 8 * S, 28 * S, '#fff');
+    this.text(`PHASE ${Math.min(st.phase + 1, STORM_PHASES)}`, x + w - 10 * S, y + h - 10 * S, 16 * S, col, 'right');
     this.stormBottom = y + h;
     if (!st.in) {
       const pulse = 0.55 + 0.45 * Math.sin(this.time * 6);
@@ -440,8 +443,7 @@ export class Hud {
       const a = Math.max(0, Math.min(1, (7 - f.age) / 1.2, f.age / 0.12 + 0.2));
       ctx.save(); ctx.globalAlpha = a;
       const mine = f.me, you = f.you;
-      const killer = f.s ? 'The Storm' : (f.k || 'Fall');
-      const verb = f.s ? '' : '';
+      const killer = f.s ? 'The Storm' : (f.k || f.w || 'Fall');
       const line = `${killer}  ▸  ${f.v}`;
       ctx.font = `italic 900 ${19 * S}px ${FONT}`;
       const tw = ctx.measureText(line).width;
@@ -556,7 +558,25 @@ export class Hud {
     if (!s.spec) return;
     this.text('SPECTATING', W / 2, H - 120 * S, 22 * S, '#cfe0ff', 'center');
     this.text(s.spec, W / 2, H - 80 * S, 46 * S, '#fff', 'center');
-    this.text('◀  A / D  or click to switch player  ▶', W / 2, H - 46 * S, 17 * S, '#bcd0ff', 'center', { italic: false, weight: 600 });
+    this.text('◀  Left / Right arrows  or click to switch player  ▶', W / 2, H - 46 * S, 17 * S, '#bcd0ff', 'center', { italic: false, weight: 600 });
+  }
+
+  // ---- name tags (opt-in setting): name and health / shield bars above nearby players -------------------------------------------
+  nameTags(s, W, H, S) {
+    if (!s.tags || !s.tags.length) return;
+    const ctx = this.ctx;
+    for (const t of s.tags) {
+      const x = (t.x * 0.5 + 0.5) * W, y = (1 - (t.y * 0.5 + 0.5)) * H;
+      const k = Math.max(0.55, Math.min(1, 1.15 - t.d / 100));
+      const bw = 78 * S * k, bh = 6 * S * k;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0.35, Math.min(1, 1.3 - t.d / 80));
+      this.text(t.n, x, y - 12 * S * k, 17 * S * k, '#fff', 'center');
+      ctx.fillStyle = 'rgba(8,12,44,.75)'; ctx.fillRect(x - bw / 2 - 2, y - 8 * S * k, bw + 4, bh * 2 + 5);
+      ctx.fillStyle = '#4dd6ff'; ctx.fillRect(x - bw / 2, y - 6 * S * k, bw * Math.max(0, Math.min(1, t.sh)), bh);
+      ctx.fillStyle = '#7dff5a'; ctx.fillRect(x - bw / 2, y - 6 * S * k + bh + 1, bw * Math.max(0, Math.min(1, t.hp)), bh);
+      ctx.restore();
+    }
   }
 
   // ---- floating numbers -------------------------------------------------------------------------------------------------------------------------------
@@ -625,5 +645,6 @@ export function drawFullMap(canvas, mapImage, s, pois) {
   ctx.beginPath(); ctx.arc(px, pz, 16 + pulse * 8, 0, Math.PI * 2); ctx.stroke();
   hud.arrow(ctx, px, pz, s.yaw, 16);
   ctx.font = `italic 900 22px ${FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(8,12,44,.9)';
-  ctx.strokeText('YOU', px, pz - 32); ctx.fillStyle = '#ffe94a'; ctx.fillText('YOU', px, pz - 32);
+  const you = s.spec || 'YOU';
+  ctx.strokeText(you, px, pz - 32); ctx.fillStyle = '#ffe94a'; ctx.fillText(you, px, pz - 32);
 }

@@ -87,7 +87,10 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #pause .stack { display: flex; flex-direction: column; gap: 14px; align-items: center; }
 
 /* ---------- inventory ---------- */
-#inventory { gap: 20px; }
+#inventory { gap: 20px; overflow-y: auto; justify-content: flex-start; padding: 20px 0; }
+/* auto margins centre the content when it fits and still let a short window scroll to the top */
+#inventory > :first-child { margin-top: auto; }
+#inventory > :last-child { margin-bottom: auto; }
 #inventory h2 { font-size: 54px; color: #fff; text-shadow: 0 4px 0 var(--blue-d); }
 .inv-grid { display: grid; grid-template-columns: repeat(6, 170px); gap: 12px; }
 .slot { position: relative; height: 292px; background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.35)); border: 2px solid rgba(255,255,255,.2); padding: 10px; cursor: pointer; transition: transform .1s ease, border-color .1s ease; overflow: hidden; }
@@ -125,6 +128,13 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #over .stat b { display: block; font-family: var(--font); font-style: italic; font-size: 44px; color: var(--yellow); line-height: 1; }
 #over .stat span { font-size: 12px; letter-spacing: .15em; text-transform: uppercase; color: #bcd0ff; }
 #over .btns { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+/* a win keeps the middle of the screen clear: the winner dances there with the camera swinging round */
+#over.win { background: radial-gradient(ellipse 70% 60% at 50% 52%, rgba(3,5,22,0) 35%, rgba(3,5,22,.62) 100%); backdrop-filter: none; justify-content: flex-start; padding: 3vh 0 3vh; }
+#over.win .banner { font-size: clamp(44px, 7vw, 110px); }
+#over.win .place { font-size: clamp(22px, 2.6vw, 36px); margin-bottom: 0; }
+#over.win .stats { margin: auto 0 14px; }
+#over.win .stats .stat { padding: 6px 22px; }
+#over.win .stats .stat b { font-size: 34px; }
 @keyframes pop { from { transform: skewX(-8deg) scale(.4); opacity: 0; } to { transform: skewX(-8deg) scale(1); opacity: 1; } }
 #confetti { position: fixed; inset: 0; z-index: 19; pointer-events: none; }
 
@@ -134,7 +144,9 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #click-to-play { position: fixed; z-index: 9; left: 50%; bottom: 14%; transform: translateX(-50%); display: none; font-family: var(--font); font-style: italic; font-size: 30px; padding: 10px 26px; background: rgba(0,0,0,.55); border: 2px solid rgba(255,255,255,.5); text-transform: uppercase; letter-spacing: .06em; animation: blink 1.2s ease-in-out infinite; pointer-events: none; }
 @keyframes blink { 50% { opacity: .45; } }
 
+@media (max-width: 1140px) {
+  .inv-grid { grid-template-columns: repeat(3, 170px); }
+}
 @media (max-width: 900px) {
-  .inv-grid { grid-template-columns: repeat(3, 150px); }
   #menu { flex-direction: column; overflow: auto; }
 }

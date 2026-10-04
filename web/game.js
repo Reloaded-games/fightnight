@@ -19,7 +19,7 @@ function saveCfg() { try { localStorage.setItem('fightnight.settings', JSON.stri
 // ------------------------------------------------------------------------------------------------
 // State
 // ------------------------------------------------------------------------------------------------
-let state = 'loading'; // loading | menu | playing | paused | over
+let state = 'loading'; // loading | menu | playing | paused | over | fatal
 let overlay = null; // 'inventory' | 'map' | null (game keeps running)
 let ready = false;
 let hudState = null;
@@ -33,7 +33,7 @@ const gpuCanvas = $('gpu');
 const hudCanvas = $('hud');
 const mapImage = document.createElement('canvas');
 const hud = new Hud(hudCanvas, mapImage);
-window.__game = { get state() { return state; }, get hud() { return hudState; }, fn, cfg, frames: 0, audio };
+window.__game = { get state() { return state; }, get overlay() { return overlay; }, get waiting() { return waitingForLock; }, get hud() { return hudState; }, fn, cfg, frames: 0, audio };
 // Test helper: read back the rendered frame and paint it into a plain 2D canvas so a normal page
 // screenshot (which cannot see the WebGPU swapchain in headless mode) shows the whole UI.
 window.__game.freezeFrame = async () => {
@@ -63,6 +63,12 @@ const TIPS = [
   'You can open the glider early by pressing Space in free fall.',
 ];
 
+// The wasm side parses `key=value;key=value`, so the free-text player name must not contain either separator.
+function matchOptions() {
+  const name = String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You';
+  return `bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
+}
+
 // ------------------------------------------------------------------------------------------------
 // UI helpers
 // ------------------------------------------------------------------------------------------------
@@ -78,7 +84,7 @@ function click() { audio.playUi('ui_click', 0.5); }
 function bindSeg(id, key) {
   const seg = $(id);
   const apply = () => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cfg[key]));
-  seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { cfg[key] = b.dataset.v; saveCfg(); apply(); click(); if (key === 'quality' && ready) fn.set_quality(cfg.quality); }));
+  seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { cfg[key] = b.dataset.v; saveCfg(); apply(); click(); if (key === 'quality' && ready) { fn.set_quality(cfg.quality); resizeAll(); } }));
   apply();
 }
 function bindRange(id, valId, key, fmt = (v) => v, onChange) {
@@ -127,7 +133,7 @@ function wireUi() {
   $('btn-again').addEventListener('click', () => { click(); startMatch(); });
   $('btn-menu').addEventListener('click', () => { click(); toMenu(); });
   $('btn-reload').addEventListener('click', () => location.reload());
-  $('btn-spectate').addEventListener('click', () => { click(); spectating = true; show('over', false); stopConfetti(); lockPointer(); });
+  $('btn-spectate').addEventListener('click', () => { click(); spectating = true; endShown = false; state = 'playing'; show('over', false); stopConfetti(); lockPointer(); });
   for (const b of document.querySelectorAll('.btn')) b.addEventListener('mouseenter', () => audio.playUi('ui_hover', 0.25));
 }
 
@@ -155,6 +161,8 @@ function resizeAll() {
 // Unrecoverable problems (lost GPU, a trap inside the wasm module): stop the game and offer a reload.
 function fatal(title, message) {
   ready = false;
+  state = 'fatal';
+  audio.silenceLoops();
   document.exitPointerLock?.();
   for (const id of ['menu', 'pause', 'inventory', 'map', 'over', 'settings', 'help', 'loading']) show(id, false);
   hud.clear();
@@ -180,9 +188,9 @@ async function boot() {
     await fn.init_gpu(gpuCanvas);
     setProgress(0.3, 'Building the island');
     await nextFrame(); await nextFrame();
-    const opts = `bots=${cfg.bots};difficulty=${cfg.difficulty};name=${cfg.name};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
-    fn.start_match(opts);
+    fn.start_match(matchOptions());
     ready = true;
+    fn.resize(gpuCanvas.width, gpuCanvas.height);
     setProgress(0.75, 'Drawing the map');
     await nextFrame();
     buildMap();
@@ -219,9 +227,15 @@ function buildMap() {
 // ------------------------------------------------------------------------------------------------
 async function startMatch() {
   if (state === 'loading') return;
+  // Ask for the pointer lock right away, while the click / key press that got us here still counts as a user
+  // gesture: loading the island can take longer than the browser keeps that gesture alive.
+  lockPointer();
   state = 'loading';
   $('tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
-  show('menu', false); show('over', false); show('pause', false); stopConfetti();
+  for (const id of ['menu', 'over', 'pause', 'settings', 'help', 'inventory', 'map']) show(id, false);
+  stopConfetti();
+  overlay = null;
+  $('err').textContent = '';
   $('loading').classList.remove('fade');
   show('loading');
   setProgress(0.05, 'Preparing the match');
@@ -233,17 +247,21 @@ async function startMatch() {
     } else audio.resume();
     setProgress(0.65, 'Building the island');
     await nextFrame();
-    const opts = `bots=${cfg.bots};difficulty=${cfg.difficulty};name=${cfg.name};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
-    fn.start_match(opts);
+    fn.start_match(matchOptions());
     applyRuntimeOptions();
     fn.set_menu(false);
     fn.set_paused(false);
     setProgress(1, 'Ready');
   } catch (e) {
     console.error(e);
-    $('err').textContent = 'Could not start the match: ' + e;
+    // back to the menu with the reason shown there (the loading screen hides the menu's message area)
+    $('err').textContent = 'Could not start the match: ' + (e && e.message ? e.message : e);
+    try { fn.set_menu(true); } catch (e2) { /* the module may be unusable; the message above says why */ }
+    state = 'menu';
+    show('loading', false); show('menu');
+    return;
   }
-  spectating = false; endShown = false; overlay = null;
+  spectating = false; endShown = false; waitingForLock = false;
   state = 'playing';
   $('loading').classList.add('fade');
   setTimeout(() => { show('loading', false); $('loading').classList.remove('fade'); }, 600);
@@ -257,6 +275,7 @@ function toMenu() {
   audio.silenceLoops();
   show('pause', false); show('over', false); show('inventory', false); show('map', false); show('settings', false); stopConfetti();
   show('menu');
+  document.activeElement?.blur?.();
   unlockPointer();
 }
 
@@ -280,8 +299,11 @@ function resume() {
 // Pointer lock & input
 // ------------------------------------------------------------------------------------------------
 function locked() { return NOLOCK || document.pointerLockElement === gpuCanvas || document.pointerLockElement === hudCanvas; }
+let lockAsked = 0;
+let waitingForLock = false;
 function lockPointer() {
   if (NOLOCK) return;
+  lockAsked = performance.now();
   try {
     const p = gpuCanvas.requestPointerLock && gpuCanvas.requestPointerLock();
     if (p && p.catch) p.catch(() => {});
@@ -309,12 +331,15 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'Tab') { e.preventDefault(); toggleOverlay('inventory'); return; }
     if (e.code === 'KeyM') { e.preventDefault(); toggleOverlay('map'); return; }
     if (e.code === 'Escape' && overlay) { e.preventDefault(); toggleOverlay(overlay); return; }
+    // with the pointer locked the browser turns Esc into pointerlockchange; without a lock it is ours
+    if (e.code === 'Escape' && !locked()) { pause(); return; }
     if (e.code === 'Escape' && NOLOCK) { pause(); return; }
-    if (!overlay && gameKey(e.code)) { fn.key(e.code, true); if (e.code === 'Space' || e.code.startsWith('Arrow') || e.ctrlKey) e.preventDefault(); }
+    const forward = !overlay || (overlay === 'inventory' && e.code === 'KeyG'); // G drops from the inventory screen too
+    if (forward && gameKey(e.code)) { fn.key(e.code, true); if (e.code === 'Space' || e.code.startsWith('Arrow') || e.ctrlKey) e.preventDefault(); }
     if (e.ctrlKey && e.code !== 'ControlLeft') e.preventDefault();
   } else if (state === 'paused' && e.code === 'Escape') {
     resume();
-  } else if (state === 'menu' && e.code === 'Enter' && !document.activeElement?.matches('input')) {
+  } else if (state === 'menu' && e.code === 'Enter' && !document.activeElement?.matches('input,button,select,textarea') && !$('settings').classList.contains('active') && !$('help').classList.contains('active')) {
     startMatch();
   }
 });
@@ -439,16 +464,22 @@ function stopConfetti() { cancelAnimationFrame(confettiRaf); const c = $('confet
 function maybeShowEnd(s) {
   if (endShown || state !== 'playing') return;
   const won = s.ph === 2 && s.won;
-  const lost = s.dead && s.deadT > 2.4 && !spectating;
+  const lost = s.dead && s.deadT > 2.4 && !spectating; // spectating only silences this prompt, not the final result
   const over = s.ph === 2;
-  if (!(won || lost || (over && s.dead && !spectating))) return;
+  if (!(won || lost || (over && s.dead))) return;
   endShown = true;
+  // a state of its own: input handlers ignore it, and releasing the pointer below must not open the pause menu
+  state = 'over';
+  fn.release_input();
   if (overlay) { show(overlay, false); overlay = null; }
   const el = $('over');
   el.classList.toggle('win', !!won); el.classList.toggle('lose', !won);
   $('over-banner').textContent = won ? 'Victory Royale' : 'Eliminated';
   const place = s.stats.place;
-  $('over-place').innerHTML = won ? `You are the last one standing` : `You placed <b>#${place}</b>` + (s.killer ? ` &middot; eliminated by <b>${s.killer}</b>` : ' &middot; eliminated by the storm');
+  // who or what did it: the player's own entry in the kill feed names fall damage, own rockets and so on
+  const mine = (s.feed || []).find((f) => f.you);
+  const cause = s.killer ? s.killer : mine && !mine.s && mine.w ? mine.w : 'the storm';
+  $('over-place').innerHTML = won ? `You are the last one standing` : `You placed <b>#${place}</b> &middot; eliminated by <b>${cause}</b>`;
   const mins = Math.floor(s.stats.time / 60), secs = Math.floor(s.stats.time % 60);
   $('over-stats').innerHTML = `<div class="stat"><b>${s.stats.kills}</b><span>Eliminations</span></div><div class="stat"><b>${Math.round(s.stats.dmg)}</b><span>Damage dealt</span></div><div class="stat"><b>${mins}:${String(secs).padStart(2, '0')}</b><span>Survived</span></div><div class="stat"><b>#${place}</b><span>Placement</span></div>`;
   $('btn-spectate').style.display = won || over ? 'none' : '';
@@ -472,23 +503,45 @@ function loop(t) {
   }
 }
 
+// Mouse look needs the pointer lock. If it is not held (the browser refused it, or Esc just released it
+// and Esc cannot grant a new one) the match waits behind a "click to play" hint instead of running blind.
+function syncLockWait() {
+  const need = state === 'playing' && !overlay && !locked() && performance.now() - lockAsked > 400;
+  if (need === waitingForLock) return;
+  waitingForLock = need;
+  const hint = $('click-to-play');
+  if (need) {
+    fn.set_paused(true);
+    fn.release_input();
+    audio.silenceLoops();
+    hint.style.display = 'block';
+  } else {
+    // only hand the simulation back if nothing else (pause menu, end screen) took charge in the meantime
+    if (state === 'playing') fn.set_paused(false);
+    hint.style.display = 'none';
+  }
+}
+
 function tick(dt) {
   fn.frame(dt);
   window.__game.frames++;
-  if (state === 'playing' || state === 'paused') {
+  if (state === 'playing' || state === 'paused' || state === 'over') {
     try { hudState = JSON.parse(fn.hud()); } catch (e) { hudState = null; }
     if (hudState) {
-      hud.draw(hudState, dt);
-      if (state === 'playing') {
+      if (state === 'over') hud.clear(); // the result screen gets the whole picture (the winner is dancing behind it)
+      else hud.draw(hudState, dt);
+      if (state === 'playing' || state === 'over') {
         const cues = fn.audio_cues();
         if (cues.length) audio.playCues(cues);
         audio.setLoops(fn.audio_loops());
+      }
+      if (state === 'playing') {
         maybeShowEnd(hudState);
         if (overlay === 'inventory') renderInventory(false);
         if (overlay === 'map') drawMapOverlay();
-        if (!locked() && !overlay && state === 'playing') $('click-to-play').style.display = 'block';
       }
     }
+    syncLockWait();
   } else hud.clear();
   perfT += dt;
   if (cfg.perf && perfT > 0.4 && (state === 'playing' || state === 'paused')) {
