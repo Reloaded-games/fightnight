@@ -1,53 +1,126 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>FightNight preview</title>
-<style>html,body{margin:0;height:100%;background:#111;overflow:hidden}canvas{width:100vw;height:100vh;display:block}</style></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FightNight - Battle Royale</title>
+<link rel="stylesheet" href="style.css">
+</head>
 <body>
 <canvas id="gpu"></canvas>
-<script type="module">
-import init, { start_preview, frame, resize, set_camera, capture_request, capture_poll, render_stats, ground_height, poi_list } from './pkg/fightnight.js';
-const q = new URLSearchParams(location.search);
-const canvas = document.getElementById('gpu');
-const dpr = Math.min(window.devicePixelRatio || 1, 2);
-const W = +q.get('w') || Math.floor(innerWidth * dpr), H = +q.get('h') || Math.floor(innerHeight * dpr);
-canvas.width = W; canvas.height = H;
-window.__fn = { ready: false, frames: 0, error: null };
-try {
-  await init();
-  const info = await start_preview(canvas, +q.get('seed') || 1234, q.get('quality') || 'high');
-  window.__fn.info = info;
-  console.log('started: ' + info);
-  let cam = (q.get('cam') || '0,60,200,0,-0.2').split(',').map(Number);
-  if (q.get('at')) { // at=x,z,yaw,pitch,eyeHeight : place the camera relative to the ground
-    const [x, z, yaw, pitch, eh] = q.get('at').split(',').map(Number);
-    cam = [x, ground_height(x, z) + (eh ?? 2.5), z, yaw, pitch];
-  }
-  set_camera(...cam);
-  window.__fn.setCamera = set_camera;
-  window.__fn.resize = resize;
-  window.__fn.stats = render_stats;
-  window.__fn.ground = ground_height;
-  window.__fn.pois = poi_list;
-  window.__fn.capture = async () => {
-    capture_request();
-    for (let i = 0; i < 600; i++) {
-      await new Promise(r => requestAnimationFrame(r));
-      const d = capture_poll();
-      if (d.length) {
-        const dv = new DataView(d.buffer, d.byteOffset);
-        return { w: dv.getUint32(0, true), h: dv.getUint32(4, true), rgba: d.subarray(8) };
-      }
-    }
-    return null;
-  };
-  let last = performance.now();
-  const loop = (t) => {
-    const dt = (t - last) / 1000; last = t;
-    frame(dt, t / 1000);
-    window.__fn.frames++;
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-  window.__fn.ready = true;
-} catch (e) { window.__fn.error = String(e); console.error(e); }
-</script>
-</body></html>
+<canvas id="hud"></canvas>
+<canvas id="confetti"></canvas>
+<div id="click-to-play">Click to play</div>
+
+<!-- loading -->
+<section id="loading" class="screen active">
+  <div class="logo big"><b>Fight</b> Night<small>Battle Royale</small></div>
+  <div class="progress"><i id="load-bar"></i></div>
+  <div id="load-text">Starting...</div>
+  <div id="tip"></div>
+</section>
+
+<!-- main menu -->
+<section id="menu" class="screen">
+  <div class="left">
+    <div class="logo big"><b>Fight</b> Night<small>Battle Royale</small></div>
+    <button class="btn primary play" id="btn-play"><span>Play</span></button>
+    <div class="row">
+      <button class="btn ghost" id="btn-settings"><span>Settings</span></button>
+      <button class="btn ghost" id="btn-help"><span>How to play</span></button>
+    </div>
+    <div id="err"></div>
+  </div>
+  <div class="right">
+    <div class="panel">
+      <h3>Match</h3>
+      <div class="field"><label for="opt-name">Name</label><input type="text" id="opt-name" maxlength="16" value="You" spellcheck="false"></div>
+      <div class="field"><label>Bots</label><span><input type="range" id="opt-bots" min="9" max="59" step="5" value="39"> <span class="val" id="val-bots">39</span></span></div>
+      <div class="field"><label>Difficulty</label><div class="seg" id="seg-diff"><button data-v="easy">Easy</button><button data-v="normal" class="on">Normal</button><button data-v="hard">Hard</button></div></div>
+      <div class="field"><label>Graphics</label><div class="seg" id="seg-quality"><button data-v="low">Low</button><button data-v="medium">Med</button><button data-v="high" class="on">High</button></div></div>
+      <div class="field"><label for="opt-skipbus">Skip the bus</label><input type="checkbox" id="opt-skipbus"></div>
+    </div>
+  </div>
+  <div class="credit">Rust + WebAssembly + WebGPU &middot; everything you see and hear is generated in code</div>
+</section>
+
+<!-- settings -->
+<section id="settings" class="screen" style="z-index:25;background:rgba(5,8,35,.82);backdrop-filter:blur(6px)">
+  <div class="panel" style="min-width:520px">
+    <h3>Settings</h3>
+    <div class="field"><label>Mouse sensitivity</label><span><input type="range" id="set-sens" min="1" max="30" step="1" value="10"> <span class="val" id="val-sens">10</span></span></div>
+    <div class="field"><label>Field of view</label><span><input type="range" id="set-fov" min="50" max="85" step="1" value="62"> <span class="val" id="val-fov">62</span></span></div>
+    <div class="field"><label>Volume</label><span><input type="range" id="set-vol" min="0" max="100" step="5" value="70"> <span class="val" id="val-vol">70</span></span></div>
+    <div class="field"><label for="set-invert">Invert Y axis</label><input type="checkbox" id="set-invert"></div>
+    <div class="field"><label for="set-autosprint">Auto sprint</label><input type="checkbox" id="set-autosprint" checked></div>
+    <div class="field"><label for="set-tags">Show player name tags</label><input type="checkbox" id="set-tags"></div>
+    <div class="field"><label for="set-fps">Show performance</label><input type="checkbox" id="set-fps"></div>
+    <div style="display:flex;justify-content:center;margin-top:16px"><button class="btn" id="btn-settings-close"><span>Back</span></button></div>
+  </div>
+</section>
+
+<!-- how to play -->
+<section id="help" class="screen" style="z-index:25;background:rgba(5,8,35,.85);backdrop-filter:blur(6px)">
+  <div class="panel" style="max-width:760px">
+    <h3>How to play</h3>
+    <p style="margin:0 0 14px;color:#dce8ff;line-height:1.5">Drop from the Battle Bus, loot weapons, heal and build to outlast everyone else while the storm closes in. Last player standing wins.</p>
+    <div class="keys">
+      <div><kbd>W A S D</kbd>Move</div><div><kbd>Space</kbd>Jump / leave bus / open glider</div>
+      <div><kbd>Mouse</kbd>Look</div><div><kbd>Shift</kbd>Sprint (auto by default)</div>
+      <div><kbd>LMB</kbd>Fire / swing / place piece</div><div><kbd>Ctrl</kbd>Crouch</div>
+      <div><kbd>RMB</kbd>Aim down sights</div><div><kbd>E</kbd>Pick up / open chest</div>
+      <div><kbd>R</kbd>Reload</div><div><kbd>1-6</kbd>Select slot / wheel to cycle</div>
+      <div><kbd>Q</kbd>Build mode</div><div><kbd>Z X C V</kbd>Wall / Floor / Ramp / Roof</div>
+      <div><kbd>T</kbd>Cycle building material</div><div><kbd>G</kbd>Drop selected item</div>
+      <div><kbd>Tab</kbd>Inventory</div><div><kbd>M</kbd>Map</div>
+      <div><kbd>Esc</kbd>Pause</div><div><kbd>F3</kbd>Performance</div>
+    </div>
+    <p style="margin:14px 0 0;color:#a9bde8;font-size:13px">Tip: hit trees and rocks with your pickaxe for building materials. Hold forward and click with the ramp selected to ramp-rush up cliffs and towers.</p>
+    <div style="display:flex;justify-content:center;margin-top:16px"><button class="btn" id="btn-help-close"><span>Back</span></button></div>
+  </div>
+</section>
+
+<!-- pause -->
+<section id="pause" class="screen">
+  <h2 class="big" style="font-size:64px;text-shadow:0 5px 0 var(--blue-d)">Paused</h2>
+  <div class="stack">
+    <button class="btn primary" id="btn-resume" style="font-size:34px;padding:14px 56px"><span>Resume</span></button>
+    <button class="btn ghost" id="btn-pause-settings"><span>Settings</span></button>
+    <button class="btn ghost" id="btn-quit"><span>Quit to menu</span></button>
+  </div>
+</section>
+
+<!-- inventory -->
+<section id="inventory" class="screen">
+  <h2>Inventory</h2>
+  <div class="inv-grid" id="inv-grid"></div>
+  <div class="inv-foot" id="inv-foot"></div>
+  <div style="color:#9fb6e8;font-size:14px">Click a slot to equip it &middot; Drop with the button or <b>G</b> &middot; <b>Tab</b> to close</div>
+</section>
+
+<!-- map -->
+<section id="map" class="screen">
+  <div id="mapwrap"><canvas id="mapcanvas" width="1000" height="1000"></canvas><div class="hint">Press M or Esc to close</div></div>
+</section>
+
+<!-- end of match -->
+<section id="over" class="screen">
+  <div class="banner big" id="over-banner">Victory Royale</div>
+  <div class="place" id="over-place"></div>
+  <div class="stats" id="over-stats"></div>
+  <div class="btns">
+    <button class="btn primary" id="btn-again" style="font-size:34px;padding:14px 50px"><span>Play again</span></button>
+    <button class="btn" id="btn-spectate"><span>Spectate</span></button>
+    <button class="btn ghost" id="btn-menu"><span>Main menu</span></button>
+  </div>
+</section>
+
+<section id="nowebgpu" class="screen">
+  <div class="logo big"><b>Fight</b> Night</div>
+  <h2 style="font-size:40px">WebGPU is required</h2>
+  <p id="nowebgpu-msg">This game renders with WebGPU. Please use a recent version of Chrome, Edge or Safari (or Firefox Nightly) with hardware acceleration enabled.</p>
+</section>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>

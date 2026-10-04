@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>FightNight dev</title>
+<style>html,body{margin:0;height:100%;background:#111;overflow:hidden}canvas{width:100vw;height:100vh;display:block}</style></head>
+<body>
+<canvas id="gpu"></canvas>
+<script type="module">
+// Developer / test harness: boots the game without any UI so screenshots and scripted checks are simple.
+import init, * as fn from './pkg/fightnight.js';
+const q = new URLSearchParams(location.search);
+const canvas = document.getElementById('gpu');
+const dpr = Math.min(window.devicePixelRatio || 1, 2);
+const W = +q.get('w') || Math.floor(innerWidth * dpr), H = +q.get('h') || Math.floor(innerHeight * dpr);
+canvas.width = W; canvas.height = H;
+window.__fn = { ready: false, frames: 0, error: null, fn };
+try {
+  await init();
+  window.__fn.info = await fn.init_gpu(canvas);
+  const opts = q.get('opts') || 'skipbus=1;bots=12;god=1';
+  window.__fn.start = fn.start_match(opts + ';quality=' + (q.get('quality') || 'high'));
+  for (const c of (q.get('cmd') || '').split('|').filter(Boolean)) fn.debug(c);
+  window.__fn.capture = async () => {
+    fn.capture_request();
+    for (let i = 0; i < 600; i++) {
+      await new Promise(r => requestAnimationFrame(r));
+      const d = fn.capture_poll();
+      if (d.length) {
+        const dv = new DataView(d.buffer, d.byteOffset);
+        return { w: dv.getUint32(0, true), h: dv.getUint32(4, true), rgba: d.subarray(8) };
+      }
+    }
+    return null;
+  };
+  let last = performance.now();
+  window.__fn.paused = false;
+  const loop = (t) => {
+    const dt = (t - last) / 1000; last = t;
+    if (!window.__fn.paused) fn.frame(Math.min(dt, 0.1));
+    window.__fn.frames++;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+  window.__fn.ready = true;
+} catch (e) { window.__fn.error = String(e); console.error(e); }
+</script>
+</body></html>

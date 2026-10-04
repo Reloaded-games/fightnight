@@ -1,25 +1,26 @@
+mod app;
 mod gpu;
+mod input;
 mod renderer;
 
-use fn_core::camera::Camera;
-use fn_core::world::World;
-use glam::{Vec3, Vec4};
+use app::App;
+use fn_core::audio_synth::{synth, Sfx};
+use fn_core::game::{Difficulty, GameConfig};
 use renderer::types::*;
 use renderer::Renderer;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
-struct Preview {
-    world: World,
-    renderer: Renderer,
-    cam_pos: Vec3,
-    yaw: f32,
-    pitch: f32,
-    time: f32,
+thread_local! {
+    static GPU: RefCell<Option<gpu::Gpu>> = const { RefCell::new(None) };
+    static APP: RefCell<Option<App>> = const { RefCell::new(None) };
 }
 
-thread_local! {
-    static PREVIEW: RefCell<Option<Preview>> = const { RefCell::new(None) };
+fn with_app<R>(default: R, f: impl FnOnce(&mut App) -> R) -> R {
+    APP.with(|a| match a.borrow_mut().as_mut() {
+        Some(app) => f(app),
+        None => default,
+    })
 }
 
 #[wasm_bindgen(start)]
@@ -27,112 +28,262 @@ pub fn start() {
     console_error_panic_hook::set_once();
 }
 
+/// Request the WebGPU adapter/device and configure the canvas. Returns a description of the adapter.
 #[wasm_bindgen]
-pub async fn start_preview(canvas: web_sys::HtmlCanvasElement, seed: u32, quality: String) -> Result<String, JsValue> {
+pub async fn init_gpu(canvas: web_sys::HtmlCanvasElement) -> Result<String, JsValue> {
     let gpu = gpu::Gpu::new(&canvas).await.map_err(|e| JsValue::from_str(&e))?;
     let info = format!("{} / {}", gpu.backend, gpu.adapter_name);
-    let t0 = js_sys::Date::now();
-    let world = World::generate(seed);
-    let t1 = js_sys::Date::now();
-    let meshes = fn_core::meshlib::build_all();
-    let mut r = Renderer::new(gpu, Quality::from_name(&quality), &meshes);
-    r.set_world(&world);
-    let t2 = js_sys::Date::now();
-    PREVIEW.with(|p| {
-        *p.borrow_mut() = Some(Preview { world, renderer: r, cam_pos: Vec3::new(0.0, 60.0, 200.0), yaw: 0.0, pitch: -0.2, time: 0.0 });
-    });
-    Ok(format!("{info}; worldgen {:.0}ms, upload {:.0}ms", t1 - t0, t2 - t1))
+    GPU.with(|g| *g.borrow_mut() = Some(gpu));
+    Ok(info)
 }
 
-#[wasm_bindgen]
-pub fn ground_height(x: f32, z: f32) -> f32 {
-    PREVIEW.with(|p| p.borrow().as_ref().map(|p| p.world.height_at(x, z)).unwrap_or(0.0))
-}
-
-/// JSON-ish summary of points of interest for tests: "name,x,z;..."
-#[wasm_bindgen]
-pub fn poi_list() -> String {
-    PREVIEW.with(|p| {
-        p.borrow()
-            .as_ref()
-            .map(|p| p.world.layout.pois.iter().map(|q| format!("{},{:.1},{:.1},{:?}", q.name, q.center.x, q.center.y, q.kind)).collect::<Vec<_>>().join(";"))
-            .unwrap_or_default()
-    })
-}
-
-#[wasm_bindgen]
-pub fn set_camera(x: f32, y: f32, z: f32, yaw: f32, pitch: f32) {
-    PREVIEW.with(|p| {
-        if let Some(p) = p.borrow_mut().as_mut() {
-            p.cam_pos = Vec3::new(x, y, z);
-            p.yaw = yaw;
-            p.pitch = pitch;
+fn parse_opts(opts: &str) -> (GameConfig, String) {
+    let mut cfg = GameConfig { seed: 1234, ..Default::default() };
+    let mut quality = "high".to_string();
+    for kv in opts.split(';') {
+        let Some((k, v)) = kv.split_once('=') else { continue };
+        match k.trim() {
+            "bots" => cfg.bots = v.parse::<usize>().unwrap_or(39).clamp(1, 98),
+            "difficulty" => {
+                cfg.difficulty = match v {
+                    "easy" => Difficulty::Easy,
+                    "hard" => Difficulty::Hard,
+                    _ => Difficulty::Normal,
+                }
+            }
+            "name" => cfg.player_name = v.chars().take(18).collect::<String>().trim().to_string(),
+            "seed" => cfg.seed = v.parse().unwrap_or(1234),
+            "skipbus" => cfg.skip_bus = v == "1",
+            "god" => cfg.god_mode = v == "1",
+            "storm" => cfg.storm_speed = v.parse().unwrap_or(1.0),
+            "mats" => cfg.start_mats = v.parse().unwrap_or(100),
+            "quality" => quality = v.to_string(),
+            _ => {}
         }
+    }
+    if cfg.player_name.is_empty() {
+        cfg.player_name = "You".into();
+    }
+    (cfg, quality)
+}
+
+/// Create the match (the first call also creates the renderer). Heavy: generates the island.
+/// Options: `bots=39;difficulty=normal;name=You;seed=1234;skipbus=0;god=0;storm=1;quality=high`.
+#[wasm_bindgen]
+pub fn start_match(opts: &str) -> Result<String, JsValue> {
+    let (cfg, quality) = parse_opts(opts);
+    let t0 = js_sys::Date::now();
+    let exists = APP.with(|a| a.borrow().is_some());
+    if exists {
+        with_app((), |app| app.restart(cfg));
+    } else {
+        let gpu = GPU.with(|g| g.borrow_mut().take()).ok_or_else(|| JsValue::from_str("init_gpu must be called first"))?;
+        let meshes = fn_core::meshlib::build_all();
+        let renderer = Renderer::new(gpu, Quality::from_name(&quality), &meshes);
+        let app = App::new(renderer, meshes, cfg);
+        APP.with(|a| *a.borrow_mut() = Some(app));
+    }
+    Ok(format!("match ready in {:.0} ms", js_sys::Date::now() - t0))
+}
+
+/// Menu mode shows a flyover of the island instead of running the game.
+#[wasm_bindgen]
+pub fn set_menu(menu: bool) {
+    with_app((), |app| {
+        app.menu = menu;
+        app.input.release_all();
     });
+}
+
+#[wasm_bindgen]
+pub fn frame(dt: f32) {
+    with_app((), |app| app.frame(dt));
 }
 
 #[wasm_bindgen]
 pub fn resize(w: u32, h: u32) {
-    PREVIEW.with(|p| {
-        if let Some(p) = p.borrow_mut().as_mut() {
-            p.renderer.resize_surface(w, h);
+    with_app((), |app| app.renderer.resize_surface(w, h));
+}
+
+#[wasm_bindgen]
+pub fn set_quality(name: &str) {
+    with_app((), |app| app.renderer.set_quality(Quality::from_name(name)));
+}
+
+#[wasm_bindgen]
+pub fn key(code: &str, down: bool) {
+    with_app((), |app| app.input.key(code, down));
+}
+
+#[wasm_bindgen]
+pub fn mouse_button(button: i32, down: bool) {
+    with_app((), |app| app.input.button(button, down));
+}
+
+#[wasm_bindgen]
+pub fn mouse_move(dx: f32, dy: f32) {
+    with_app((), |app| app.input.mouse_move(dx, dy));
+}
+
+#[wasm_bindgen]
+pub fn wheel(dy: f32) {
+    with_app((), |app| app.input.wheel(dy));
+}
+
+#[wasm_bindgen]
+pub fn release_input() {
+    with_app((), |app| app.input.release_all());
+}
+
+#[wasm_bindgen]
+pub fn set_paused(paused: bool) {
+    with_app((), |app| {
+        app.paused = paused;
+        if paused {
+            app.input.release_all();
         }
     });
 }
 
+/// Sensitivity (radians per pixel), invert-Y, vertical FOV in degrees, name tags, auto-sprint.
 #[wasm_bindgen]
-pub fn frame(dt: f32, time: f32) {
-    PREVIEW.with(|p| {
-        let mut p = p.borrow_mut();
-        let Some(p) = p.as_mut() else { return };
-        p.time = time;
-        let (w, h) = p.renderer.surface_size();
-        let cam_pos = p.cam_pos;
-        p.renderer.update_ground_cover(&p.world, cam_pos);
-        let cam = Camera::from_yaw_pitch(p.cam_pos, p.yaw, p.pitch, 60f32.to_radians(), w as f32 / h as f32, 0.1);
-        let _ = dt;
-        let f = FrameInput {
-            time: p.time,
-            camera: cam,
-            sun_dir: Vec3::new(0.55, 0.62, 0.42),
-            storm: Vec4::ZERO,
-            storm_time: p.time,
-            in_storm: 0.0,
-            damage: 0.0,
-            vignette: 0.28,
-            wind: 1.0,
-            batches: &[],
-            instances: &[],
-            ghost_batches: &[],
-            ghost_instances: &[],
-            particles: &[],
-            particles_add: &[],
-        };
-        p.renderer.render(&f);
+pub fn set_options(sens: f32, invert_y: bool, fov: f32, tags: bool, auto_sprint: bool) {
+    with_app((), |app| {
+        app.sens = sens.clamp(0.0003, 0.02);
+        app.invert_y = invert_y;
+        app.game.fov_deg = fov.clamp(40.0, 100.0);
+        app.show_tags = tags;
+        app.input.auto_sprint = auto_sprint;
     });
+}
+
+/// The HUD snapshot for this frame (JSON).
+#[wasm_bindgen]
+pub fn hud() -> String {
+    with_app(String::new(), |app| app.hud())
+}
+
+/// 1024x1024 RGBA top-down map of the island.
+#[wasm_bindgen]
+pub fn minimap() -> Vec<u8> {
+    with_app(vec![], |app| app.minimap.clone())
+}
+
+/// "name,x,z,kind;..." for every point of interest.
+#[wasm_bindgen]
+pub fn poi_list() -> String {
+    with_app(String::new(), |app| app.game.world.layout.pois.iter().map(|q| format!("{},{:.1},{:.1},{:?},{:.0}", q.name, q.center.x, q.center.y, q.kind, q.radius)).collect::<Vec<_>>().join(";"))
+}
+
+#[wasm_bindgen]
+pub fn ground_height(x: f32, z: f32) -> f32 {
+    with_app(0.0, |app| app.game.world.height_at(x, z))
+}
+
+/// Equip an inventory slot (0 = harvesting tool).
+#[wasm_bindgen]
+pub fn inventory_select(slot: u32) {
+    with_app((), |app| app.input.select_slot(slot as usize));
+}
+
+/// Drop the item in a slot.
+#[wasm_bindgen]
+pub fn inventory_drop(slot: u32) {
+    with_app((), |app| app.input.drop_slot(slot as usize));
+}
+
+/// Weapon statistics for the inventory screen (JSON array in `WeaponKind` order).
+#[wasm_bindgen]
+pub fn weapon_defs() -> String {
+    use fn_core::game::items::WeaponKind;
+    let items: Vec<String> = WeaponKind::ALL
+        .iter()
+        .map(|k| {
+            let d = k.def();
+            format!(
+                "{{\"name\":\"{}\",\"damage\":{},\"pellets\":{},\"rate\":{},\"mag\":{},\"reload\":{},\"range\":{},\"head\":{},\"auto\":{},\"ammo\":{}}}",
+                d.name, d.damage, d.pellets, d.rate, d.mag, d.reload, d.range, d.head_mult, d.auto, d.ammo.index()
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// Consumable statistics (JSON array in `ConsumableKind` order).
+#[wasm_bindgen]
+pub fn consumable_defs() -> String {
+    use fn_core::game::items::ConsumableKind;
+    let items: Vec<String> = ConsumableKind::ALL
+        .iter()
+        .map(|k| {
+            let d = k.def();
+            format!("{{\"name\":\"{}\",\"heal\":{},\"shield\":{},\"maxHp\":{},\"maxShield\":{},\"time\":{},\"stack\":{}}}", d.name, d.heal, d.shield, d.max_hp, d.max_shield, d.use_time, d.stack)
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+// ---- audio ---------------------------------------------------------------------------------------------
+
+/// "name:variants:loop;..." in `Sfx` index order.
+#[wasm_bindgen]
+pub fn audio_manifest() -> String {
+    Sfx::ALL.iter().map(|s| format!("{}:{}:{}", s.name(), s.variants(), s.is_loop() as u8)).collect::<Vec<_>>().join(";")
+}
+
+/// Synthesise one sound (mono samples in -1..1).
+#[wasm_bindgen]
+pub fn audio_render(sfx: u32, variant: u32, sample_rate: u32) -> Vec<f32> {
+    match Sfx::ALL.get(sfx as usize) {
+        Some(s) => synth(*s, sample_rate, variant),
+        None => vec![],
+    }
+}
+
+/// Cues produced by the last frame, 8 floats each: sfx, variant, pan, gain, pitch, low-pass Hz, delay s, reserved.
+#[wasm_bindgen]
+pub fn audio_cues() -> Vec<f32> {
+    with_app(vec![], |app| {
+        let mut v = Vec::with_capacity(app.cues.len() * 8);
+        for c in &app.cues {
+            v.extend_from_slice(&[c.sfx as usize as f32, c.variant as f32, c.pan, c.gain, c.pitch, c.lowpass, c.delay, 0.0]);
+        }
+        app.cues.clear();
+        v
+    })
+}
+
+/// Levels of the continuous loops: bus, wind, glider, storm, chest hum, hum pan.
+#[wasm_bindgen]
+pub fn audio_loops() -> Vec<f32> {
+    with_app(vec![0.0; 6], |app| {
+        let l = app.loops;
+        vec![l.bus, l.wind, l.glider, l.storm, l.hum, l.hum_pan]
+    })
+}
+
+// ---- debugging / testing ---------------------------------------------------------------------------------
+
+#[wasm_bindgen]
+pub fn debug(cmd: &str) -> String {
+    with_app("no game".to_string(), |app| app.debug(cmd))
 }
 
 #[wasm_bindgen]
 pub fn capture_request() {
-    PREVIEW.with(|p| {
-        if let Some(p) = p.borrow_mut().as_mut() {
-            p.renderer.request_capture();
-        }
-    });
+    with_app((), |app| app.renderer.request_capture());
 }
 
-/// Returns [width, height, ...rgba] or an empty array when no capture is ready.
+/// Returns [width u32le, height u32le, ...rgba] or an empty array when no capture is ready.
 #[wasm_bindgen]
 pub fn capture_poll() -> Vec<u8> {
-    PREVIEW.with(|p| {
-        if let Some(p) = p.borrow_mut().as_mut() {
-            if let Some((w, h, data)) = p.renderer.poll_capture() {
-                let mut out = Vec::with_capacity(data.len() + 8);
-                out.extend_from_slice(&w.to_le_bytes());
-                out.extend_from_slice(&h.to_le_bytes());
-                out.extend_from_slice(&data);
-                return out;
-            }
+    with_app(vec![], |app| {
+        if let Some((w, h, data)) = app.renderer.poll_capture() {
+            let mut out = Vec::with_capacity(data.len() + 8);
+            out.extend_from_slice(&w.to_le_bytes());
+            out.extend_from_slice(&h.to_le_bytes());
+            out.extend_from_slice(&data);
+            return out;
         }
         vec![]
     })
@@ -140,7 +291,5 @@ pub fn capture_poll() -> Vec<u8> {
 
 #[wasm_bindgen]
 pub fn render_stats() -> String {
-    PREVIEW.with(|p| {
-        p.borrow().as_ref().map(|p| format!("{:?}", p.renderer.stats)).unwrap_or_default()
-    })
+    with_app(String::new(), |app| format!("{:?}", app.renderer.stats))
 }

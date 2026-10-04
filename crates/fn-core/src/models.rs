@@ -37,24 +37,6 @@ fn barrel(b: &mut MeshBuilder, x: f32, y: f32, z0: f32, z1: f32, r0: f32, r1: f3
     b.pop_xf();
 }
 
-/// Box with a different cross-section at the bottom and the top (a trapezoid prism).
-fn tapered_box(b: &mut MeshBuilder, y0: f32, y1: f32, w0: f32, w1: f32, d0: f32, d1: f32, zc: f32) {
-    let p = |y: f32, w: f32, d: f32, sx: f32, sz: f32| Vec3::new(sx * w * 0.5, y, zc + sz * d * 0.5);
-    let corners = |y: f32, w: f32, d: f32| [p(y, w, d, -1.0, -1.0), p(y, w, d, 1.0, -1.0), p(y, w, d, 1.0, 1.0), p(y, w, d, -1.0, 1.0)];
-    let lo = corners(y0, w0, d0);
-    let hi = corners(y1, w1, d1);
-    let c = Vec3::new(0.0, (y0 + y1) * 0.5, zc);
-    // side faces
-    for k in 0..4 {
-        let j = (k + 1) % 4;
-        let q = [lo[k], lo[j], hi[j], hi[k]];
-        let mid = (q[0] + q[1] + q[2] + q[3]) * 0.25;
-        b.quad_out(q, mid - c);
-    }
-    b.quad_out([hi[0], hi[1], hi[2], hi[3]], Vec3::Y);
-    b.quad_out([lo[0], lo[1], lo[2], lo[3]], Vec3::NEG_Y);
-}
-
 fn grey(v: f32) -> Vec3 {
     Vec3::splat(v)
 }
@@ -67,62 +49,69 @@ pub fn char_torso() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH);
-    b.color(grey(0.92)).ao(0.7, 1.0);
-    // waist
-    tapered_box(&mut b, -0.02, 0.2, 0.33, 0.35, 0.2, 0.22, 0.0);
-    // chest, wider at the shoulders
+    // waist and belly
+    b.color(grey(0.94)).ao(0.7, 1.0);
+    b.blob(Vec3::new(0.0, 0.11, 0.0), Vec3::new(0.175, 0.14, 0.125), 2, 0.0, 0, true);
+    // chest and shoulders: one broad ellipsoid
     b.color(grey(1.0)).ao(0.8, 1.0);
-    tapered_box(&mut b, 0.18, SHOULDER_Y + 0.045, 0.35, 0.46, 0.23, 0.25, 0.0);
+    b.blob(Vec3::new(0.0, 0.345, 0.0), Vec3::new(0.235, 0.21, 0.145), 2, 0.0, 0, true);
     // shoulder caps
-    b.color(grey(0.96));
+    b.color(grey(0.97));
     for s in [-1.0f32, 1.0] {
-        b.sphere(Vec3::new(s * SHOULDER_X * 0.96, SHOULDER_Y, 0.0), 0.075, 1);
+        b.sphere(Vec3::new(s * SHOULDER_X * 0.97, SHOULDER_Y, 0.0), 0.082, 2);
     }
     // collar band + neck
     b.color(grey(0.72)).ao(0.8, 1.0);
-    b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.03, 0.0), 0.085, 0.07, 0.05, 10, false, true);
+    b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.02, 0.0), 0.092, 0.075, 0.05, 12, false, true);
     b.mat(mat::SKIN).color(grey(1.0));
-    b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.06, 0.0), 0.055, 0.05, NECK_Y - SHOULDER_Y - 0.03, 8, false, false);
+    b.cylinder(Vec3::new(0.0, SHOULDER_Y + 0.05, 0.0), 0.06, 0.055, NECK_Y - SHOULDER_Y - 0.03, 10, false, false);
     b.finish()
 }
 
 pub fn char_pelvis() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
-    tapered_box(&mut b, -0.12, 0.05, 0.35, 0.34, 0.2, 0.2, 0.0);
+    b.blob(Vec3::new(0.0, -0.04, 0.0), Vec3::new(0.2, 0.125, 0.125), 2, 0.0, 0, true);
     // belt
     b.color(grey(0.28)).ao(1.0, 1.0);
-    tapered_box(&mut b, 0.03, 0.085, 0.355, 0.355, 0.215, 0.215, 0.0);
+    b.push_xf(Mat4::from_scale(Vec3::new(1.0, 1.0, 0.68)));
+    b.cylinder(Vec3::new(0.0, 0.03, 0.0), 0.19, 0.19, 0.055, 14, false, false);
+    b.pop_xf();
     b.mat(mat::METAL).tinted(false).color(Vec3::new(0.86, 0.78, 0.5));
-    b.box_center(Vec3::new(0.0, 0.058, -0.108), Vec3::new(0.035, 0.022, 0.008));
+    b.box_center(Vec3::new(0.0, 0.058, -0.13), Vec3::new(0.04, 0.026, 0.009));
     b.finish()
 }
 
 pub fn char_head() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
-    let c = Vec3::new(0.0, HEAD_C, 0.0);
+    let c = Vec3::new(0.0, HEAD_C + 0.01, 0.0);
     b.mat(mat::SKIN).color(grey(1.0)).ao(0.85, 1.0);
-    b.blob(c, Vec3::new(0.135, 0.152, 0.14), 2, 0.0, 0, true);
+    b.blob(c, Vec3::new(0.15, 0.165, 0.155), 3, 0.0, 0, true);
     // jaw / chin
-    b.blob(c + Vec3::new(0.0, -0.055, -0.02), Vec3::new(0.105, 0.085, 0.11), 1, 0.0, 0, true);
+    b.blob(c + Vec3::new(0.0, -0.06, -0.02), Vec3::new(0.115, 0.09, 0.12), 2, 0.0, 0, true);
     // nose and ears
-    b.sphere(c + Vec3::new(0.0, -0.01, -0.14), 0.026, 1);
+    b.sphere(c + Vec3::new(0.0, -0.012, -0.152), 0.03, 2);
     for s in [-1.0f32, 1.0] {
-        b.sphere(c + Vec3::new(s * 0.138, -0.005, 0.01), 0.032, 1);
+        b.sphere(c + Vec3::new(s * 0.152, -0.005, 0.01), 0.036, 1);
     }
     // eyes (kept untinted so they stay white and dark whatever the skin tone)
     b.tinted(false).mat(mat::FLAT);
     for s in [-1.0f32, 1.0] {
-        b.color(grey(0.97));
-        b.box_center(c + Vec3::new(s * 0.055, 0.02, -0.131), Vec3::new(0.026, 0.02, 0.01));
-        b.color(Vec3::new(0.08, 0.1, 0.16));
-        b.box_center(c + Vec3::new(s * 0.055, 0.017, -0.139), Vec3::new(0.014, 0.017, 0.006));
-        b.color(Vec3::new(0.2, 0.14, 0.1));
-        b.box_center(c + Vec3::new(s * 0.055, 0.058, -0.133), Vec3::new(0.032, 0.007, 0.007));
+        b.color(grey(0.98));
+        b.box_center(c + Vec3::new(s * 0.062, 0.025, -0.1435), Vec3::new(0.034, 0.027, 0.012));
+        b.color(Vec3::new(0.1, 0.16, 0.3));
+        b.box_center(c + Vec3::new(s * 0.062 - s * 0.004, 0.02, -0.152), Vec3::new(0.019, 0.022, 0.007));
+        b.color(Vec3::new(0.05, 0.05, 0.08));
+        b.box_center(c + Vec3::new(s * 0.062 - s * 0.004, 0.02, -0.1575), Vec3::new(0.0095, 0.012, 0.004));
+        b.color(Vec3::new(0.22, 0.15, 0.1));
+        b.box_center(c + Vec3::new(s * 0.062, 0.068, -0.145), Vec3::new(0.038, 0.008, 0.008));
     }
-    b.color(Vec3::new(0.55, 0.2, 0.2));
-    b.box_center(c + Vec3::new(0.0, -0.075, -0.127), Vec3::new(0.034, 0.007, 0.008));
+    // smile
+    b.color(Vec3::new(0.6, 0.22, 0.22));
+    b.box_center(c + Vec3::new(0.0, -0.082, -0.14), Vec3::new(0.034, 0.007, 0.008));
+    b.box_center(c + Vec3::new(-0.04, -0.074, -0.138), Vec3::new(0.008, 0.007, 0.008));
+    b.box_center(c + Vec3::new(0.04, -0.074, -0.138), Vec3::new(0.008, 0.007, 0.008));
     b.finish()
 }
 
@@ -187,8 +176,10 @@ pub fn headgear(kind: u8) -> MeshData {
             b.blob(c + Vec3::new(0.0, 0.035, 0.005), Vec3::new(0.168, 0.15, 0.17), 2, 0.0, 0, true);
             b.color(grey(0.75));
             b.box_center(c + Vec3::new(0.0, 0.14, 0.0), Vec3::new(0.02, 0.03, 0.17));
-            b.tinted(false).color(Vec3::new(0.1, 0.12, 0.16)).mat(mat::GLASS);
-            b.box_center(c + Vec3::new(0.0, 0.035, -0.152), Vec3::new(0.13, 0.03, 0.02));
+            b.color(grey(0.6));
+            b.push_xf(Mat4::from_translation(c + Vec3::new(0.0, 0.1, -0.17)) * rot_x(0.2));
+            b.box_center(Vec3::ZERO, Vec3::new(0.11, 0.008, 0.05));
+            b.pop_xf();
         }
         4 => {
             // wide hat
@@ -206,9 +197,9 @@ pub fn char_arm_up() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.75, 1.0);
-    b.cylinder(Vec3::new(0.0, -UPPER_ARM, 0.0), 0.047, 0.056, UPPER_ARM, 8, false, false);
-    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.058, 1);
-    b.sphere(Vec3::new(0.0, -UPPER_ARM, 0.0), 0.049, 1);
+    b.cylinder(Vec3::new(0.0, -UPPER_ARM, 0.0), 0.056, 0.068, UPPER_ARM, 10, false, false);
+    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.07, 2);
+    b.sphere(Vec3::new(0.0, -UPPER_ARM, 0.0), 0.058, 2);
     b.finish()
 }
 
@@ -216,18 +207,18 @@ pub fn char_arm_low() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.75, 1.0);
-    b.cylinder(Vec3::new(0.0, -FOREARM, 0.0), 0.04, 0.048, FOREARM, 8, false, false);
+    b.cylinder(Vec3::new(0.0, -FOREARM, 0.0), 0.047, 0.058, FOREARM, 10, false, false);
     // cuff
     b.color(grey(0.72));
-    b.cylinder(Vec3::new(0.0, -FOREARM, 0.0), 0.046, 0.046, 0.04, 8, false, true);
+    b.cylinder(Vec3::new(0.0, -FOREARM, 0.0), 0.054, 0.054, 0.045, 10, false, true);
     b.finish()
 }
 
 pub fn char_hand() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::SKIN).color(grey(1.0)).ao(0.8, 1.0);
-    b.blob(Vec3::new(0.0, -0.045, 0.0), Vec3::new(0.042, 0.052, 0.036), 1, 0.0, 0, true);
-    b.sphere(Vec3::new(0.0, -0.045, -0.04), 0.022, 1);
+    b.blob(Vec3::new(0.0, -0.05, 0.0), Vec3::new(0.052, 0.062, 0.045), 2, 0.0, 0, true);
+    b.sphere(Vec3::new(0.0, -0.05, -0.048), 0.027, 1);
     b.finish()
 }
 
@@ -235,9 +226,9 @@ pub fn char_leg_up() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
-    b.cylinder(Vec3::new(0.0, -THIGH, 0.0), 0.064, 0.077, THIGH, 9, false, false);
-    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.077, 1);
-    b.sphere(Vec3::new(0.0, -THIGH, 0.0), 0.066, 1);
+    b.cylinder(Vec3::new(0.0, -THIGH, 0.0), 0.078, 0.098, THIGH, 12, false, false);
+    b.sphere(Vec3::new(0.0, 0.0, 0.0), 0.098, 2);
+    b.sphere(Vec3::new(0.0, -THIGH, 0.0), 0.08, 2);
     b.finish()
 }
 
@@ -245,7 +236,7 @@ pub fn char_leg_low() -> MeshData {
     use dims::*;
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.7, 1.0);
-    b.cylinder(Vec3::new(0.0, -SHIN, 0.0), 0.05, 0.063, SHIN, 9, false, false);
+    b.cylinder(Vec3::new(0.0, -SHIN, 0.0), 0.062, 0.078, SHIN, 12, false, false);
     b.finish()
 }
 
@@ -253,13 +244,12 @@ pub fn char_boot() -> MeshData {
     let mut b = MeshBuilder::new();
     b.mat(mat::CLOTH).color(grey(1.0)).ao(0.6, 1.0);
     // shaft
-    b.cylinder(Vec3::new(0.0, -0.06, 0.0), 0.062, 0.058, 0.13, 9, false, true);
+    b.cylinder(Vec3::new(0.0, -0.065, 0.0), 0.083, 0.078, 0.145, 12, false, true);
     // foot
-    tapered_box(&mut b, -0.075, 0.0, 0.1, 0.1, 0.27, 0.2, -0.055);
-    b.sphere(Vec3::new(0.0, -0.04, -0.17), 0.045, 1);
+    b.blob(Vec3::new(0.0, -0.045, -0.05), Vec3::new(0.075, 0.055, 0.15), 2, 0.0, 0, true);
     // sole
     b.color(grey(0.3)).ao(1.0, 1.0);
-    b.box_min_max(Vec3::new(-0.055, -0.092, -0.205), Vec3::new(0.055, -0.07, 0.08));
+    b.box_min_max(Vec3::new(-0.074, -0.098, -0.2), Vec3::new(0.074, -0.068, 0.09));
     b.finish()
 }
 
@@ -347,6 +337,16 @@ pub fn glider() -> MeshData {
 
 const TAU_F: f32 = std::f32::consts::TAU;
 
+/// Thicken a weapon model (toy-like proportions read better at third-person distance). Lengths
+/// along the barrel are kept so grips, foregrips and muzzles stay where the rig expects them.
+fn chunky(mut m: MeshData, k: f32) -> MeshData {
+    for v in &mut m.verts {
+        v.pos[0] *= k;
+        v.pos[1] *= k;
+    }
+    m
+}
+
 // =======================================================================================
 // Weapons (origin at the grip, barrel along -Z)
 // =======================================================================================
@@ -382,7 +382,7 @@ pub fn weapon_pistol() -> MeshData {
     // front and rear sights
     b.box_center(Vec3::new(0.0, 0.08, -0.19), Vec3::new(0.004, 0.007, 0.004));
     b.box_center(Vec3::new(0.0, 0.078, 0.03), Vec3::new(0.01, 0.006, 0.006));
-    b.finish()
+    chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_smg() -> MeshData {
@@ -407,7 +407,7 @@ pub fn weapon_smg() -> MeshData {
     b.box_center(Vec3::new(0.0, 0.092, -0.1), Vec3::new(0.016, 0.018, 0.03));
     b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(1.0, 0.15, 0.1));
     b.box_center(Vec3::new(0.0, 0.098, -0.13), Vec3::new(0.003, 0.003, 0.003));
-    b.finish()
+    chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_ar() -> MeshData {
@@ -440,7 +440,7 @@ pub fn weapon_ar() -> MeshData {
     // rarity stripe along the receiver (accent colour from the instance tint)
     b.mat(mat::EMISSIVE).tinted(true).color(Vec3::new(0.9, 0.9, 0.9));
     b.box_center(Vec3::new(0.0, 0.0, -0.1), Vec3::new(0.0285, 0.007, 0.15));
-    b.finish()
+    chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_shotgun() -> MeshData {
@@ -469,7 +469,7 @@ pub fn weapon_shotgun() -> MeshData {
     for k in 0..3 {
         b.box_center(Vec3::new(0.0285, 0.035, -0.02 - k as f32 * 0.03), Vec3::new(0.006, 0.014, 0.011));
     }
-    b.finish()
+    chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_sniper() -> MeshData {
@@ -505,7 +505,7 @@ pub fn weapon_sniper() -> MeshData {
     // magazine
     b.mat(mat::FLAT).hex(POLYMER);
     b.box_center(Vec3::new(0.0, -0.025, -0.09), Vec3::new(0.014, 0.025, 0.03));
-    b.finish()
+    chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_rocket() -> MeshData {
@@ -531,7 +531,7 @@ pub fn weapon_rocket() -> MeshData {
     // accent band
     b.mat(mat::EMISSIVE).tinted(true).color(Vec3::new(0.9, 0.9, 0.9));
     barrel(&mut b, 0.0, 0.09, 0.2, 0.15, 0.0865, 0.0865, 14);
-    b.finish()
+    chunky(b.finish(), 1.4)
 }
 
 /// Harvesting tool: grip at the origin, head pointing up (+Y), pick toward -Z.
@@ -1046,7 +1046,7 @@ mod tests {
         let leg_reach = HIP_Y - HIP_DROP - THIGH - SHIN;
         assert!((0.05..0.11).contains(&leg_reach), "ankle height {leg_reach}");
         let boot = char_boot().bounds();
-        assert!(boot.min.y > -0.12 && boot.min.y < -0.07);
+        assert!(boot.min.y > -0.12 && boot.min.y < -0.07, "boot sole {}", boot.min.y);
         // arm segments hang straight down from their joints
         let arm = char_arm_up().bounds();
         assert!(arm.min.y < -UPPER_ARM * 0.95 && arm.max.y < 0.1);
@@ -1066,7 +1066,7 @@ mod tests {
             assert!(bb.min.z < -0.2, "{name} muzzle z {}", bb.min.z);
             assert!(bb.max.z < 0.7 && bb.max.z > 0.02, "{name} butt z {}", bb.max.z);
             assert!(bb.max.y < 0.35 && bb.min.y > -0.3, "{name} height {:?}", (bb.min.y, bb.max.y));
-            assert!(bb.max.x < 0.15 && bb.min.x > -0.15, "{name} width");
+            assert!(bb.max.x < 0.2 && bb.min.x > -0.2, "{name} width");
         }
     }
 

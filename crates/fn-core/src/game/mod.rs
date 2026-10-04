@@ -3,11 +3,13 @@
 
 pub mod actor;
 pub mod ai;
+pub mod audio_map;
 pub mod building;
 pub mod combat;
 pub mod env;
 pub mod events;
 pub mod fx;
+pub mod hud;
 pub mod intent;
 pub mod items;
 pub mod loot;
@@ -247,6 +249,8 @@ pub struct Game {
     pub winner: Option<usize>,
     pub spectating: Option<usize>,
     pub cam_dist: f32,
+    /// Vertical field of view in degrees (player setting).
+    pub fov_deg: f32,
     pub cam_shake: f32,
     pub fov_t: f32,
     pub felled: Vec<Felled>,
@@ -312,6 +316,7 @@ impl Game {
             winner: None,
             spectating: None,
             cam_dist: 3.4,
+            fov_deg: 62.0,
             cam_shake: 0.0,
             fov_t: 0.0,
             felled: vec![],
@@ -673,7 +678,7 @@ impl Game {
         let airborne = matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
         let mut back = if airborne { 7.5 } else { lerp(self.cam_dist, self.cam_dist * 0.62, a.anim.aim) };
         if matches!(a.mode, MoveMode::Bus) {
-            back = 9.0;
+            back = 21.0;
         }
         let want = pivot - dir * back + Vec3::Y * if airborne { 0.8 } else { 0.18 };
         // pull the camera in when something is behind the player
@@ -700,7 +705,7 @@ impl Game {
             let t = self.time * 60.0;
             pos += Vec3::new((t * 1.7).sin(), (t * 2.3).cos(), (t * 1.1).sin()) * 0.06 * self.cam_shake;
         }
-        let mut fov = 60f32.to_radians();
+        let mut fov = self.fov_deg.to_radians();
         if let Some((kind, _, _)) = a.inv.selected_weapon() {
             let zoom = kind.def().ads_zoom;
             fov *= lerp(1.0, zoom, a.anim.aim);
