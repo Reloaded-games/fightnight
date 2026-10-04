@@ -1,0 +1,9 @@
+{
+  "name": "fightnight-tools",
+  "private": true,
+  "type": "module",
+  "description": "Headless-browser helpers used to smoke test and screenshot the game",
+  "dependencies": {
+    "playwright-core": "^1.55.0"
+  }
+}

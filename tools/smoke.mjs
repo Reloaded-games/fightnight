@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import { serve, launch } from './browser.mjs';
+const { srv, url } = await serve();
+const { browser, page, logs } = await launch({ width: 640, height: 360 });
+await page.goto(url);
+await page.waitForFunction(() => window.result !== 'pending', null, { timeout: 60000 });
+console.log('result:', await page.evaluate(() => window.result));
+await page.waitForTimeout(800);
+await page.evaluate(() => { window.__cap = true; });
+await page.waitForFunction(() => window.__capData, null, { timeout: 20000 });
+const data = await page.evaluate(() => window.__capData);
+fs.writeFileSync('smoke.png', Buffer.from(data.split(',')[1], 'base64'));
+console.log(logs.join('\n'));
+await browser.close(); srv.close();

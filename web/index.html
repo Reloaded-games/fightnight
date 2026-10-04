@@ -1,0 +1,53 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>FightNight preview</title>
+<style>html,body{margin:0;height:100%;background:#111;overflow:hidden}canvas{width:100vw;height:100vh;display:block}</style></head>
+<body>
+<canvas id="gpu"></canvas>
+<script type="module">
+import init, { start_preview, frame, resize, set_camera, capture_request, capture_poll, render_stats, ground_height, poi_list } from './pkg/fightnight.js';
+const q = new URLSearchParams(location.search);
+const canvas = document.getElementById('gpu');
+const dpr = Math.min(window.devicePixelRatio || 1, 2);
+const W = +q.get('w') || Math.floor(innerWidth * dpr), H = +q.get('h') || Math.floor(innerHeight * dpr);
+canvas.width = W; canvas.height = H;
+window.__fn = { ready: false, frames: 0, error: null };
+try {
+  await init();
+  const info = await start_preview(canvas, +q.get('seed') || 1234, q.get('quality') || 'high');
+  window.__fn.info = info;
+  console.log('started: ' + info);
+  let cam = (q.get('cam') || '0,60,200,0,-0.2').split(',').map(Number);
+  if (q.get('at')) { // at=x,z,yaw,pitch,eyeHeight : place the camera relative to the ground
+    const [x, z, yaw, pitch, eh] = q.get('at').split(',').map(Number);
+    cam = [x, ground_height(x, z) + (eh ?? 2.5), z, yaw, pitch];
+  }
+  set_camera(...cam);
+  window.__fn.setCamera = set_camera;
+  window.__fn.resize = resize;
+  window.__fn.stats = render_stats;
+  window.__fn.ground = ground_height;
+  window.__fn.pois = poi_list;
+  window.__fn.capture = async () => {
+    capture_request();
+    for (let i = 0; i < 600; i++) {
+      await new Promise(r => requestAnimationFrame(r));
+      const d = capture_poll();
+      if (d.length) {
+        const dv = new DataView(d.buffer, d.byteOffset);
+        return { w: dv.getUint32(0, true), h: dv.getUint32(4, true), rgba: d.subarray(8) };
+      }
+    }
+    return null;
+  };
+  let last = performance.now();
+  const loop = (t) => {
+    const dt = (t - last) / 1000; last = t;
+    frame(dt, t / 1000);
+    window.__fn.frames++;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+  window.__fn.ready = true;
+} catch (e) { window.__fn.error = String(e); console.error(e); }
+</script>
+</body></html>

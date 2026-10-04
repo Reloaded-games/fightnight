@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["crates/fn-core", "crates/fn-web", "crates/fn-shaders"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+glam = { version = "0.33", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Native tests run long simulations; keep them quick.
+[profile.dev]
+opt-level = 2
+debug = 1
+
+[profile.test]
+opt-level = 2
