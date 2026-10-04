@@ -314,7 +314,7 @@ impl B {
             let (a, b) = l.bx(o.u0 - 0.04, o.u1 + 0.04, e0 + 0.02, e1 - 0.02, yhi, yhi + 0.03);
             self.bx(a, b, 0x4a3524, mat::FLAT, false);
             let bloom = [0xff6f91u32, 0xffd23f, 0xfdfbf0, 0xff8a3d, 0xc27bff][(hunit(key, 3, 13) * 5.0) as usize % 5];
-            let n = 6;
+            let n = 5;
             let dm = l.out * (WALL_T / 2.0 + 0.14);
             for k in 0..n {
                 let u = o.u0 + 0.1 + (o.u1 - o.u0 - 0.2) * k as f32 / (n - 1) as f32;
@@ -1088,9 +1088,27 @@ pub fn gen_lighthouse() -> Geom {
     b.mb.cylinder(Vec3::new(0.0, total + 0.35, 0.0), 1.5, 1.5, 2.2, 10, false, false);
     b.mb.mat(mat::METAL).hex(0xc43b32);
     b.mb.cylinder(Vec3::new(0.0, total + 2.55, 0.0), 1.9, 0.0, 1.8, 10, true, false);
-    // door
+    // door with a stone frame and a step, round windows up the tower, a finial on the lantern roof
     b.bx(Vec3::new(-0.7, 0.0, 3.1), Vec3::new(0.7, 2.2, 3.5), 0x5a3c28, mat::WOOD, false);
-    b.finish(Vec2::new(3.5, 3.5), total + 4.4, Vec3::new(0.0, 0.0, 6.0), Vec3::new(0.0, 0.0, 4.0))
+    for sx in [-1.0f32, 1.0] {
+        b.bx(Vec3::new(sx * 0.85 - 0.12, 0.0, 3.0), Vec3::new(sx * 0.85 + 0.12, 2.45, 3.55), 0xe6e1d6, mat::STONE, false);
+    }
+    b.bx(Vec3::new(-1.0, 2.2, 3.0), Vec3::new(1.0, 2.5, 3.55), 0xe6e1d6, mat::STONE, false);
+    b.bx(Vec3::new(-1.3, -0.1, 3.4), Vec3::new(1.3, 0.16, 4.2), 0xa8a7a2, mat::STONE, false);
+    for (k, y) in [5.5f32, 9.5, 13.5, 17.0].into_iter().enumerate() {
+        let t = (y / total).clamp(0.0, 1.0);
+        let r = 3.4 - 1.4 * t;
+        let a = k as f32 * 1.9;
+        b.mb.mat(mat::GLASS).hex(0x2a3b4a);
+        b.mb.push_xf(Mat4::from_translation(Vec3::new(a.sin() * r, y, a.cos() * r)) * Mat4::from_rotation_y(a));
+        b.mb.push_xf(Mat4::from_rotation_x(FRAC_PI_2));
+        b.mb.cylinder(Vec3::new(0.0, -0.1, 0.0), 0.34, 0.34, 0.12, 10, true, true);
+        b.mb.pop_xf();
+        b.mb.pop_xf();
+    }
+    b.mb.mat(mat::METAL).hex(0x3d3f46);
+    b.mb.sphere(Vec3::new(0.0, total + 4.5, 0.0), 0.22, 1);
+    b.finish(Vec2::new(3.5, 3.5), total + 4.6, Vec3::new(0.0, 0.0, 6.0), Vec3::new(0.0, 0.0, 4.0))
 }
 
 const TAU_F: f32 = std::f32::consts::TAU;
@@ -1160,7 +1178,18 @@ pub fn gen_silo() -> Geom {
     }
     b.mb.hex(0x7c8087);
     b.mb.cylinder(Vec3::new(0.0, 12.0, 0.0), 2.62, 0.0, 1.9, 14, true, false);
-    b.finish(Vec2::new(2.7, 2.7), 14.0, Vec3::new(0.0, 0.0, 4.5), Vec3::new(0.0, 0.0, 3.0))
+    // a ladder with a safety cage up the front, a small door and a roof vent
+    for sx in [-0.3f32, 0.3] {
+        b.tube(Vec3::new(sx, 0.0, 2.72), Vec3::new(sx, 12.4, 2.72), 0.035, 0x6e7078, mat::METAL);
+    }
+    for k in 0..30 {
+        b.bx(Vec3::new(-0.32, 0.4 + k as f32 * 0.4, 2.68), Vec3::new(0.32, 0.44 + k as f32 * 0.4, 2.74), 0x6e7078, mat::METAL, false);
+    }
+    b.bx(Vec3::new(-0.45, 0.0, 2.56), Vec3::new(0.45, 1.5, 2.66), 0x5a3c28, mat::METAL, false);
+    b.mb.mat(mat::METAL).hex(0x3d3f46);
+    b.mb.cylinder(Vec3::new(0.0, 13.8, 0.0), 0.35, 0.35, 0.5, 8, false, true);
+    b.mb.sphere(Vec3::new(0.0, 14.4, 0.0), 0.2, 1);
+    b.finish(Vec2::new(2.7, 2.7), 14.8, Vec3::new(0.0, 0.0, 4.5), Vec3::new(0.0, 0.0, 3.0))
 }
 
 /// Gas station: a canopy on pillars with two pumps and a small shop.
@@ -1182,6 +1211,19 @@ pub fn gen_gas_canopy() -> Geom {
         b.bx(Vec3::new(px - 0.3, 0.8, 0.35), Vec3::new(px + 0.3, 1.2, 0.4), 0x2c3a4a, mat::EMISSIVE, false);
         b.bx(Vec3::new(px - 0.7, 0.1, -0.7), Vec3::new(px + 0.7, 0.3, 0.7), 0xb8b8b4, mat::STONE, false);
         b.loot.push(Vec3::new(px, 0.1, 1.4));
+        // hose and nozzle holster on the side of each pump
+        b.tube(Vec3::new(px - 0.45, 1.2, 0.0), Vec3::new(px - 0.65, 0.7, 0.0), 0.03, 0x2b2e34, mat::CLOTH);
+        b.bx(Vec3::new(px - 0.7, 0.55, -0.08), Vec3::new(px - 0.6, 0.85, 0.08), 0x2b2e34, mat::METAL, false);
+    }
+    // canopy underside lights and a tall price sign at the corner of the pad
+    for lx in [-4.5f32, 0.0, 4.5] {
+        b.bx(Vec3::new(lx - 0.5, top - 0.06, -0.15), Vec3::new(lx + 0.5, top, 0.15), 0xfff3c4, mat::EMISSIVE, false);
+    }
+    b.tube(Vec3::new(hx + 0.45, 0.0, hz + 0.6), Vec3::new(hx + 0.45, 4.6, hz + 0.6), 0.1, 0x575961, mat::METAL);
+    b.bx(Vec3::new(hx - 0.05, 4.6, hz + 0.45), Vec3::new(hx + 0.95, 6.0, hz + 0.75), 0xf2f0ea, mat::FLAT, false);
+    b.bx(Vec3::new(hx - 0.05, 5.6, hz + 0.75), Vec3::new(hx + 0.95, 6.0, hz + 0.78), 0xc43b32, mat::FLAT, false);
+    for k in 0..3 {
+        b.bx(Vec3::new(hx + 0.05, 4.7 + k as f32 * 0.3, hz + 0.75), Vec3::new(hx + 0.85, 4.9 + k as f32 * 0.3, hz + 0.78), 0x2c3a4a, mat::EMISSIVE, false);
     }
     b.finish(Vec2::new(hx, hz), top + 0.7, Vec3::new(0.0, 0.0, 6.0), Vec3::new(0.0, 0.0, 3.0))
 }
@@ -1445,6 +1487,17 @@ fn house_details(b: &mut B, hx: f32, hz: f32, door_u: f32, floors: u32, st: &Sty
         porch_rail(b, Vec3::new(door_x + 1.1, y, zf), Vec3::new(px1 - 0.22, y, zf), st.trim);
         porch_rail(b, Vec3::new(px0 + 0.12, y, hz + 1.05), Vec3::new(px0 + 0.12, y, zf - 0.12), st.trim);
         porch_rail(b, Vec3::new(px1 - 0.12, y, hz + 1.05), Vec3::new(px1 - 0.12, y, zf - 0.12), st.trim);
+    }
+    // a pendant lamp over the table's spot on each floor: a glowing shade you can see through the windows
+    let tx = if door_x > 0.0 { -hx * 0.45 } else { hx * 0.45 };
+    for fl in 0..floors {
+        let ceil = FLOOR_Y + (fl + 1) as f32 * STORY_H - if fl + 1 == floors { 0.2 } else { 0.3 };
+        let z = hz * 0.1;
+        b.tube(Vec3::new(tx, ceil, z), Vec3::new(tx, ceil - 0.5, z), 0.012, 0x2b2e34, mat::METAL);
+        b.mb.mat(mat::FLAT).hex(0xf3e6c4).ao(1.0, 1.0);
+        b.mb.cylinder(Vec3::new(tx, ceil - 0.78, z), 0.26, 0.07, 0.28, 8, false, false);
+        b.mb.mat(mat::EMISSIVE).hex(0xffe9b0);
+        b.mb.cylinder(Vec3::new(tx, ceil - 0.79, z), 0.2, 0.2, 0.02, 8, true, true);
     }
     // curtains and flower boxes: same slots as the walls
     for fl in 0..floors {
