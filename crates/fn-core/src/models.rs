@@ -1281,13 +1281,13 @@ pub fn chest_base() -> MeshData {
     b.mat(mat::METAL).hex(0xffd75a).spec(0.9);
     for sx in [-0.22f32, 0.22] {
         for k in 0..4 {
-            b.sphere(Vec3::new(sx, 0.09 + k as f32 * 0.1, -0.312), 0.017, 1);
+            b.sphere(Vec3::new(sx, 0.09 + k as f32 * 0.1, -0.312), 0.017, 0);
         }
     }
     for sx in [-1.0f32, 1.0] {
         for sz in [-1.0f32, 1.0] {
             b.sphere(Vec3::new(sx * 0.45, 0.46, sz * 0.29), 0.04, 1);
-            b.sphere(Vec3::new(sx * 0.45, 0.02, sz * 0.29), 0.035, 1);
+            b.sphere(Vec3::new(sx * 0.45, 0.02, sz * 0.29), 0.035, 0);
         }
         // end handle: a plate and a bar
         b.box_center(Vec3::new(sx * 0.472, 0.26, 0.0), Vec3::new(0.008, 0.05, 0.08));
@@ -1365,8 +1365,8 @@ pub fn chest_lid() -> MeshData {
         for k in 0..5 {
             let a = 0.2 + k as f32 * 0.65;
             let (z, y) = (-a.cos() * 0.3 + 0.3, a.sin() * 0.17);
-            b.sphere(Vec3::new(sx - 0.025, y + 0.012, z), 0.014, 1);
-            b.sphere(Vec3::new(sx + 0.025, y + 0.012, z), 0.014, 1);
+            b.sphere(Vec3::new(sx - 0.025, y + 0.012, z), 0.014, 0);
+            b.sphere(Vec3::new(sx + 0.025, y + 0.012, z), 0.014, 0);
         }
     }
     for sx in [-0.3f32, 0.3] {

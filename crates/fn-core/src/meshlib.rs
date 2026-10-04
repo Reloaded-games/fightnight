@@ -395,29 +395,27 @@ fn rock(variant: u32, boulder: bool) -> MeshData {
     b.finish()
 }
 
-/// Meadow flowers: three blooms on short stems, each a ring of petals around a yellow eye. The
-/// petals take the instance colour so every clump is a different colour.
+/// Meadow flowers: four blooms on short stems, each a ring of petals around a yellow eye. The
+/// petals take the instance colour so every clump is a different colour. Ground cover is drawn
+/// double sided, so every part is a single quad.
 fn flower_clump() -> MeshData {
     let mut b = MeshBuilder::new();
     for (k, (x, z, r, h)) in [(0.0f32, 0.0f32, 0.17f32, 0.34f32), (0.22, 0.12, 0.13, 0.28), (-0.18, 0.15, 0.14, 0.3), (0.05, -0.22, 0.13, 0.26)].iter().enumerate() {
         let c = Vec3::new(*x, *h, *z);
-        // stem
-        b.mat(mat::GRASS).tinted(false).hex(0x58a63c).ao(0.8, 1.0);
-        b.push_xf(Mat4::from_translation(Vec3::new(*x, 0.0, *z)));
-        b.cylinder(Vec3::ZERO, 0.012, 0.01, *h, 3, false, false);
-        b.pop_xf();
+        // stem: a thin flat blade facing a different way for every bloom
+        b.mat(mat::GRASS).tinted(false).hex(0x58a63c).ao(0.8, 1.0).sway(0.3);
+        let side = Vec3::new(k as f32 * 0.7 + 0.3, 0.0, 1.0).normalize() * 0.012;
+        b.quad_flat([Vec3::new(*x, 0.0, *z) - side, Vec3::new(*x, 0.0, *z) + side, c + side, c - side], [0.7, 0.7, 1.0, 1.0]);
         // petals: flat kites around the eye, tilted up a little
         b.mat(mat::FOLIAGE).tinted(true).sway(0.6).ao(0.75, 1.0);
-        let petals = 6;
+        let petals = 5;
         for p in 0..petals {
             let a = p as f32 / petals as f32 * TAU + k as f32;
             let (sa, ca) = a.sin_cos();
             let dir = Vec3::new(ca, 0.18, sa);
-            let side = Vec3::new(-sa, 0.0, ca) * (r * 0.42);
-            let shade = if p % 2 == 0 { 1.0 } else { 0.86 };
-            b.color(Vec3::splat(shade));
+            let side = Vec3::new(-sa, 0.0, ca) * (r * 0.45);
+            b.color(Vec3::splat(if p % 2 == 0 { 1.0 } else { 0.86 }));
             b.quad_flat([c, c + dir * (r * 0.5) + side, c + dir * r + Vec3::Y * 0.02, c + dir * (r * 0.5) - side], [0.8, 1.0, 1.0, 1.0]);
-            b.quad_flat([c, c + dir * (r * 0.5) - side, c + dir * r + Vec3::Y * 0.02, c + dir * (r * 0.5) + side], [0.8, 1.0, 1.0, 1.0]);
         }
         b.mat(mat::FLAT).tinted(false).hex(0xffc83a).sway(0.6).ao(1.0, 1.0);
         b.sphere(c + Vec3::Y * 0.02, r * 0.28, 0);
