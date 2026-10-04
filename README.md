@@ -115,6 +115,7 @@ cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only ma
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
                                            #   e2e.mjs      gameplay: move, shoot, reload, build, harvest, chests, kills...
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
+                                           # npm run fuzz   random keys/clicks/blur/lock releases against the UI state machine
 ```
 
 `tools/` also has `ui_shot.mjs` (the real page with all its UI) and `game_shot.mjs` (the UI-less harness page
