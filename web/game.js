@@ -11,7 +11,7 @@ const NOLOCK = q.get('nolock') === '1';
 // ------------------------------------------------------------------------------------------------
 // Settings
 // ------------------------------------------------------------------------------------------------
-const DEFAULTS = { name: 'You', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
+const DEFAULTS = { name: 'You', outfit: 'scout', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
 let cfg = { ...DEFAULTS };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('fightnight.settings') || '{}')); } catch (e) { /* storage unavailable */ }
 function saveCfg() { try { localStorage.setItem('fightnight.settings', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
@@ -66,7 +66,7 @@ const TIPS = [
 // The wasm side parses `key=value;key=value`, so the free-text player name must not contain either separator.
 function matchOptions() {
   const name = String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You';
-  return `bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
+  return `bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};outfit=${cfg.outfit};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -118,6 +118,7 @@ function wireUi() {
   $('opt-name').addEventListener('input', () => { cfg.name = $('opt-name').value; saveCfg(); });
   bindRange('opt-bots', 'val-bots', 'bots');
   bindSeg('seg-diff', 'difficulty');
+  bindSeg('seg-outfit', 'outfit');
   bindSeg('seg-quality', 'quality');
   bindCheck('opt-skipbus', 'skipbus');
   bindRange('set-sens', 'val-sens', 'sens', (v) => v, applyRuntimeOptions);

@@ -1,9 +1,10 @@
 # FIGHT NIGHT
 
 A complete, playable **Fortnite-style battle royale that runs in your browser**, written in
-**Rust → WebAssembly** and rendered with **WebGPU**. Everything you see and hear is generated in code:
-the island, towns, trees, characters, weapons, UI icons and every sound effect. There are no image,
-model or audio files.
+**Rust → WebAssembly** and rendered with **WebGPU**. Characters, weapons, items and nearby vegetation
+are authored in **Blender** and baked into the game. The island, towns, UI icons and sounds are generated
+in code. The [free original cartoon asset pack](assets/cartoon/README.md) includes editable Blender
+source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard are selectable in the menu.
 
 * Drop from the **Battle Bus** (hot-air balloon and all), skydive and glide onto the island.
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
@@ -23,6 +24,8 @@ model or audio files.
   confetti).
 
 ## Screenshots
+
+![Blender-authored Scout and vegetation](docs/screenshots/cartoon-scout.jpg)
 
 | | |
 | --- | --- |
@@ -90,12 +93,14 @@ crates/
     src/game/    actors, movement/physics, combat, loot, building pieces, storm + bus, bot AI, rig (animation),
                  scene (draw lists), fx (particles), hud (JSON snapshot), audio_map (positional cues)
     src/models.rs, meshlib.rs   every mesh in the game (characters, weapons, items, trees, building pieces...)
+    src/cartoon_assets.rs       embedded Blender meshes and sampled locomotion keyframes
     src/audio_synth.rs          all sound effects synthesised from oscillators and noise
   fn-shaders/  WGSL shaders (+ a naga validation test so a shader typo fails `cargo test`)
   fn-web/      the wasm module: wgpu WebGPU renderer, app loop, and the exports used by the page
 web/           index.html, CSS and the JS for menus, HUD drawing (Canvas2D), icons and WebAudio playback
 scripts/       build script (cargo → wasm-bindgen → dist/)
 tools/         headless-Chromium helpers: screenshots and the end-to-end tests
+assets/cartoon/ editable Blender source, rigged GLBs, baked mesh buffers and animation curves
 ```
 
 Rendering notes: reverse-Z infinite projection into an HDR (RGBA16F) MSAA target, 3-cascade shadow maps,

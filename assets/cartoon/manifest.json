@@ -1,0 +1,193 @@
+{
+  "generator": "Blender 5.1.2",
+  "cost": 0,
+  "style": "original stylized cartoon battle royale",
+  "units": "metres, Y up, forward -Z",
+  "characters": [
+    "scout",
+    "ranger",
+    "pilot",
+    "vanguard"
+  ],
+  "animations": [
+    "Idle",
+    "Walk",
+    "Sprint",
+    "Jump",
+    "Crouch",
+    "Reload",
+    "Victory"
+  ],
+  "meshes": {
+    "CharTorso": {
+      "vertices": 1708,
+      "triangles": 1452,
+      "bytes": 72092
+    },
+    "CharTrim": {
+      "vertices": 244,
+      "triangles": 472,
+      "bytes": 13484
+    },
+    "CharPelvis": {
+      "vertices": 744,
+      "triangles": 508,
+      "bytes": 29916
+    },
+    "CharHead": {
+      "vertices": 1614,
+      "triangles": 2216,
+      "bytes": 78252
+    },
+    "Hair1": {
+      "vertices": 716,
+      "triangles": 1400,
+      "bytes": 39724
+    },
+    "Hair2": {
+      "vertices": 862,
+      "triangles": 1688,
+      "bytes": 47852
+    },
+    "Hair3": {
+      "vertices": 996,
+      "triangles": 1948,
+      "bytes": 55260
+    },
+    "CharArmUp": {
+      "vertices": 64,
+      "triangles": 124,
+      "bytes": 3548
+    },
+    "CharArmLow": {
+      "vertices": 88,
+      "triangles": 168,
+      "bytes": 4844
+    },
+    "CharHand": {
+      "vertices": 222,
+      "triangles": 420,
+      "bytes": 12156
+    },
+    "CharLegUp": {
+      "vertices": 280,
+      "triangles": 232,
+      "bytes": 11756
+    },
+    "CharLegLow": {
+      "vertices": 280,
+      "triangles": 232,
+      "bytes": 11756
+    },
+    "CharBoot": {
+      "vertices": 516,
+      "triangles": 368,
+      "bytes": 20940
+    },
+    "CharBackpack": {
+      "vertices": 1560,
+      "triangles": 840,
+      "bytes": 60012
+    },
+    "WpnPistol": {
+      "vertices": 708,
+      "triangles": 432,
+      "bytes": 27852
+    },
+    "WpnSmg": {
+      "vertices": 2652,
+      "triangles": 1404,
+      "bytes": 101724
+    },
+    "WpnAr": {
+      "vertices": 2652,
+      "triangles": 1404,
+      "bytes": 101724
+    },
+    "WpnShotgun": {
+      "vertices": 2652,
+      "triangles": 1404,
+      "bytes": 101724
+    },
+    "WpnSniper": {
+      "vertices": 2508,
+      "triangles": 1428,
+      "bytes": 97404
+    },
+    "WpnRocket": {
+      "vertices": 508,
+      "triangles": 356,
+      "bytes": 20540
+    },
+    "Pickaxe": {
+      "vertices": 368,
+      "triangles": 384,
+      "bytes": 16396
+    },
+    "AmmoBox": {
+      "vertices": 576,
+      "triangles": 480,
+      "bytes": 24204
+    },
+    "ItemShieldMini": {
+      "vertices": 674,
+      "triangles": 676,
+      "bytes": 29692
+    },
+    "ItemShieldBig": {
+      "vertices": 674,
+      "triangles": 676,
+      "bytes": 29692
+    },
+    "ItemChug": {
+      "vertices": 674,
+      "triangles": 676,
+      "bytes": 29692
+    },
+    "ItemMedkit": {
+      "vertices": 864,
+      "triangles": 432,
+      "bytes": 32844
+    },
+    "ItemBandage": {
+      "vertices": 272,
+      "triangles": 212,
+      "bytes": 11260
+    },
+    "ChestBase": {
+      "vertices": 1680,
+      "triangles": 1076,
+      "bytes": 66684
+    },
+    "ChestLid": {
+      "vertices": 648,
+      "triangles": 324,
+      "bytes": 24636
+    },
+    "Pine0": {
+      "vertices": 1960,
+      "triangles": 3756,
+      "bytes": 107804
+    },
+    "Oak0": {
+      "vertices": 1198,
+      "triangles": 2316,
+      "bytes": 66140
+    },
+    "Birch0": {
+      "vertices": 1198,
+      "triangles": 2316,
+      "bytes": 66140
+    },
+    "Bush0": {
+      "vertices": 740,
+      "triangles": 1440,
+      "bytes": 40972
+    },
+    "GrassTuft": {
+      "vertices": 330,
+      "triangles": 154,
+      "bytes": 12420
+    }
+  }
+}

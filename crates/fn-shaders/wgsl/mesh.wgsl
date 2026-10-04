@@ -138,10 +138,11 @@ fn fs_main(i: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32
         case 1, 2: { // foliage / grass blades
             let v = vnoise(wp.xz * 2.3 + vec2<f32>(wp.y * 1.7, 0.0));
             albedo = albedo * (0.82 + 0.36 * v);
-            rim = 0.35;
+            rim = 0.16;
+            spec = 0.015;
             // fake translucency when backlit
             let V = normalize(G.cam_pos.xyz - wp);
-            let tr = pow(saturate(dot(-V, G.sun_dir.xyz)), 3.0) * 0.45;
+            let tr = pow(saturate(dot(-V, G.sun_dir.xyz)), 3.0) * 0.20;
             albedo = albedo * (1.0 + tr);
         }
         case 3: { // wood planks

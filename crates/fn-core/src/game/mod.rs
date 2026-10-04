@@ -45,6 +45,8 @@ pub struct GameConfig {
     pub bots: usize,
     pub difficulty: Difficulty,
     pub player_name: String,
+    /// Scout, Ranger, Pilot or Vanguard palette (0..3).
+    pub player_outfit: u8,
     pub start_mats: u32,
     /// Skip the bus and start everyone on the ground (used by tests).
     pub skip_bus: bool,
@@ -56,7 +58,7 @@ pub struct GameConfig {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        Self { seed: 1, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
+        Self { seed: 1, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
     }
 }
 
@@ -289,8 +291,9 @@ impl Game {
         let mut name_pool: Vec<&str> = BOT_NAMES.to_vec();
         rng.shuffle(&mut name_pool);
         for i in 0..=cfg.bots {
-            let outfit = Outfit::random(&mut rng);
+            let random_outfit = Outfit::random(&mut rng);
             let human = i == PLAYER;
+            let outfit = if human { Outfit::preset(cfg.player_outfit) } else { random_outfit };
             let name = if human { cfg.player_name.clone() } else { name_pool[(i - 1) % name_pool.len()].to_string() };
             let mut a = Actor::new(i, &name, human, outfit);
             a.inv.mats[Mat::Wood.index()] = cfg.start_mats;

@@ -55,6 +55,38 @@ pub struct Outfit {
 }
 
 impl Outfit {
+    /// Original art-directed palettes: the Scout follows the supplied visual reference.
+    pub fn preset(index: u8) -> Outfit {
+        let (shirt, accent, pants, backpack, skin, hair, hair_style) = match index {
+            1 => (
+                0x56715a, 0xc99b65, 0x38464c, 0xd2ac6b, 0x9c6a45, 0x302820, 3,
+            ),
+            2 => (
+                0x506d9b, 0xe8dcc0, 0x394657, 0xc98242, 0xe8b48a, 0x704c29, 2,
+            ),
+            3 => (
+                0xb54b57, 0xe3bd78, 0x343d4b, 0x495c6b, 0xc98f67, 0x24252c, 1,
+            ),
+            _ => (
+                0x287e78, 0xd7b44e, 0x696d4b, 0xb96140, 0xc98f67, 0x302820, 1,
+            ),
+        };
+        let color = crate::mesh::hex;
+        Outfit {
+            shirt: color(shirt),
+            accent: color(accent),
+            pants: color(pants),
+            backpack: color(backpack),
+            skin: color(skin),
+            hair: color(hair),
+            hair_style,
+            boots: color(0x4b4139),
+            headgear: 0,
+            headgear_color: color(accent),
+            glider: color(shirt),
+        }
+    }
+
     pub fn random(rng: &mut crate::rng::Rng) -> Outfit {
         let skins = [0xf3c9a5u32, 0xe8b48a, 0xc98f67, 0x9c6a45, 0x6d4430, 0xf7d6bc];
         let hairs = [0x2b1b12u32, 0x5a3a1e, 0xb98a3a, 0xd9c27a, 0x8a2e1d, 0x1d1d22, 0xd94a8b, 0x3a7bd9, 0x6b3fd9];

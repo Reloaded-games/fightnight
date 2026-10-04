@@ -5,6 +5,7 @@
 
 pub mod audio_synth;
 pub mod camera;
+pub mod cartoon_assets;
 pub mod game;
 pub mod input;
 pub mod math;

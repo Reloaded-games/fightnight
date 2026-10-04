@@ -1,5 +1,5 @@
-//! Procedural character animation: turns an `Actor`'s state into world matrices for the
-//! rigid body parts (see `models`), the held item and the glider. Legs and the free arm use
+//! Character animation: turns an `Actor`'s state into world matrices for Blender-authored
+//! rigid body parts, the held item and the glider. Legs use sampled locomotion curves,
 //! forward kinematics with run / crouch / air cycles; arms that hold an item use a two-bone IK
 //! so the hands stay glued to the weapon through aiming, recoil, reloading and swapping.
 
@@ -197,12 +197,13 @@ pub fn pose(a: &Actor) -> Pose {
 
     // ---- body frame ------------------------------------------------------------------------------
     let sp = (phase).sin();
-    let bob = if grounded { (0.5 - 0.5 * (2.0 * phase).cos()) * 0.03 * ra } else { 0.0 };
+    let motion = crate::cartoon_assets::locomotion(phase);
+    let bob = if grounded { motion[0] * ra } else { 0.0 };
     let breathe = if grounded { (time * 1.7 + a.id as f32).sin() * 0.006 * (1.0 - ra.min(1.0)) } else { 0.0 };
     let mut pelvis_y = lerp(HIP_Y - 0.36 * crouch - 0.1 * an.land - bob + breathe, emote_hip, em);
     let mut lean = 0.05 + 0.16 * ra + 0.13 * an.sprint + 0.3 * crouch;
-    let mut roll = -an.lean_side * 0.1 + em * 0.14 * sway;
-    let mut pelvis_pos = Vec3::new(0.0, pelvis_y, 0.0);
+    let mut roll = -an.lean_side * 0.1 + em * 0.14 * sway + if grounded { motion[4] * ra } else { 0.0 };
+    let mut pelvis_pos = Vec3::new(if grounded { motion[5] * ra } else { 0.0 }, pelvis_y, 0.0);
     if freefall {
         let dive = ((-a.pitch - 0.1) / 1.1).clamp(0.0, 1.0);
         lean = 1.22 + 0.28 * dive;
@@ -240,10 +241,9 @@ pub fn pose(a: &Actor) -> Pose {
         let mut knee = 0.0;
         if grounded {
             let s = side_phase.sin();
-            let c = side_phase.cos();
-            let amp = 0.52 * ra + 0.14 * an.sprint;
-            thigh = amp * s * if s > 0.0 { 0.9 } else { 0.7 } + 0.05 * ra;
-            knee = 0.08 * ra + 1.25 * c.max(0.0).powf(1.35) * ra.min(1.0) + 0.1 * an.sprint;
+            let step = crate::cartoon_assets::locomotion(side_phase);
+            thigh = step[1] * (ra + 0.18 * an.sprint);
+            knee = step[2] * ra.min(1.0) + 0.1 * an.sprint;
             // crouching bends everything
             thigh = lerp(thigh, 0.95 + 0.1 * s * ra, crouch);
             knee = lerp(knee, 1.9, crouch);
@@ -276,7 +276,7 @@ pub fn pose(a: &Actor) -> Pose {
         legs.foot[i] = (-(thigh - knee)).clamp(-0.9, 0.9) * if freefall || swimming { 0.5 } else { 1.0 };
         if grounded && crouch < 0.5 {
             // toe-off at the back of the stride
-            legs.foot[i] += 0.25 * (-side_phase.sin()).max(0.0) * ra;
+            legs.foot[i] += crate::cartoon_assets::locomotion(side_phase)[3] * ra;
         }
     }
     let spread = if freefall { 0.2 } else { 0.0 };
@@ -501,7 +501,7 @@ pub fn pose(a: &Actor) -> Pose {
     }
 
     // ---- backpack, glider, held item to world --------------------------------------------------------------------------
-    let backpack = torso_m;
+    let backpack = torso_m * rz(if grounded { -0.025 * (phase - 0.4).sin() * ra } else { 0.0 });
     let glider = if gliding {
         Some(root * tr(glider_bar_root) * rz(roll * 0.6) * rx(-lean * 0.4))
     } else {

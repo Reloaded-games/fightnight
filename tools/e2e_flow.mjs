@@ -20,6 +20,8 @@ const OPTS = encodeURIComponent('skipbus=1;bots=10;god=1');
 await page.goto(url + 'index.html?opts=' + OPTS);
 await until(page, () => window.__game && window.__game.state === 'menu');
 check('the menu appears after loading', true);
+await page.click('#seg-outfit button[data-v="ranger"]');
+check('character selection is saved', await ev(page, () => JSON.parse(localStorage.getItem('fightnight.settings')).outfit === 'ranger'));
 
 // ---- menu keys --------------------------------------------------------------------------------------------
 await page.click('#btn-help');
@@ -41,6 +43,7 @@ await frames(page, 2);
 // ---- play, release the lock (= Esc), resume --------------------------------------------------------------------
 await page.click('#btn-play');
 await until(page, () => window.__game.state === 'playing');
+check('selected character reaches the game simulation', await ev(page, () => JSON.parse(window.__game.fn.debug('state')).outfit === 1));
 await page.waitForTimeout(800);
 check('Play grabs the pointer lock', await locked(page));
 await ev(page, () => document.exitPointerLock());

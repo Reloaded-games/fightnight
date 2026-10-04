@@ -57,13 +57,13 @@ impl TerrainPainter {
         let n1 = fbm01(x / 38.0, z / 38.0, 3, s ^ 0x101);
         let n2 = fbm01(x / 11.0 + 50.0, z / 11.0, 2, s ^ 0x102);
         let big = fbm01(x / 210.0 + 7.0, z / 210.0 - 3.0, 3, s ^ 0x103);
-        let g_light = hex_v(0x86CF48);
-        let g_mid = hex_v(0x62B73B);
-        let g_dark = hex_v(0x479A33);
+        let g_light = hex_v(0x91BE62);
+        let g_mid = hex_v(0x6CA34F);
+        let g_dark = hex_v(0x487D42);
         let mut c = mix3(g_mid, g_light, n1 * 1.2 - 0.1);
         c = mix3(c, g_dark, smoothstep(0.55, 0.85, n2) * 0.5);
         // sun-bleached meadows on the higher, broader hills
-        c = mix3(c, hex_v(0xC2D04E), smoothstep(0.6, 0.85, big) * 0.5);
+        c = mix3(c, hex_v(0xB6BF69), smoothstep(0.6, 0.85, big) * 0.5);
         // autumn grove tint
         let aut = self.autumn(x, z);
         c = mix3(c, mix3(hex_v(0xD9A441), hex_v(0xC9772F), n1), aut * 0.7);
