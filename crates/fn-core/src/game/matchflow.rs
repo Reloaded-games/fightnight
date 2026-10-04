@@ -190,6 +190,14 @@ pub fn check_victory(g: &mut Game) {
         return;
     }
     let alive: Vec<usize> = g.actors.iter().filter(|a| a.alive).map(|a| a.id).collect();
+    // Actors that fall in the same step have no order between them (who is processed first is an accident of the
+    // actor list), so they share the best place the group could have taken instead of ranking by index.
+    let fallen: Vec<usize> = g.actors.iter().filter(|a| !a.alive && a.death_step == g.step_no).map(|a| a.id).collect();
+    if fallen.len() > 1 {
+        for &i in &fallen {
+            g.actors[i].placement = alive.len() as u32 + 1;
+        }
+    }
     if g.phase == Phase::Playing && alive.len() <= 1 {
         g.phase = Phase::Over;
         if let Some(&w) = alive.first() {
@@ -203,6 +211,9 @@ pub fn check_victory(g: &mut Game) {
             a.emoting = true;
             a.anim.emote_clock = 0.0;
             g.events.push(Event::Victory { winner: w });
+        } else {
+            // the last ones standing fell together: a draw, sharing first place
+            g.tie = true;
         }
     }
 }
@@ -292,6 +303,88 @@ mod tests {
         assert_eq!(g.phase, Phase::Over);
         assert_eq!(g.winner, Some(PLAYER));
         assert!(g.events.iter().any(|e| matches!(e, Event::Victory { winner: 0 })));
+    }
+
+    /// Put the first `n` actors (the human and the bots after them) outside a tiny storm circle on low health, so that
+    /// the next storm tick eliminates all of them in the same step.
+    fn doom(g: &mut Game, n: usize) {
+        g.storm.active = true;
+        g.storm.center = Vec2::new(0.0, 0.0);
+        g.storm.radius = 1.0;
+        g.storm.dmg = 10.0;
+        g.storm.tick = 0.99;
+        for i in 0..n {
+            let (x, z) = (120.0 + i as f32 * 6.0, 120.0);
+            let h = g.world.hm.height_at(x, z);
+            let a = &mut g.actors[i];
+            a.pos = Vec3::new(x, h, z);
+            a.mode = MoveMode::Ground;
+            a.on_ground = true;
+            a.hp = 5.0;
+            a.shield = 0.0;
+            a.brain = None;
+        }
+    }
+
+    #[test]
+    fn the_last_two_falling_in_the_same_step_draw_instead_of_one_winning_by_list_order() {
+        let mut g = game(1, true);
+        doom(&mut g, 2);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        assert!(g.actors.iter().all(|a| !a.alive), "the storm tick took both");
+        assert_eq!(g.phase, Phase::Over);
+        assert!(g.tie, "a draw is declared");
+        assert_eq!(g.winner, None);
+        assert!(!g.events.iter().any(|e| matches!(e, Event::Victory { .. })));
+        assert_eq!(g.actors[PLAYER].placement, 1, "the human is not ranked below the bot just for coming first in the list");
+        assert_eq!(g.actors[1].placement, 1);
+    }
+
+    #[test]
+    fn several_falling_in_one_step_share_a_placement_and_the_match_goes_on() {
+        let mut g = game(4, true);
+        // survivors: actors 3 and 4 stay inside the circle
+        doom(&mut g, 3);
+        for i in 3..5 {
+            let a = &mut g.actors[i];
+            a.pos = Vec3::new(0.0, g.world.hm.height_at(0.0, 0.0), 0.0);
+            a.brain = None;
+            a.hp = 100.0;
+        }
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        assert_eq!((0..3).filter(|&i| !g.actors[i].alive).count(), 3);
+        assert_eq!(g.phase, Phase::Playing);
+        assert!(!g.tie && g.winner.is_none());
+        for i in 0..3 {
+            assert_eq!(g.actors[i].placement, 3, "actor {i}: three fell together with two left, tied for 3rd");
+        }
+        // the next one to fall is 2nd, as usual
+        g.eliminate(3, None, "Test", false);
+        assert_eq!(g.actors[3].placement, 2);
+    }
+
+    #[test]
+    fn survived_time_stops_when_the_player_dies() {
+        let mut g = game(2, true);
+        let idle = PlayerInput::default();
+        for _ in 0..60 {
+            g.update(0.1, &idle);
+        }
+        let t_death = g.match_time;
+        assert!(t_death > 5.0);
+        let chest = g.actors[PLAYER].chest();
+        g.damage_actor(PLAYER, 500.0, Some(1), "Test", false, chest, true);
+        assert!(!g.actors[PLAYER].alive);
+        // the match goes on (spectating): the clock keeps running but the player's time does not
+        for _ in 0..60 {
+            g.update(0.1, &idle);
+        }
+        assert!(g.match_time > t_death + 5.0);
+        let j = hud::hud_json(&g, &g.camera(1.6), false);
+        let key = "\"time\":";
+        let at = j.find(key).expect("stats.time") + key.len();
+        let shown: f32 = j[at..].split([',', '}']).next().unwrap().parse().unwrap();
+        assert!((shown - t_death).abs() < 0.2, "the end screen shows {shown} s, the player fell at {t_death} s");
     }
 
     #[test]

@@ -236,8 +236,12 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
         if g.phase == Phase::Over && g.winner == Some(PLAYER) { 1 } else { player.placement.max(1) },
         player.kills,
         n(player.damage_dealt),
-        n(g.match_time)
+        // the clock keeps running while a fallen player spectates, but their own time stopped when they fell
+        n(if player.alive { g.match_time } else { g.player_survived })
     );
+    if g.tie {
+        s.push_str(",\"tie\":true");
+    }
     if let Some(w) = g.winner {
         let _ = write!(s, ",\"winner\":{},\"won\":{}", esc(&g.actors[w].name), w == PLAYER);
     }

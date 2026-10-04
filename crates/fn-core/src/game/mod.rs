@@ -224,14 +224,6 @@ pub struct FeedEntry {
     pub age: f32,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct MatchStats {
-    pub kills: u32,
-    pub damage_dealt: f32,
-    pub placement: u32,
-    pub survived: f32,
-}
-
 pub struct Game {
     pub world: World,
     pub cfg: GameConfig,
@@ -258,7 +250,13 @@ pub struct Game {
     pub felled: Vec<Felled>,
     pub next_id: u32,
     pub match_time: f32,
+    /// Match clock at the moment the human was eliminated (the end screen's "survived").
+    pub player_survived: f32,
     pub player_dead_time: f32,
+    /// Counts simulation steps; eliminations in the same step are simultaneous.
+    pub step_no: u64,
+    /// The match ended with everyone left falling in the same step: nobody wins, they share first place.
+    pub tie: bool,
     pub last_hurt_dir: Option<Vec3>,
     /// Hit-marker timer for the HUD.
     pub hit_marker: f32,
@@ -324,7 +322,10 @@ impl Game {
             felled: vec![],
             next_id: 1,
             match_time: 0.0,
+            player_survived: 0.0,
             player_dead_time: 0.0,
+            step_no: 0,
+            tie: false,
             last_hurt_dir: None,
             hit_marker: 0.0,
             hit_marker_kind: 0,
@@ -446,6 +447,7 @@ impl Game {
     }
 
     fn step(&mut self, dt: f32, input: &PlayerInput) {
+        self.step_no += 1;
         self.time += dt;
         if self.phase != Phase::Over || self.player().alive {
             self.match_time += dt;

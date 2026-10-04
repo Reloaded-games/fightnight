@@ -611,6 +611,7 @@ impl Game {
             a.action = Action::None;
             a.ads = false;
             a.dead_time = 0.0;
+            a.death_step = self.step_no;
             a.vel = Vec3::ZERO;
             a.build_mode = false;
             a.emoting = false;
@@ -625,6 +626,7 @@ impl Game {
         self.events.push(Event::Eliminated { victim, killer, weapon: Some(weapon), storm });
         if victim == PLAYER {
             self.player_dead_time = 0.0;
+            self.player_survived = self.match_time;
         }
     }
 

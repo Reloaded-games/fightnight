@@ -500,6 +500,7 @@ function maybeShowEnd(s) {
   const won = s.ph === 2 && s.won;
   const lost = s.dead && s.deadT > 2.4 && !spectating; // spectating only silences this prompt, not the final result
   const over = s.ph === 2;
+  const tie = over && !!s.tie && s.stats.place === 1; // the human was among the last players who fell in the same instant: they share first place
   if (!(won || lost || (over && s.dead))) return;
   endShown = true;
   // a state of its own: input handlers ignore it, and releasing the pointer below must not open the pause menu
@@ -508,12 +509,12 @@ function maybeShowEnd(s) {
   if (overlay) { show(overlay, false); overlay = null; }
   const el = $('over');
   el.classList.toggle('win', !!won); el.classList.toggle('lose', !won);
-  $('over-banner').textContent = won ? 'Victory Royale' : 'Eliminated';
+  $('over-banner').textContent = won ? 'Victory Royale' : tie ? 'Draw' : 'Eliminated';
   const place = s.stats.place;
   // who or what did it: the player's own entry in the kill feed names fall damage, own rockets and so on
   const mine = (s.feed || []).find((f) => f.you);
   const cause = s.killer ? s.killer : mine && !mine.s && mine.w ? mine.w : 'the storm';
-  $('over-place').innerHTML = won ? `You are the last one standing` : `You placed <b>#${place}</b> &middot; eliminated by <b>${escHtml(cause)}</b>`;
+  $('over-place').innerHTML = won ? `You are the last one standing` : tie ? `The last players fell at the same moment &middot; you share <b>#${place}</b>` : `You placed <b>#${place}</b> &middot; eliminated by <b>${escHtml(cause)}</b>`;
   const mins = Math.floor(s.stats.time / 60), secs = Math.floor(s.stats.time % 60);
   $('over-stats').innerHTML = `<div class="stat"><b>${s.stats.kills}</b><span>Eliminations</span></div><div class="stat"><b>${Math.round(s.stats.dmg)}</b><span>Damage dealt</span></div><div class="stat"><b>${mins}:${String(secs).padStart(2, '0')}</b><span>Survived</span></div><div class="stat"><b>#${place}</b><span>Placement</span></div>`;
   $('btn-spectate').style.display = won || over ? 'none' : '';

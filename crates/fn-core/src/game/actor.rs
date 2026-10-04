@@ -315,6 +315,8 @@ pub struct Actor {
     pub hit_flash: f32,
     /// Seconds since death (drives the dissolve effect).
     pub dead_time: f32,
+    /// The simulation step this actor was eliminated in (actors that fall in the same step have no order between them).
+    pub death_step: u64,
     pub build_mode: bool,
     pub build_piece: PieceKind,
     pub build_mat: Mat,
@@ -369,6 +371,7 @@ impl Actor {
             storm_acc: 0.0,
             hit_flash: 0.0,
             dead_time: 0.0,
+            death_step: 0,
             build_mode: false,
             build_piece: PieceKind::Wall,
             build_mat: Mat::Wood,
