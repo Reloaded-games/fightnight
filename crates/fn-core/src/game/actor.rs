@@ -106,6 +106,10 @@ pub struct AnimState {
     pub land: f32,
     pub time: f32,
     pub build: f32,
+    /// 0..1 blend into the dance emote.
+    pub emote: f32,
+    /// Seconds into the current dance (keeps running while the blend fades out).
+    pub emote_clock: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -324,6 +328,8 @@ pub struct Actor {
     /// Pickaxe swing in progress: seconds until the blow lands (<= 0 when idle).
     pub melee_t: f32,
     pub melee_pending: bool,
+    /// Dancing: the weapon is holstered and the body plays the emote until the actor does anything else.
+    pub emoting: bool,
 }
 
 impl Actor {
@@ -374,6 +380,7 @@ impl Actor {
             bus_jump_target: None,
             melee_t: 0.0,
             melee_pending: false,
+            emoting: false,
         }
     }
 

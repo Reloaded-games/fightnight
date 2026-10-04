@@ -2,7 +2,6 @@
 
 mod app;
 mod gpu;
-mod input;
 mod renderer;
 
 use app::App;

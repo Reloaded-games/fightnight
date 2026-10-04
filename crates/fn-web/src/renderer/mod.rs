@@ -1,7 +1,6 @@
 //! The WebGPU renderer: cascaded shadows, HDR MSAA scene pass, bloom and composite.
 
 pub mod pipelines;
-pub mod shadow;
 pub mod types;
 pub mod world_gpu;
 
@@ -9,6 +8,7 @@ use crate::gpu::Gpu;
 use bytemuck::cast_slice;
 use fn_core::camera::Frustum;
 use fn_core::mesh::{Instance, MeshData, Particle};
+use fn_core::shadow;
 use fn_core::world::terrain_mesh::ChunkInfo;
 use fn_core::world::{World, GRID_N, WORLD_HALF};
 use glam::{Mat4, Vec3};

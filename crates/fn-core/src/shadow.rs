@@ -2,8 +2,8 @@
 //! projection fitted to a bounding sphere of its camera-frustum slice, so shadows
 //! stay stable while the camera moves and rotates.
 
-use fn_core::camera::Camera;
-use glam::{Mat4, Vec3};
+use crate::camera::Camera;
+use crate::math::{Mat4, Vec3};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Cascade {

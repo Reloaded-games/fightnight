@@ -33,4 +33,6 @@ pub struct Intent {
     /// Leave the bus / deploy or cut the glider.
     pub exit_bus: bool,
     pub deploy: bool,
+    /// Start or stop the dance emote (edge).
+    pub emote: bool,
 }

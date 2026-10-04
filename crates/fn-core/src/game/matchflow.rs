@@ -195,6 +195,8 @@ pub fn check_victory(g: &mut Game) {
         if let Some(&w) = alive.first() {
             g.winner = Some(w);
             g.actors[w].placement = 1;
+            g.actors[w].emoting = true;
+            g.actors[w].anim.emote_clock = 0.0;
             g.events.push(Event::Victory { winner: w });
         }
     }
@@ -285,5 +287,62 @@ mod tests {
         assert_eq!(g.phase, Phase::Over);
         assert_eq!(g.winner, Some(PLAYER));
         assert!(g.events.iter().any(|e| matches!(e, Event::Victory { winner: 0 })));
+    }
+
+    #[test]
+    fn the_winner_dances_and_the_camera_swings_round_to_their_face() {
+        let mut g = game(3, true);
+        for i in 1..g.actors.len() {
+            g.actors[i].alive = false;
+            g.actors[i].mode = MoveMode::Dead;
+        }
+        // open ground, so nothing pulls the camera in
+        let w = &g.world;
+        let p = w.layout.pois[0].center + Vec2::new(w.layout.pois[0].radius * 0.6, 40.0);
+        let h = w.hm.height_at(p.x, p.y);
+        g.actors[PLAYER].pos = Vec3::new(p.x, h, p.y);
+        g.actors[PLAYER].mode = MoveMode::Ground;
+        g.actors[PLAYER].on_ground = true;
+        let idle = PlayerInput::default();
+        g.update(0.1, &idle);
+        assert_eq!(g.phase, Phase::Over);
+        assert!(g.actors[PLAYER].emoting, "the winner celebrates");
+        for _ in 0..30 {
+            g.update(0.1, &idle);
+        }
+        let a = &g.actors[PLAYER];
+        assert!(a.anim.emote > 0.95, "the dance has fully blended in: {}", a.anim.emote);
+        // the camera is in front of the dancer, close, and looking back at them
+        let cam = g.camera(16.0 / 9.0);
+        let to_cam = cam.pos - (a.pos + Vec3::Y * 1.05);
+        let front = yaw_forward(a.body_yaw + 0.3 * a.anim.emote_clock);
+        assert!((1.0..5.0).contains(&to_cam.length()), "orbit distance {}", to_cam.length());
+        assert!(to_cam.normalize().dot(front) > 0.8, "camera should sit on the dancer's face side");
+        assert!(cam.fwd.dot(-to_cam.normalize()) > 0.9, "camera should look at the dancer");
+    }
+
+    #[test]
+    fn a_bot_that_wins_stops_and_celebrates_too() {
+        let mut g = game(3, true);
+        g.actors[PLAYER].alive = false;
+        g.actors[PLAYER].mode = MoveMode::Dead;
+        for i in 2..g.actors.len() {
+            g.actors[i].alive = false;
+            g.actors[i].mode = MoveMode::Dead;
+        }
+        // bot 1 is the survivor and is mid-stride when the match ends
+        g.actors[1].on_ground = true;
+        g.actors[1].mode = MoveMode::Ground;
+        let idle = PlayerInput::default();
+        g.update(0.1, &idle);
+        assert_eq!(g.winner, Some(1));
+        let at = g.actors[1].pos;
+        for _ in 0..40 {
+            g.update(0.1, &idle);
+        }
+        let a = &g.actors[1];
+        assert!(a.emoting || a.anim.emote > 0.9, "the winning bot dances");
+        assert!(a.pos.distance(at) < 0.5, "and stays put instead of wandering off: moved {}", a.pos.distance(at));
+        assert_eq!(g.camera_actor(), 1, "the spectator camera follows the winner");
     }
 }

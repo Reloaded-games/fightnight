@@ -91,6 +91,8 @@ pub struct PlayerInput {
     pub cycle_mat: bool,
     pub exit_bus: bool,
     pub deploy: bool,
+    /// Dance emote (edge).
+    pub emote: bool,
     /// Cycle spectate target (+1 / -1) while dead.
     pub spectate: i32,
 }
@@ -434,6 +436,7 @@ impl Game {
                 inp.cycle_mat = false;
                 inp.exit_bus = false;
                 inp.deploy = false;
+                inp.emote = false;
                 inp.spectate = 0;
             }
             inp.look = input.look / steps as f32;
@@ -532,10 +535,16 @@ impl Game {
             cycle_mat: input.cycle_mat,
             exit_bus: input.exit_bus,
             deploy: input.deploy,
+            emote: input.emote,
         }
     }
 
     fn bot_intent(&mut self, i: usize, dt: f32) -> Intent {
+        if self.phase == Phase::Over {
+            // the match is decided: the winner (if a bot) celebrates instead of wandering off
+            let a = &self.actors[i];
+            return Intent { yaw: a.yaw, pitch: a.pitch, ..Default::default() };
+        }
         ai::think(self, i, dt)
     }
 
@@ -724,8 +733,26 @@ impl Game {
         let roll = if a.mode == MoveMode::Glide { -a.anim.lean_side * 0.12 } else { 0.0 };
         let target = pivot + dir * 40.0;
         let look = (target - pos).normalize_or_zero();
-        let look = if look == Vec3::ZERO { dir } else { look };
-        let _ = WORLD_HALF;
+        let mut look = if look == Vec3::ZERO { dir } else { look };
+        // victory: the winner dances and the camera swings round in front of them
+        let k = if self.phase == Phase::Over && self.winner == Some(idx) { smoothstep(0.0, 1.0, a.anim.emote) } else { 0.0 };
+        if k > 0.0 {
+            let centre = a.pos + Vec3::Y * 1.05;
+            let ang = a.body_yaw + 0.3 * a.anim.emote_clock;
+            let want = centre + yaw_forward(ang) * 4.3 + Vec3::Y * 0.5;
+            let to = want - centre;
+            let len = to.length().max(0.001);
+            let d = to / len;
+            let dist = env.raycast(centre, d, len + 0.25, false).map_or(len, |h| (h.t - 0.28).max(0.8));
+            let mut orbit = centre + d * dist.min(len);
+            orbit.y = orbit.y.max(env.terrain(orbit.x, orbit.z) + 0.25);
+            pos = pos.lerp(orbit, k);
+            let to_centre = (centre - pos).normalize_or_zero();
+            if to_centre != Vec3::ZERO {
+                look = look.lerp(to_centre, k).normalize_or_zero();
+            }
+            fov *= lerp(1.0, 0.9, k);
+        }
         Camera::look(pos, look, roll, fov, aspect, 0.1)
     }
 
@@ -780,6 +807,7 @@ mod monkey {
             cycle_mat: rng.chance(0.005),
             exit_bus: rng.chance(0.03),
             deploy: rng.chance(0.02),
+            emote: rng.chance(0.01),
             spectate: if rng.chance(0.01) { 1 } else { 0 },
         };
         if g.actors[PLAYER].mode == MoveMode::Bus && t > 3.0 {

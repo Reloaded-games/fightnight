@@ -11,15 +11,16 @@ model or audio files.
 * **39 enemy bots** (adjustable) that land, loot, heal, build cover, fight and run from the storm.
 * **Loot**: chests, floor weapons with rarity beams (common → legendary), ammo, bandages, medkits, shield
   potions, Chug Jugs. 5 hotbar slots + pickaxe, health + shield, materials.
-* **Building**: walls, floors, ramps and roofs on a Fortnite-style grid in wood, brick and metal — ramp-rush
+* **Building**: walls, floors, ramps and roofs on a Fortnite-style grid in wood, stone and metal — ramp-rush
   up cliffs, box yourself in, and watch bullets and rockets chew through your pieces.
 * **Harvesting**: hit trees and rocks with the pickaxe for materials (trees really fall over).
 * **Shrinking storm** in 7 phases that forces everyone together, with a minimap, full map and storm timer.
 * A colourful island with grassy hills, forests, lakes, a snowy mountain, beaches and nine named towns.
 * Fortnite-flavoured lighting (cascaded shadow maps, bloom, ACES grading, soft sky and clouds), procedural
-  character animation (run/crouch/air/swim/glide cycles, IK-held weapons, reload and swing animations) and
-  a Canvas2D HUD in the same visual language (compass, minimap, skewed health/shield bars, rarity-coloured
-  hotbar, kill feed, hit markers, damage numbers, victory screen with confetti).
+  character animation (run/crouch/air/swim/glide cycles, IK-held weapons, reload and swing animations, a
+  dance emote and a victory dance) and a Canvas2D HUD in the same visual language (compass, minimap, skewed
+  health/shield bars, rarity-coloured hotbar, kill feed, hit markers, damage numbers, victory screen with
+  confetti).
 
 ## Screenshots
 
@@ -67,7 +68,8 @@ ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub 
 | `G` | Drop the selected item |
 | `Q` | Toggle build mode |
 | `Z` `X` `C` `V` | Wall · Floor · Ramp · Roof |
-| `T` | Cycle building material (wood / brick / metal) |
+| `T` | Cycle building material (wood / stone / metal) |
+| `B` | Dance emote (any other action ends it; the winner dances automatically) |
 | `Tab` | Inventory |
 | `M` | Map |
 | `Esc` | Pause |
@@ -81,8 +83,8 @@ cover before you heal; the next safe circle is the dashed white ring on the map.
 ```
 crates/
   fn-core/     platform-independent game: math, noise, world generation, simulation, bots, models,
-               procedural audio synthesis, HUD/audio mapping. Compiles natively, so almost everything is
-               unit tested without a browser.
+               procedural audio synthesis, input mapping, shadow cascades, HUD/audio mapping. Compiles natively,
+               so almost everything is unit tested without a browser.
     src/world/   island: terrain + biomes, lakes, roads, towns and buildings, props, colliders, nav grid, minimap
     src/game/    actors, movement/physics, combat, loot, building pieces, storm + bus, bot AI, rig (animation),
                  scene (draw lists), fx (particles), hud (JSON snapshot), audio_map (positional cues)
@@ -92,7 +94,7 @@ crates/
   fn-web/      the wasm module: wgpu WebGPU renderer, input, app loop, and the exports used by the page
 web/           index.html, CSS and the JS for menus, HUD drawing (Canvas2D), icons and WebAudio playback
 scripts/       build script (cargo → wasm-bindgen → dist/)
-tools/         headless-Chromium helpers: screenshots and an end-to-end smoke test
+tools/         headless-Chromium helpers: screenshots and the end-to-end tests
 ```
 
 Rendering notes: reverse-Z infinite projection into an HDR (RGBA16F) MSAA target, 3-cascade shadow maps,
@@ -106,10 +108,12 @@ exactly like the keyboard does), so the same rules apply to everyone.
 ## Tests
 
 ```bash
-cargo test --release                       # ~160 unit/integration tests (simulation, bots, models, shaders, ...)
+cargo test --release                       # ~170 unit/integration tests (simulation, bots, models, input, shaders, ...)
 cargo test --release -- --ignored monkey   # long randomised "monkey" soak test over many seeds
 cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only match with a timeline
-cd tools && npm install && node e2e.mjs    # real-browser smoke test (needs `scripts/build.sh` first)
+cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
+                                           #   e2e.mjs      gameplay: move, shoot, reload, build, harvest, chests, kills...
+                                           #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
 ```
 
 `tools/` also has `ui_shot.mjs` / `game_shot.mjs` for scripted screenshots (the WebGPU frame is read back

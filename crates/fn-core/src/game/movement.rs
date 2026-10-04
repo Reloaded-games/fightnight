@@ -418,6 +418,10 @@ pub fn update_anim(a: &mut Actor, dt: f32) {
         _ => 0.0,
     };
     an.build = lerp(an.build, if a.build_mode { 1.0 } else { 0.0 }, damp(12.0, dt));
+    an.emote = lerp(an.emote, if a.emoting { 1.0 } else { 0.0 }, damp(9.0, dt));
+    if an.emote > 0.01 {
+        an.emote_clock += dt;
+    }
     if ground && sp > 0.2 {
         an.phase += sp * dt * (if a.crouching { 2.6 } else { 1.55 });
     } else if !ground {

@@ -155,6 +155,21 @@ impl Game {
             self.select_slot(i, s as usize);
         }
 
+        // ---- emote -------------------------------------------------------------------------
+        {
+            let a = &mut self.actors[i];
+            let calm = a.alive && a.mode == MoveMode::Ground && a.on_ground && !a.build_mode && matches!(a.action, Action::None);
+            if it.emote && calm {
+                a.emoting = !a.emoting;
+                a.anim.emote_clock = 0.0;
+            }
+            // anything else the actor does ends the dance
+            let busy = it.wish.length_squared() > 0.01 || it.jump || it.fire || it.reload || it.crouch || it.toggle_build || it.interact || it.select.is_some() || it.cycle != 0 || it.piece.is_some() || it.drop_selected;
+            if a.emoting && (!calm || busy) {
+                a.emoting = false;
+            }
+        }
+
         // ---- building ------------------------------------------------------------------
         self.handle_building(i, it);
         let building = self.actors[i].build_mode;
@@ -540,6 +555,7 @@ impl Game {
             }
             a.hp -= remain;
             a.hit_flash = 1.0;
+            a.emoting = false;
             a.last_damage_from = attacker.filter(|&x| x != victim);
             a.last_damage_time = self.time;
             on_shield = absorbed > 0.0 && remain <= 0.0;
@@ -586,6 +602,7 @@ impl Game {
             a.dead_time = 0.0;
             a.vel = Vec3::ZERO;
             a.build_mode = false;
+            a.emoting = false;
         }
         self.drop_inventory(victim);
         if let Some(k) = killer {
@@ -713,6 +730,70 @@ mod tests {
         // one idle tick settles the smoothed eye height so aim rays are stable afterwards
         g.update(1.0 / 60.0, &PlayerInput::default());
         (a, b)
+    }
+
+    #[test]
+    fn the_emote_toggles_on_the_ground_and_ends_when_the_player_does_anything_else() {
+        let mut g = game(2, true);
+        let (a, _) = duel(&mut g, 30.0);
+        let press = PlayerInput { emote: true, ..Default::default() };
+        let idle = PlayerInput::default();
+        g.update(1.0 / 60.0, &press);
+        assert!(g.actors[a].emoting, "B starts the dance");
+        for _ in 0..30 {
+            g.update(1.0 / 60.0, &idle);
+        }
+        assert!(g.actors[a].emoting, "the dance keeps going while idle");
+        assert!(g.actors[a].anim.emote > 0.5 && g.actors[a].anim.emote_clock > 0.3, "the pose blends in");
+        g.update(1.0 / 60.0, &press);
+        assert!(!g.actors[a].emoting, "pressing B again stops it");
+
+        // moving, jumping, shooting, crouching, reloading and building all end the dance
+        let interrupts = [
+            PlayerInput { move_axis: Vec2::new(0.0, 1.0), ..Default::default() },
+            PlayerInput { jump: true, ..Default::default() },
+            PlayerInput { fire: true, fire_pressed: true, ..Default::default() },
+            PlayerInput { crouch: true, ..Default::default() },
+            PlayerInput { toggle_build: true, ..Default::default() },
+            PlayerInput { select: Some(0), ..Default::default() },
+        ];
+        for (k, i) in interrupts.iter().enumerate() {
+            // land, settle and drop whatever the previous case started
+            for _ in 0..120 {
+                g.update(1.0 / 60.0, &idle);
+            }
+            g.actors[a].build_mode = false;
+            g.actors[a].action = Action::None;
+            g.actors[a].emoting = false;
+            g.update(1.0 / 60.0, &press);
+            assert!(g.actors[a].emoting, "case {k}: start");
+            g.update(1.0 / 60.0, i);
+            assert!(!g.actors[a].emoting, "case {k}: interrupted by {i:?}");
+        }
+        for _ in 0..120 {
+            g.update(1.0 / 60.0, &idle);
+        }
+
+        // damage ends it too
+        g.actors[a].emoting = true;
+        g.damage_actor(a, 10.0, Some(1), "Test", false, g.actors[a].pos, false);
+        assert!(!g.actors[a].emoting);
+    }
+
+    #[test]
+    fn the_emote_needs_solid_ground_and_a_calm_actor() {
+        let mut g = game(2, true);
+        let (a, _) = duel(&mut g, 30.0);
+        let press = PlayerInput { emote: true, ..Default::default() };
+        g.actors[a].on_ground = false;
+        g.actors[a].mode = MoveMode::Freefall;
+        g.update(1.0 / 60.0, &press);
+        assert!(!g.actors[a].emoting, "no dancing in the sky");
+        g.actors[a].mode = MoveMode::Ground;
+        g.actors[a].on_ground = true;
+        g.actors[a].action = Action::Reload { t: 0.0, dur: 2.0 };
+        g.update(1.0 / 60.0, &press);
+        assert!(!g.actors[a].emoting, "no dancing mid-reload");
     }
 
     /// A single trigger pull while aiming down sights (small, predictable spread).

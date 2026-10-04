@@ -1,8 +1,8 @@
 //! Keyboard and mouse state, turned into the simulation's `PlayerInput` once per frame.
 
-use fn_core::game::actor::PieceKind;
-use fn_core::game::PlayerInput;
-use glam::Vec2;
+use crate::game::actor::PieceKind;
+use crate::game::PlayerInput;
+use crate::math::Vec2;
 
 #[derive(Default)]
 pub struct Input {
@@ -22,6 +22,7 @@ pub struct Input {
     drop_edge: bool,
     build_edge: bool,
     mat_edge: bool,
+    emote_edge: bool,
     select: Option<usize>,
     piece: Option<PieceKind>,
     cycle: i32,
@@ -74,6 +75,7 @@ impl Input {
             "KeyG" if down => self.drop_edge = true,
             "KeyQ" if down => self.build_edge = true,
             "KeyT" if down => self.mat_edge = true,
+            "KeyB" if down => self.emote_edge = true,
             "KeyZ" if down => self.piece = Some(PieceKind::Wall),
             "KeyX" if down => self.piece = Some(PieceKind::Floor),
             "KeyC" if down => self.piece = Some(PieceKind::Ramp),
@@ -162,6 +164,7 @@ impl Input {
             cycle_mat: self.mat_edge,
             exit_bus: self.jump_edge || self.fire_edge || self.interact_edge,
             deploy: self.jump_edge || self.fire_edge,
+            emote: self.emote_edge,
             spectate: std::mem::take(&mut self.spectate),
         };
         self.fire_edge = false;
@@ -171,6 +174,7 @@ impl Input {
         self.drop_edge = false;
         self.build_edge = false;
         self.mat_edge = false;
+        self.emote_edge = false;
         pi
     }
 }
@@ -192,6 +196,16 @@ mod tests {
         assert!(p.fire && p.fire_pressed && p.reload);
         let p = i.take(0.002, false);
         assert!(p.fire && !p.fire_pressed && !p.reload, "held, not re-triggered");
+    }
+
+    #[test]
+    fn b_is_an_edge_triggered_emote() {
+        let mut i = Input::new();
+        i.key("KeyB", true);
+        assert!(i.take(0.002, false).emote);
+        assert!(!i.take(0.002, false).emote, "held keys do not repeat the emote");
+        i.key("KeyB", false);
+        assert!(!i.take(0.002, false).emote);
     }
 
     #[test]

@@ -151,6 +151,21 @@ struct Legs {
     foot: [f32; 2],
 }
 
+/// Dance step: legs take turns coming up while the other stays bent, and the pelvis height follows
+/// the lower foot so the planted one stays on the ground. Returns (thigh, knee) per leg and the pelvis height.
+fn emote_legs(beat: f32) -> ([(f32, f32); 2], f32) {
+    let mut legs = [(0.0, 0.0); 2];
+    let mut reach = 0.0f32;
+    for (i, leg) in legs.iter_mut().enumerate() {
+        let lift = 0.5 + 0.5 * (beat + if i == 0 { 0.0 } else { PI }).sin();
+        let thigh = 0.22 + 0.55 * lift;
+        let knee = 0.45 + 0.85 * lift;
+        *leg = (thigh, knee);
+        reach = reach.max(THIGH * thigh.cos() + SHIN * (thigh - knee).cos());
+    }
+    (legs, HIP_DROP + reach + (HIP_Y - HIP_DROP - THIGH - SHIN))
+}
+
 /// Compute the pose of an actor.
 pub fn pose(a: &Actor) -> Pose {
     let an = &a.anim;
@@ -166,6 +181,11 @@ pub fn pose(a: &Actor) -> Pose {
     let freefall = matches!(mode, MoveMode::Freefall);
     let gliding = matches!(mode, MoveMode::Glide);
     let dead = matches!(mode, MoveMode::Dead);
+    // dance emote: blend weight, beat phase, side-to-side sway
+    let em = if grounded { an.emote.clamp(0.0, 1.0) } else { 0.0 };
+    let beat = an.emote_clock * 6.8;
+    let sway = beat.sin();
+    let (emote_leg, emote_hip) = emote_legs(beat);
 
     // ---- root: feet position and body heading -----------------------------------------------
     let mut root = tr(a.pos) * ry(a.body_yaw);
@@ -179,9 +199,9 @@ pub fn pose(a: &Actor) -> Pose {
     let sp = (phase).sin();
     let bob = if grounded { (0.5 - 0.5 * (2.0 * phase).cos()) * 0.03 * ra } else { 0.0 };
     let breathe = if grounded { (time * 1.7 + a.id as f32).sin() * 0.006 * (1.0 - ra.min(1.0)) } else { 0.0 };
-    let mut pelvis_y = HIP_Y - 0.36 * crouch - 0.1 * an.land - bob + breathe;
+    let mut pelvis_y = lerp(HIP_Y - 0.36 * crouch - 0.1 * an.land - bob + breathe, emote_hip, em);
     let mut lean = 0.05 + 0.16 * ra + 0.13 * an.sprint + 0.3 * crouch;
-    let mut roll = -an.lean_side * 0.1;
+    let mut roll = -an.lean_side * 0.1 + em * 0.14 * sway;
     let mut pelvis_pos = Vec3::new(0.0, pelvis_y, 0.0);
     if freefall {
         let dive = ((-a.pitch - 0.1) / 1.1).clamp(0.0, 1.0);
@@ -200,16 +220,16 @@ pub fn pose(a: &Actor) -> Pose {
         pelvis_pos = Vec3::new(0.0, pelvis_y, 0.0);
         roll = (phase * 0.5).sin() * 0.12;
     }
-    let hip_twist = if grounded { 0.12 * sp * ra } else { 0.0 };
+    let hip_twist = if grounded { 0.12 * sp * ra + em * 0.28 * sway } else { 0.0 };
     let d = angle_diff(a.body_yaw, a.yaw);
-    let twist = if freefall || gliding || swimming { 0.0 } else { (d * 0.65).clamp(-0.9, 0.9) };
+    let twist = if freefall || gliding || swimming { 0.0 } else { (d * 0.65).clamp(-0.9, 0.9) - em * 0.4 * sway };
     let pelvis_m = tr(pelvis_pos) * ry(hip_twist);
     let torso_rel = rx(-lean) * rz(roll) * ry(twist - hip_twist * 0.7);
     let torso_m = pelvis_m * torso_rel;
 
     // ---- head ---------------------------------------------------------------------------------------
-    let head_yaw = if freefall || gliding || swimming { 0.0 } else { (d - twist - hip_twist).clamp(-1.1, 1.1) };
-    let head_pitch = if freefall { (lean - 0.2).min(1.2) + a.pitch * 0.3 } else { (a.pitch + lean * 0.8).clamp(-0.9, 0.9) * 0.8 };
+    let head_yaw = if freefall || gliding || swimming { 0.0 } else { (d - twist - hip_twist).clamp(-1.1, 1.1) + em * 0.25 * sway };
+    let head_pitch = if freefall { (lean - 0.2).min(1.2) + a.pitch * 0.3 } else { (a.pitch + lean * 0.8).clamp(-0.9, 0.9) * 0.8 + em * 0.16 * (2.0 * beat).sin() };
     let head_m = torso_m * tr(Vec3::new(0.0, NECK_Y, 0.0)) * ry(head_yaw) * rx(head_pitch.clamp(-1.2, 1.2));
 
     // ---- legs ----------------------------------------------------------------------------------------------
@@ -227,6 +247,10 @@ pub fn pose(a: &Actor) -> Pose {
             // crouching bends everything
             thigh = lerp(thigh, 0.95 + 0.1 * s * ra, crouch);
             knee = lerp(knee, 1.9, crouch);
+        }
+        if em > 0.0 {
+            thigh = lerp(thigh, emote_leg[i].0, em);
+            knee = lerp(knee, emote_leg[i].1, em);
         }
         // airborne: tuck the legs, one a bit more than the other
         let tuck = if i == 0 { 0.6 } else { 0.35 };
@@ -270,7 +294,7 @@ pub fn pose(a: &Actor) -> Pose {
     }
 
     // ---- what is in hand ---------------------------------------------------------------------------------
-    let item = if dead || a.build_mode || matches!(mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus) { None } else { a.inv.selected_item().copied() };
+    let item = if dead || a.build_mode || em > 0.05 || matches!(mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus) { None } else { a.inv.selected_item().copied() };
     let shoulder_c = Vec3::new(0.0, SHOULDER_Y, 0.0);
     let sh_pos = |i: usize| shoulder_c + Vec3::new(if i == 0 { -SHOULDER_X } else { SHOULDER_X }, 0.0, 0.0);
     let aim_yaw_rel = d - twist - hip_twist * 0.3;
@@ -443,6 +467,13 @@ pub fn pose(a: &Actor) -> Pose {
                 out = lerp(out, 0.7, air);
                 elbow = lerp(elbow, 0.4, air);
             }
+        }
+        if em > 0.0 {
+            // both arms up, pumping in turn
+            let pump = 0.5 + 0.5 * (beat + if i == 0 { 0.0 } else { PI }).sin();
+            up_f = lerp(up_f, 2.25 + 0.6 * pump, em);
+            out = lerp(out, 0.3 + 0.12 * (1.0 - pump), em);
+            elbow = lerp(elbow, 0.5 + 0.9 * (1.0 - pump), em);
         }
         if freefall {
             let dive = ((-a.pitch - 0.1) / 1.1).clamp(0.0, 1.0);
@@ -698,6 +729,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn dancing_keeps_a_foot_planted_holsters_the_weapon_and_raises_the_hands() {
+        let mut a = actor();
+        a.inv.add_weapon(WeaponKind::AssaultRifle, Rarity::Rare, 30);
+        a.inv.selected = 1;
+        a.anim.emote = 1.0;
+        let mut hands_up = false;
+        let mut max_float = 0.0f32;
+        for k in 0..120 {
+            a.anim.emote_clock = k as f32 / 120.0 * 2.0;
+            let p = pose(&a);
+            assert!(finite(&p), "clock {}", a.anim.emote_clock);
+            assert!(p.item.is_none(), "the weapon is holstered while dancing");
+            let lo = lowest_boot_y(&p) - a.pos.y;
+            assert!(lo > -0.1, "feet sink into the ground by {lo}");
+            max_float = max_float.max(lo);
+            let shoulder_y = p.torso.transform_point3(Vec3::new(0.0, SHOULDER_Y, 0.0)).y;
+            hands_up |= p.hand.iter().any(|h| h.transform_point3(Vec3::ZERO).y > shoulder_y + 0.1);
+        }
+        assert!(max_float < 0.1, "the planted foot should stay on the ground, the lowest boot floats {max_float}");
+        assert!(hands_up, "the arms should go up during the dance");
     }
 
     #[test]

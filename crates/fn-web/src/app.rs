@@ -1,7 +1,7 @@
 //! The running game: owns the simulation, the draw-list builder and the renderer, and runs one
 //! frame (input -> update -> scene -> render -> audio cues -> HUD snapshot).
 
-use crate::input::Input;
+use fn_core::input::Input;
 use crate::renderer::types::*;
 use crate::renderer::Renderer;
 use fn_core::camera::Camera;
@@ -325,6 +325,11 @@ impl App {
             }
             "god" => {
                 g.cfg.god_mode = num(1, 1.0) > 0.5;
+                "ok".into()
+            }
+            "kill_me" => {
+                // eliminate the player (killed by bot 1)
+                g.eliminate(PLAYER, Some(1), "Assault Rifle", false);
                 "ok".into()
             }
             "kill_bots" => {
@@ -677,7 +682,7 @@ impl App {
             }
             "state" => {
                 let a = &g.actors[PLAYER];
-                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time)
+                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting)
             }
             "timings" => {
                 let t = self.timings;
