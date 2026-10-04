@@ -126,6 +126,26 @@ await p2.keyboard.press('Escape');
 check('Esc still opens the pause menu then', (await settles(p2, () => window.__game.state === 'paused')) && (await active(p2, 'pause')));
 await p2.close();
 
+// ---- the whole drop: bus -> free fall -> glider -> landing --------------------------------------------------------------------------
+const p3 = await context.newPage();
+await p3.setViewportSize({ width: 640, height: 360 });
+await p3.goto(url + 'index.html?nolock=1&autostart=1&opts=' + encodeURIComponent('bots=10;god=1'));
+await until(p3, () => window.__game && window.__game.state === 'playing');
+await frames(p3, 3);
+const mode = async () => JSON.parse(await ev(p3, () => window.__game.fn.debug('state'))).mode;
+check('a match that does not skip the bus starts on the Battle Bus', (await mode()) === 'Bus');
+await p3.keyboard.press('Space');
+await frames(p3, 4);
+check('Space jumps from the bus into free fall', (await mode()) === 'Freefall');
+await p3.keyboard.press('Space');
+await frames(p3, 4);
+check('Space again opens the glider', (await mode()) === 'Glide');
+await ev(p3, () => window.__game.fn.debug('ff 90'));
+await frames(p3, 3);
+const landed = await mode();
+check('the glider brings the player down to land', landed === 'Ground' || landed === 'Swim', landed);
+await p3.close();
+
 const bad = logs.filter((l) => /error|panick|unreachable/i.test(l) && !/WebGPU is experimental|denied/.test(l));
 check('no console errors', bad.length === 0, bad.slice(0, 3).join(' | '));
 await browser.close(); srv.close();

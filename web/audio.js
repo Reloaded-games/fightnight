@@ -15,12 +15,19 @@ export class GameAudio {
     this.ready = false;
   }
 
-  /** Must be called from a user gesture the first time. */
-  async init(fn, onProgress) {
-    if (this.ready) { this.resume(); return; }
+  /** Create and resume the context synchronously: Safari only allows that inside the user gesture itself. */
+  unlock() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    this.ctx = new AC({ latencyHint: 'interactive' });
+    if (!this.ctx) this.ctx = new AC({ latencyHint: 'interactive' });
+    this.resume();
+  }
+
+  /** Builds the sound bank (call `unlock()` first, from a user gesture). */
+  async init(fn, onProgress) {
+    if (this.ready) { this.resume(); return; }
+    this.unlock();
+    if (!this.ctx) return;
     const comp = this.ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.knee.value = 18; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.2;
     this.master = this.ctx.createGain();

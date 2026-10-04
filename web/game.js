@@ -202,6 +202,9 @@ async function boot() {
     requestAnimationFrame(loop);
     await sleep(250);
     state = 'menu';
+    if (matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches) {
+      $('err').textContent = 'FightNight is played with a keyboard and mouse. Open it on a desktop browser to play.';
+    }
     $('loading').classList.add('fade');
     show('menu');
     setTimeout(() => { show('loading', false); $('loading').classList.remove('fade'); }, 700);
@@ -230,6 +233,7 @@ async function startMatch() {
   // Ask for the pointer lock right away, while the click / key press that got us here still counts as a user
   // gesture: loading the island can take longer than the browser keeps that gesture alive.
   lockPointer();
+  audio.unlock();
   state = 'loading';
   $('tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
   for (const id of ['menu', 'over', 'pause', 'settings', 'help', 'inventory', 'map']) show(id, false);
