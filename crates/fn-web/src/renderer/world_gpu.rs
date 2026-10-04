@@ -46,7 +46,7 @@ pub struct WorldGpu {
 
 fn prop_radius(kind: PropKind, scale: f32) -> f32 {
     scale
-        * match kind {
+        * match kind.base() {
             PropKind::Pine => 5.0,
             PropKind::Oak => 4.2,
             PropKind::Birch => 3.8,
@@ -59,7 +59,7 @@ fn prop_radius(kind: PropKind, scale: f32) -> f32 {
 }
 
 fn prop_center(p: &PropInst) -> Vec3 {
-    let up = match p.kind {
+    let up = match p.kind.base() {
         PropKind::Pine => 5.0,
         PropKind::Oak => 4.0,
         PropKind::Birch => 3.6,
@@ -145,7 +145,7 @@ pub fn gather_props(
             let lod = if shadow_pass {
                 1
             } else {
-                match p.kind {
+                match p.kind.base() {
                     PropKind::Pine | PropKind::Oak | PropKind::Birch | PropKind::Palm => (d > 120.0 * max_dist_scale) as usize,
                     PropKind::Bush => (d > 55.0) as usize,
                     _ => 0,
