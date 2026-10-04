@@ -16,8 +16,9 @@ fi
 
 rm -rf dist
 mkdir -p dist/pkg
+TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 wasm-bindgen --target web --no-typescript --out-dir dist/pkg --out-name fightnight \
-  "target/wasm32-unknown-unknown/${OUT}/fn_web.wasm"
+  "${TARGET_DIR}/wasm32-unknown-unknown/${OUT}/fn_web.wasm"
 cp -r web/. dist/
 
 if [ "$PROFILE" = "release" ] && command -v wasm-opt >/dev/null 2>&1; then
