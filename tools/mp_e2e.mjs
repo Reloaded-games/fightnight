@@ -14,7 +14,15 @@ const logs = { host: A.logs, guest: B.logs };
 const dbg = (who, c) => pages[who].evaluate((c) => window.__game.fn.debug(c), c);
 const actor = async (who, i) => JSON.parse(await dbg(who, 'actor ' + i));
 const net = async (who) => JSON.parse(await pages[who].evaluate(() => window.__game.fn.net_status()));
-const frames = async (who, n) => { const p = pages[who]; const f0 = await p.evaluate(() => window.__game.frames); await p.waitForFunction((t) => window.__game.frames >= t, f0 + n, { timeout: 180000 }); };
+// Native GPUs render these small viewports much faster than software WebGPU.
+// Hold input for simulation time as well as frame count, just like the solo test.
+const frames = async (who, n) => {
+  const p = pages[who];
+  const start = await p.evaluate(() => ({ frames: window.__game.frames, t: JSON.parse(window.__game.fn.debug('state')).t }));
+  await p.waitForFunction(({ frames, t, native }) =>
+    window.__game.frames >= frames && (!native || window.__game.state !== 'playing' || JSON.parse(window.__game.fn.debug('state')).t >= t),
+  { frames: start.frames + n, t: start.t + n / 10, native: process.env.FN_FLAGS === 'native' }, { timeout: 180000 });
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {
