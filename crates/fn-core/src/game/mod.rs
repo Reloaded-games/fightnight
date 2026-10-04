@@ -947,11 +947,19 @@ mod monkey {
         run(3, 18, 180.0, true);
     }
 
-    /// Many seeds; slower, run with `cargo test --release -- --ignored monkey_marathon`.
+    /// Many seeds; slower, run with `cargo test --release -- --ignored monkey_marathon`
+    /// (`MONKEY_SEEDS=70..300` picks a different range).
     #[test]
     #[ignore]
     fn monkey_marathon() {
-        for seed in 10..70 {
+        let range = std::env::var("MONKEY_SEEDS")
+            .ok()
+            .and_then(|s| {
+                let (a, b) = s.split_once("..")?;
+                Some(a.parse::<u64>().ok()?..b.parse::<u64>().ok()?)
+            })
+            .unwrap_or(10..70);
+        for seed in range {
             run(seed, 10 + (seed as usize % 30), 200.0, seed % 3 != 0);
         }
     }
