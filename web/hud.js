@@ -20,6 +20,21 @@ function fmtTime(s) {
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
+/** The supply drop marker: a blue crate with a white cross, under a little parachute while it is still coming down. */
+function drawSupply(ctx, x, y, r, air, S) {
+  ctx.save();
+  if (air) {
+    ctx.fillStyle = '#f4f8ff'; ctx.strokeStyle = '#0b1030'; ctx.lineWidth = 1.5 * S;
+    ctx.beginPath(); ctx.arc(x, y - r * 1.15, r * 1.15, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - r * 1.1, y - r * 1.15); ctx.lineTo(x - r * 0.6, y - r * 0.5); ctx.moveTo(x + r * 1.1, y - r * 1.15); ctx.lineTo(x + r * 0.6, y - r * 0.5); ctx.stroke();
+  }
+  ctx.fillStyle = '#2f7bff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * S;
+  ctx.fillRect(x - r, y - r * 0.8, r * 2, r * 1.6); ctx.strokeRect(x - r, y - r * 0.8, r * 2, r * 1.6);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x - r * 0.16, y - r * 0.55, r * 0.32, r * 1.1); ctx.fillRect(x - r * 0.55, y - r * 0.16, r * 1.1, r * 0.32);
+  ctx.restore();
+}
+
 export class Hud {
   constructor(canvas, mapImage) {
     this.c = canvas;
@@ -425,6 +440,26 @@ export class Hud {
       ctx.fillRect(x - size, y - size * 0.6, size * 2, size * 1.2);
       ctx.strokeRect(x - size, y - size * 0.6, size * 2, size * 1.2);
     }
+    // supply drops: a pulsing blue crate, pinned to the edge of the minimap when it is out of view
+    for (const d of s.drops || []) {
+      let x = toX(d.x), y = toY(d.z);
+      if (mini) {
+        const cx = toX(s.pos[0]), cy = toY(s.pos[2]), lim = half - 10 * S, dx = x - cx, dy = y - cy, m = Math.max(Math.abs(dx), Math.abs(dy));
+        if (m > lim) { x = cx + (dx * lim) / m; y = cy + (dy * lim) / m; }
+      }
+      const r = (mini ? 6 : 9) * S, pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
+      ctx.save();
+      ctx.strokeStyle = `rgba(110,185,255,${0.35 + 0.45 * pulse})`; ctx.lineWidth = 2.5 * S;
+      ctx.beginPath(); ctx.arc(x, y, r * (1.6 + 0.6 * pulse), 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      drawSupply(ctx, x, y, r, d.air, S);
+      if (!mini) {
+        ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `italic 900 ${15 * S}px ${FONT}`; ctx.lineWidth = 5 * S; ctx.strokeStyle = 'rgba(8,12,44,.9)'; ctx.lineJoin = 'round';
+        ctx.strokeText('SUPPLY DROP', x, y + r * 2.4); ctx.fillStyle = '#bfe0ff'; ctx.fillText('SUPPLY DROP', x, y + r * 2.4);
+        ctx.restore();
+      }
+    }
     const st = s.storm;
     if (st.on) {
       // purple storm outside the current circle
@@ -473,10 +508,27 @@ export class Hud {
     this.text(done ? 'GO!' : fmtTime(st.timer), x + 54 * S, y + h - 8 * S, 28 * S, '#fff');
     this.text(`PHASE ${Math.min(st.phase + 1, STORM_PHASES)}`, x + w - 10 * S, y + h - 10 * S, 16 * S, col, 'right');
     this.stormBottom = y + h;
+    this.supplyInfo(s, W, S);
     if (!st.in) {
       const pulse = 0.55 + 0.45 * Math.sin(this.time * 6);
       this.text(`IN THE STORM  -${st.dps} HP/s`, W / 2, 112 * S, 30 * S, `rgba(255,120,150,${0.6 + pulse * 0.4})`, 'center');
     }
+  }
+
+  // ---- supply drops ----------------------------------------------------------------------------------------------------------------
+  /** A small panel under the storm box: how far the nearest supply drop is and whether it is still in the air. */
+  supplyInfo(s, W, S) {
+    const drops = s.drops || [];
+    if (!drops.length) return;
+    let best = null, bd = Infinity;
+    for (const d of drops) { const dist = Math.hypot(d.x - s.pos[0], d.z - s.pos[2]); if (dist < bd) { bd = dist; best = d; } }
+    const size = 214 * S, x = W - size - 22 * S, y = this.stormBottom + 8 * S, w = size, h = 42 * S;
+    this.skew(x, y, w, h, 'rgba(8,12,44,.72)', -0.25, '#4aa3ff');
+    drawSupply(this.ctx, x + 26 * S, y + h * 0.6, 8 * S, best.air, S);
+    this.text(best.air ? 'SUPPLY DROP LANDING' : 'SUPPLY DROP READY', x + 54 * S, y + 17 * S, 14 * S, '#cfe4ff');
+    this.text(`${Math.round(bd)} M`, x + 54 * S, y + h - 8 * S, 22 * S, '#fff');
+    if (drops.length > 1) this.text(`x${drops.length}`, x + w - 10 * S, y + h - 10 * S, 16 * S, '#6fb5ff', 'right');
+    this.stormBottom = y + h;
   }
 
   // ---- kill feed ---------------------------------------------------------------------------------------------------------------------
@@ -561,7 +613,7 @@ export class Hud {
     // key cap
     this.skew(x + 18 * S, y + 14 * S, 34 * S, 34 * S, '#fff', -0.15);
     this.text('E', x + 35 * S, y + 42 * S, 28 * S, '#10163d', 'center', { shadow: false });
-    this.text(p.kind === 'vehicle' ? 'VEHICLE' : p.kind === 'chest' ? 'OPEN CHEST' : p.kind === 'w' ? 'PICK UP' : 'COLLECT', x + 66 * S, y + 24 * S, 15 * S, '#b9c9ff');
+    this.text(p.kind === 'vehicle' ? 'VEHICLE' : p.kind === 'supply' ? 'OPEN SUPPLY DROP' : p.kind === 'chest' ? 'OPEN CHEST' : p.kind === 'w' ? 'PICK UP' : 'COLLECT', x + 66 * S, y + 24 * S, 15 * S, '#b9c9ff');
     this.text(p.txt + (p.cnt > 1 ? `  x${p.cnt}` : ''), x + 66 * S, y + 50 * S, 24 * S, col);
   }
 

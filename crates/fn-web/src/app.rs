@@ -645,6 +645,18 @@ impl App {
                 }
                 "ok".into()
             }
+            "supply" => {
+                // let a supply crate go <ahead> metres in front of the player, <above> metres over its resting place (default: all the way up; 0 = landed)
+                let p = g.actors[me].pos;
+                let f = yaw_forward(g.actors[me].yaw);
+                let at = Vec2::new(p.x + f.x * num(1, 25.0), p.z + f.z * num(1, 25.0));
+                let id = supply::launch(g, at);
+                if let Some(i) = g.chest_index(id) {
+                    g.chests[i].pos.y = g.chests[i].land_y + num(2, supply::DROP_HEIGHT);
+                    g.chests[i].since_land = num(3, 0.0);
+                }
+                "ok".into()
+            }
             "loot_row" => {
                 // one of every healing item and ammo box on the ground in a row in front of the player (visual checks)
                 let p = g.actors[me].pos;
@@ -668,7 +680,7 @@ impl App {
                 let pos = p + f * num(1, 5.0);
                 let pos = Vec3::new(pos.x, g.world.hm.height_at(pos.x, pos.z), pos.z);
                 let id = g.new_id();
-                g.chests.push(Chest { id, pos, yaw: yaw + std::f32::consts::PI, open_t: 0.0, opened: false });
+                g.chests.push(Chest::on_ground(id, pos, yaw + std::f32::consts::PI));
                 for (k, kind) in [WeaponKind::Pistol, WeaponKind::Smg, WeaponKind::AssaultRifle, WeaponKind::Shotgun, WeaponKind::Sniper, WeaponKind::RocketLauncher].into_iter().enumerate() {
                     let q = pos + yaw_right(yaw) * ((k as f32 - 2.5) * 1.3) + f * 3.5;
                     let q = Vec3::new(q.x, g.world.hm.height_at(q.x, q.z), q.z);

@@ -53,7 +53,7 @@ fn casts_shadow(m: MeshId) -> bool {
     use MeshId::*;
     matches!(
         m,
-        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat | VehicleBody | VehicleWheel
+        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | SupplyCrate | SupplyChute | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat | VehicleBody | VehicleWheel
     )
 }
 
@@ -363,9 +363,46 @@ impl Scene {
         }
     }
 
+    /// A supply drop: the blue crate swinging under its parachute (which crumples once it lands), and a tall beam over the spot
+    /// where it comes down so it can be seen from across the island.
+    fn supply_crate(&mut self, c: &Chest, fr: &Frustum, cp: Vec3, t: f32) {
+        let ground = Vec3::new(c.pos.x, c.land_y, c.pos.z);
+        let dg = ground.distance(cp);
+        if !c.opened && dg < 700.0 {
+            let pulse = 0.85 + 0.15 * (t * 3.0 + c.id as f32).sin();
+            let fade = if dg > 500.0 { (700.0 - dg) / 200.0 } else { 1.0 };
+            self.beam(ground + Vec3::Y * 0.2, Vec3::new(0.25, 0.6, 1.0), 110.0, 0.7, pulse * fade, (c.id % 83) as f32 / 83.0);
+        }
+        if c.pos.distance(cp) > 650.0 || !fr.intersects_sphere(c.pos + Vec3::Y * 3.0, 6.5) {
+            return;
+        }
+        self.stats.pickups += 1;
+        let at = Mat4::from_translation(c.pos);
+        let yaw = Mat4::from_rotation_y(c.yaw);
+        let seed = c.id as f32;
+        if c.falling() {
+            // the crate hangs from the canopy: it swings about the point the cords meet at, 5.6 m above its base
+            let pivot = Vec3::new(0.0, 5.6, 0.0);
+            let swing = Mat4::from_translation(pivot) * Mat4::from_rotation_x((t * 1.3 + seed).sin() * 0.05) * Mat4::from_rotation_z((t * 1.1 + seed * 2.0).cos() * 0.05) * Mat4::from_translation(-pivot);
+            self.push(MeshId::SupplyCrate, at * swing * yaw, WHITE);
+            self.push(MeshId::SupplyChute, at * swing * yaw * Mat4::from_translation(Vec3::Y), WHITE);
+        } else {
+            let tint = if c.opened { lin(Vec3::splat(0.6)) } else { WHITE };
+            self.push(MeshId::SupplyCrate, at * yaw, tint);
+            // the canopy sinks and slumps to the ground beside the crate
+            let k = ease(c.since_land / 1.8);
+            let slump = Mat4::from_translation(Vec3::new(2.2 * k, 1.0 - k, 0.8 * k)) * Mat4::from_scale(Vec3::new(1.0 + 0.3 * k, 1.0 - 0.94 * k, 1.0 + 0.3 * k));
+            self.push(MeshId::SupplyChute, at * yaw * slump, WHITE);
+        }
+    }
+
     fn chests(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
         let t = g.time;
         for c in &g.chests {
+            if c.supply {
+                self.supply_crate(c, fr, cp, t);
+                continue;
+            }
             let d = c.pos.distance(cp);
             if d > 230.0 || !fr.intersects_sphere(c.pos + Vec3::Y * 3.0, 5.0) {
                 continue;
@@ -530,6 +567,33 @@ mod tests {
                 let in_hand = half.max_element() * 2.0 * scene.fit_to(mesh, HELD_ITEM_SIZE);
                 assert!((0.22..=0.4).contains(&in_hand), "{mode:?} {kind:?} is {in_hand:.2} m in the hand");
             }
+        }
+    }
+
+    #[test]
+    fn a_supply_crate_is_drawn_under_its_parachute_and_the_canopy_slumps_after_landing() {
+        let mut g = game(2, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let p = g.actors[PLAYER].pos;
+        let id = supply::launch(&mut g, Vec2::new(p.x, p.z - 25.0));
+        let i = g.chest_index(id).unwrap();
+        g.chests[i].pos.y = g.chests[i].land_y + 15.0;
+        let meshes = build_all();
+        let mut scene = Scene::new(&meshes);
+        let cam = Camera::look(p + Vec3::new(0.0, 4.0, 6.0), Vec3::new(0.0, 0.1, -1.0).normalize(), 0.0, 70f32.to_radians(), 1.6, 0.1);
+        let count = |scene: &Scene, mesh: MeshId| scene.batches.iter().filter(|b| b.mesh == mesh as u16).map(|b| b.count).sum::<u32>();
+        scene.build(&g, &cam);
+        assert_eq!(count(&scene, MeshId::SupplyCrate), 1, "the crate");
+        assert_eq!(count(&scene, MeshId::SupplyChute), 1, "and its parachute");
+        assert!(scene.particles_add.iter().any(|q| q.is_sane()), "the beam over the landing spot");
+        assert!(scene.instances.iter().all(|i| i.is_sane()));
+        // down on the ground the crate is still there with its collapsed canopy beside it, and nothing is broken by the transition
+        for since_land in [0.0, 0.9, 5.0] {
+            g.chests[i].pos.y = g.chests[i].land_y;
+            g.chests[i].since_land = since_land;
+            scene.build(&g, &cam);
+            assert_eq!((count(&scene, MeshId::SupplyCrate), count(&scene, MeshId::SupplyChute)), (1, 1), "{since_land} s after landing");
+            assert!(scene.instances.iter().all(|i| i.is_sane()), "{since_land} s after landing");
         }
     }
 

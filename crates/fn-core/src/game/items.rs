@@ -297,9 +297,65 @@ pub fn roll_chest_loot(rng: &mut Rng) -> Vec<Drop> {
     v
 }
 
+/// Supply drop loot: two different strong weapons (epic at least) with plenty of ammo, and the best healing there is.
+pub fn roll_supply_loot(rng: &mut Rng) -> Vec<Drop> {
+    // no pistols from the sky
+    let weights = [0.0, 1.5, 3.0, 2.5, 2.0, 1.5];
+    let first = WeaponKind::ALL[rng.weighted(&weights)];
+    let mut second = WeaponKind::ALL[rng.weighted(&weights)];
+    for _ in 0..8 {
+        if second != first {
+            break;
+        }
+        second = WeaponKind::ALL[rng.weighted(&weights)];
+    }
+    let mut v = vec![];
+    for kind in [first, second] {
+        let rarity = if rng.chance(0.4) { Rarity::Legendary } else { Rarity::Epic };
+        v.push(Drop::Weapon { kind, rarity });
+    }
+    for kind in [first, second] {
+        let ak = kind.def().ammo;
+        // a double box, but not past what a player may carry
+        v.push(Drop::Ammo { kind: ak, amount: (ak.box_amount() * 2).min(ak.cap()) });
+    }
+    if rng.chance(0.6) {
+        v.push(Drop::Consumable { kind: ConsumableKind::ChugJug, count: 1 });
+    } else {
+        v.push(Drop::Consumable { kind: ConsumableKind::ShieldBig, count: 2 });
+    }
+    v.push(Drop::Consumable { kind: ConsumableKind::MedKit, count: 1 });
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supply_loot_is_the_best_in_the_game() {
+        let mut rng = Rng::new(5);
+        let (mut kinds, mut legendary) = (std::collections::HashSet::new(), 0);
+        for _ in 0..300 {
+            let loot = roll_supply_loot(&mut rng);
+            let weapons: Vec<(WeaponKind, Rarity)> = loot.iter().filter_map(|d| if let Drop::Weapon { kind, rarity } = d { Some((*kind, *rarity)) } else { None }).collect();
+            assert_eq!(weapons.len(), 2);
+            assert_ne!(weapons[0].0, weapons[1].0, "two different weapons");
+            for (kind, rarity) in &weapons {
+                assert!(*rarity >= Rarity::Epic, "{kind:?} {rarity:?}");
+                assert_ne!(*kind, WeaponKind::Pistol);
+                kinds.insert(*kind);
+                legendary += (*rarity == Rarity::Legendary) as u32;
+                // and ammo to feed it
+                let ak = kind.def().ammo;
+                assert!(loot.iter().any(|d| matches!(d, Drop::Ammo { kind, amount } if *kind == ak && *amount > ak.box_amount().min(ak.cap()) / 2)), "no ammo for {kind:?}");
+            }
+            assert!(loot.iter().any(|d| matches!(d, Drop::Consumable { kind: ConsumableKind::MedKit, .. })));
+            assert!(loot.iter().any(|d| matches!(d, Drop::Consumable { kind: ConsumableKind::ChugJug | ConsumableKind::ShieldBig, .. })));
+        }
+        assert!(kinds.len() >= 4, "{kinds:?}");
+        assert!(legendary > 100 && legendary < 400, "{legendary} legendary weapons in 600");
+    }
 
     #[test]
     fn weapon_table_matches_enum_order() {

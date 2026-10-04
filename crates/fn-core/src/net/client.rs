@@ -356,11 +356,18 @@ impl Client {
         match op {
             SyncOp::Reset => {
                 g.pickups.clear();
+                g.chests.retain(|c| !c.supply);
                 for c in &mut g.chests {
                     c.opened = false;
                     c.open_t = 0.0;
                 }
                 g.pieces.clear();
+            }
+            SyncOp::ChestAdd(c) => {
+                if g.chest_index(c.id).is_none() {
+                    g.chests.push(crate::game::Chest { id: c.id, pos: c.pos, yaw: c.yaw, open_t: 0.0, opened: false, supply: true, land_y: c.land_y, since_land: 0.0 });
+                }
+                g.next_id = g.next_id.max(c.id);
             }
             SyncOp::PickupAdd(p) => {
                 let fresh = crate::game::Pickup { id: p.id, pos: p.pos, vel: p.vel, kind: p.kind, age: 0.0, grounded: p.grounded, spin: p.spin };

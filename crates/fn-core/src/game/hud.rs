@@ -85,6 +85,13 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
         let _ = write!(s, "{{\"id\":{},\"x\":{},\"z\":{},\"occupied\":{}}}", v.id, n(v.pos.x), n(v.pos.z), v.driver.is_some());
     }
     s.push(']');
+    // supply drops that nobody has opened: where they are (coming down or waiting)
+    s.push_str(",\"drops\":[");
+    for (i, c) in g.chests.iter().filter(|c| c.supply && !c.opened).enumerate() {
+        if i > 0 { s.push(','); }
+        let _ = write!(s, "{{\"x\":{},\"z\":{},\"air\":{}}}", n(c.pos.x), n(c.pos.z), c.falling());
+    }
+    s.push(']');
 
     // ---- inventory ------------------------------------------------------------------------------
     s.push_str(",\"slots\":[");
@@ -201,6 +208,7 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
                 s.push_str(",\"prompt\":null");
             }
         }
+        Some(Target::Chest(id)) if g.chest_index(id).is_some_and(|i| g.chests[i].supply) => s.push_str(",\"prompt\":{\"txt\":\"Supply Drop\",\"rar\":2,\"cnt\":1,\"kind\":\"supply\"}"),
         Some(Target::Chest(_)) => s.push_str(",\"prompt\":{\"txt\":\"Chest\",\"rar\":4,\"cnt\":1,\"kind\":\"chest\"}"),
         None => s.push_str(",\"prompt\":null"),
     } }
@@ -280,6 +288,29 @@ mod tests {
 
     fn cam(g: &Game) -> Camera {
         g.camera(1.6)
+    }
+
+    #[test]
+    fn supply_drops_show_on_the_map_and_have_their_own_prompt() {
+        let mut g = game(2, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let c = cam(&g);
+        assert!(hud_json(&g, &c, false).contains("\"drops\":[]"), "no crates, no markers");
+        let p = g.actors[PLAYER].pos;
+        let id = supply::launch(&mut g, Vec2::new(p.x + 30.0, p.z));
+        let json = hud_json(&g, &c, false);
+        assert!(json.contains("\"drops\":[{") && json.contains("\"air\":true"), "a crate in the air: {}", &json[json.find("\"drops\"").unwrap()..][..60]);
+        // once it is down it is a marker to walk to, and standing beside it asks to open it
+        let i = g.chest_index(id).unwrap();
+        g.chests[i].pos.y = g.chests[i].land_y;
+        g.actors[PLAYER].pos = Vec3::new(g.chests[i].pos.x, g.chests[i].land_y, g.chests[i].pos.z + 1.5);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let json = hud_json(&g, &c, false);
+        assert!(json.contains("\"air\":false"));
+        assert!(json.contains("\"kind\":\"supply\"") && json.contains("Supply Drop"), "the prompt: {}", &json[json.find("\"prompt\"").unwrap()..][..80]);
+        // an opened crate is no longer worth walking to
+        g.open_chest(i, PLAYER);
+        assert!(hud_json(&g, &c, false).contains("\"drops\":[]"));
     }
 
     #[test]

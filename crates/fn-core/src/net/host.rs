@@ -270,9 +270,16 @@ impl Shadow {
             }
             keep
         });
-        // chests
-        if self.chests.len() != g.chests.len() {
-            self.chests = vec![false; g.chests.len()];
+        // chests: the island's own are known to everyone from its seed, a supply crate is announced as it is let go
+        if g.chests.len() < self.chests.len() {
+            self.chests.clear();
+        }
+        while self.chests.len() < g.chests.len() {
+            let c = &g.chests[self.chests.len()];
+            if c.supply {
+                ops.push(SyncOp::ChestAdd(ChestNet { id: c.id, pos: c.pos, yaw: c.yaw, land_y: c.land_y }));
+            }
+            self.chests.push(false);
         }
         for (i, c) in g.chests.iter().enumerate() {
             if c.opened && !self.chests[i] {

@@ -374,6 +374,62 @@ fn creator_chooses_the_mode_for_every_guest() {
 }
 
 #[test]
+fn a_supply_drop_comes_down_on_every_copy_and_a_guest_can_open_it() {
+    let mut h = Harness::new(1, 2, true, GOOD);
+    started(&mut h);
+    // nobody shoots anybody while this waits
+    for a in h.host.game.actors.iter_mut().skip(2) {
+        a.brain = None;
+    }
+    let before = h.clients[0].game.chests.len();
+    assert_eq!(before, h.host.game.chests.len());
+    // the crate is let go the way it is in a match: by the clock, in the middle of a simulation step
+    h.host.game.supply_timer = 0.0;
+    h.run(1.0, &idle(), &[idle()]);
+    let id = h.host.game.chests.iter().find(|c| c.supply).map(|c| c.id).expect("the host let a crate go");
+    // the guest has been told: the crate is there, high up and coming down, and so is the announcement
+    let g = &h.clients[0].game;
+    let c = g.chest_index(id).map(|i| g.chests[i].clone()).expect("the guest's copy has the crate");
+    assert!(c.supply && c.falling() && !c.opened);
+    assert_eq!(g.chests.len(), before + 1);
+    assert!(g.toast.iter().any(|t| t.0.contains("Supply drop")), "the guest is told: {:?}", g.toast);
+    assert!(g.next_id >= id, "the guest does not hand out the crate's id twice");
+    // both copies let it fall the same way (the guest hears of it a moment later, so it is a touch higher)
+    h.run(6.0, &idle(), &[idle()]);
+    let (hy, cy) = (h.host.game.chests[h.host.game.chest_index(id).unwrap()].pos.y, h.clients[0].game.chests[h.clients[0].game.chest_index(id).unwrap()].pos.y);
+    assert!((hy - cy).abs() < 2.0, "host {hy:.1} guest {cy:.1}");
+    assert!(cy < c.pos.y - 20.0, "it has come down");
+    h.run(25.0, &idle(), &[idle()]);
+    let (hc, cc) = (h.host.game.chests[h.host.game.chest_index(id).unwrap()].clone(), h.clients[0].game.chests[h.clients[0].game.chest_index(id).unwrap()].clone());
+    assert!(!hc.falling() && !cc.falling(), "landed on both");
+    assert_eq!((hc.pos, hc.land_y), (cc.pos, cc.land_y));
+    // the guest walks up and opens it: the loot is on the guest's screen too
+    let near = Vec3::new(hc.pos.x, hc.land_y, hc.pos.z + 1.5);
+    for who in [&mut h.host.game.actors[1], &mut h.clients[0].game.actors[1]] {
+        who.pos = near;
+        who.mode = MoveMode::Ground;
+        who.on_ground = true;
+        who.peak_y = near.y;
+    }
+    h.run(0.5, &idle(), &[idle()]);
+    let loose_before = h.host.game.pickups.len();
+    h.step(1.0 / 60.0, &idle(), &[PlayerInput { interact: true, ..idle() }]);
+    h.run(2.0, &idle(), &[idle()]);
+    assert!(h.host.game.chests[h.host.game.chest_index(id).unwrap()].opened, "the guest opened it on the host");
+    assert!(h.clients[0].game.chests[h.clients[0].game.chest_index(id).unwrap()].opened, "and it shows as open on the guest's screen");
+    // (standing beside the crate the guest has already picked up the ammo that came out of it)
+    let epic_guns = h.host.game.pickups.iter().skip(loose_before).filter(|p| matches!(p.kind, crate::game::PickupKind::Weapon { rarity, .. } if rarity >= Rarity::Epic)).count();
+    assert_eq!(epic_guns, 2, "the two weapons came out");
+    assert!(h.host.game.pickups.len() >= loose_before + 4, "the loot came out");
+    let ids = |g: &Game| {
+        let mut v: Vec<u32> = g.pickups.iter().map(|p| p.id).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(ids(&h.host.game), ids(&h.clients[0].game), "the same loot lies there on both");
+}
+
+#[test]
 fn guest_drives_host_owned_car_and_releases_it_on_exit_or_disconnect() {
     use crate::game::vehicles::Vehicle;
     let mut h = Harness::new(1, 0, true, GOOD);

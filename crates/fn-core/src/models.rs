@@ -1636,6 +1636,119 @@ pub fn piece_ramp() -> MeshData {
 // Tests
 // =======================================================================================
 
+/// A thin straight rod between two points (parachute cords).
+fn rod(b: &mut MeshBuilder, p0: Vec3, p1: Vec3, r: f32) {
+    let d = p1 - p0;
+    let len = d.length();
+    if len < 1e-4 {
+        return;
+    }
+    let q = Quat::from_rotation_arc(Vec3::Y, d / len);
+    b.with_xf(Mat4::from_rotation_translation(q, p0), |b| b.cylinder(Vec3::ZERO, r, r, len, 4, false, false));
+}
+
+/// The supply drop crate: blue painted planks, white panels with a cross on every side, steel corners and handles, a lifting
+/// frame on top and four beacon lights. Origin at the middle of the bottom; 1.2 m wide and 1 m tall.
+pub fn supply_crate() -> MeshData {
+    let mut b = MeshBuilder::new();
+    let (blue, navy, white, steel) = (0x2a6fe0, 0x14398a, 0xf2f5fa, 0xcfd8e6);
+    b.mat(mat::WOOD).hex(blue).ao(0.55, 1.0).spec(0.15);
+    b.box_min_max(Vec3::new(-0.58, 0.04, -0.58), Vec3::new(0.58, 0.96, 0.58));
+    // darker frame: corner posts and rims
+    b.hex(navy).spec(0.2);
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            b.box_center(Vec3::new(sx * 0.57, 0.5, sz * 0.57), Vec3::new(0.045, 0.5, 0.045));
+        }
+    }
+    b.box_min_max(Vec3::new(-0.61, 0.0, -0.61), Vec3::new(0.61, 0.07, 0.61));
+    b.box_min_max(Vec3::new(-0.61, 0.93, -0.61), Vec3::new(0.61, 1.0, 0.61));
+    // a white panel with a blue cross on each of the four sides
+    for side in 0..4 {
+        b.with_xf(Mat4::from_rotation_y(side as f32 * FRAC_PI_2), |b| {
+            b.mat(mat::FLAT).tinted(false).hex(white).ao(0.8, 1.0);
+            b.box_center(Vec3::new(0.0, 0.5, -0.585), Vec3::new(0.34, 0.3, 0.008));
+            b.hex(0x1d55c4);
+            b.box_center(Vec3::new(0.0, 0.5, -0.5935), Vec3::new(0.2, 0.05, 0.004));
+            b.box_center(Vec3::new(0.0, 0.5, -0.5935), Vec3::new(0.05, 0.2, 0.004));
+        });
+    }
+    // steel: corner brackets with bolts, two carrying handles
+    b.mat(mat::METAL).tinted(true).hex(steel).spec(0.9);
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            b.box_center(Vec3::new(sx * 0.595, 0.93, sz * 0.595), Vec3::new(0.05, 0.05, 0.05));
+            b.box_center(Vec3::new(sx * 0.595, 0.07, sz * 0.595), Vec3::new(0.05, 0.05, 0.05));
+        }
+        b.box_center(Vec3::new(sx * 0.64, 0.62, 0.17), Vec3::new(0.03, 0.02, 0.02));
+        b.box_center(Vec3::new(sx * 0.64, 0.62, -0.17), Vec3::new(0.03, 0.02, 0.02));
+        b.box_center(Vec3::new(sx * 0.665, 0.62, 0.0), Vec3::new(0.014, 0.014, 0.19));
+    }
+    // the lifting frame the parachute cords hang from
+    b.box_min_max(Vec3::new(-0.3, 1.0, -0.3), Vec3::new(0.3, 1.04, 0.3));
+    for (sx, sz) in [(1.0f32, 0.0f32), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+        let (hx, hz) = if sx != 0.0 { (0.012, 0.11) } else { (0.11, 0.012) };
+        b.box_center(Vec3::new(sx * 0.11, 1.14, sz * 0.11), Vec3::new(hx, 0.012, hz));
+    }
+    for sx in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(sx * 0.11, 1.09, 0.0), Vec3::new(0.012, 0.05, 0.012));
+    }
+    // beacon lights on the top corners
+    b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(0.35, 0.75, 1.0));
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            b.sphere(Vec3::new(sx * 0.5, 1.03, sz * 0.5), 0.045, 1);
+        }
+    }
+    b.finish()
+}
+
+/// The parachute of a supply crate: a blue and white canopy with cords down to the crate's four top corners.
+/// Origin where the cords meet the middle of the crate's top; the canopy is about 4.5 m above.
+pub fn supply_chute() -> MeshData {
+    let mut b = MeshBuilder::new();
+    let segs = 12usize;
+    let rings = 5usize;
+    let (rad, rise) = (2.6f32, 1.3f32);
+    let ctr = Vec3::new(0.0, 4.6, 0.0);
+    let pt = |a: f32, t: f32| {
+        let rr = rad * (1.0 - t * 0.92);
+        let y = rise * (1.0 - (1.0 - t).powi(2));
+        ctr + Vec3::new(a.cos() * rr, y - rise * 0.2 * (1.0 - t), a.sin() * rr)
+    };
+    b.mat(mat::CLOTH).tinted(false).ao(0.8, 1.0);
+    for g in 0..segs {
+        let a0 = g as f32 / segs as f32 * TAU_F;
+        let a1 = (g + 1) as f32 / segs as f32 * TAU_F;
+        b.hex(if g % 2 == 0 { 0x2a6fe0 } else { 0xf3f6fb });
+        for r in 0..rings {
+            let (t0, t1) = (r as f32 / rings as f32, (r + 1) as f32 / rings as f32);
+            let p = [pt(a0, t0), pt(a1, t0), pt(a1, t1), pt(a0, t1)];
+            let mid = (p[0] + p[1] + p[2] + p[3]) * 0.25;
+            let n = (mid - ctr + Vec3::Y * 0.6).normalize();
+            b.quad_out(p, n);
+            // the underside, seen from below as the crate comes down
+            b.quad_out([p[3], p[2], p[1], p[0]], -n);
+        }
+    }
+    // a crown patch and a hem ring
+    b.hex(0x14398a);
+    let top = pt(0.0, 1.0);
+    for k in 0..8 {
+        let (a0, a1) = (k as f32 / 8.0 * TAU_F, (k + 1) as f32 / 8.0 * TAU_F);
+        let up = Vec3::Y * 0.014;
+        b.tri_out(top + up, pt(a0, 0.93) + up, pt(a1, 0.93) + up, Vec3::Y);
+    }
+    // cords: every other seam down to a top corner of the crate
+    b.mat(mat::FLAT).tinted(false).hex(0xe8e2d0);
+    let corners = [Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, 0.0, -0.5), Vec3::new(0.5, 0.0, 0.5), Vec3::new(-0.5, 0.0, 0.5)];
+    for g in 0..segs {
+        let a = g as f32 / segs as f32 * TAU_F;
+        rod(&mut b, pt(a, 0.0) - Vec3::Y * 0.02, corners[g * 4 / segs], 0.014);
+    }
+    b.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

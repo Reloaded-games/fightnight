@@ -20,6 +20,7 @@ pub mod pieces;
 pub mod remote;
 pub mod rig;
 pub mod scene;
+pub mod supply;
 pub mod vehicles;
 
 use crate::camera::Camera;
@@ -180,6 +181,24 @@ pub struct Chest {
     /// 0 closed .. 1 fully open (animated).
     pub open_t: f32,
     pub opened: bool,
+    /// A supply drop: a bigger, blue crate with better loot that comes down on a parachute (see [`supply`]).
+    pub supply: bool,
+    /// Where the chest rests. A supply crate starts high above it and falls.
+    pub land_y: f32,
+    /// Seconds since a supply crate touched down (its parachute crumples meanwhile).
+    pub since_land: f32,
+}
+
+impl Chest {
+    /// A chest sitting on the ground.
+    pub fn on_ground(id: u32, pos: Vec3, yaw: f32) -> Chest {
+        Chest { id, pos, yaw, open_t: 0.0, opened: false, supply: false, land_y: pos.y, since_land: 0.0 }
+    }
+
+    /// A supply crate still in the air.
+    pub fn falling(&self) -> bool {
+        self.pos.y > self.land_y + 0.02
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -310,6 +329,9 @@ pub struct Game {
     pub alive_cache: usize,
     /// A* searches bots may still start this tick (keeps frames smooth when many bots re-plan).
     pub ai_paths_left: i32,
+    /// Seconds until the next supply drop, and how many have come down.
+    pub supply_timer: f32,
+    pub supply_drops: u32,
 }
 
 const BOT_NAMES: [&str; 64] = [
@@ -391,6 +413,8 @@ impl Game {
             interact_target: None,
             alive_cache: 0,
             ai_paths_left: 0,
+            supply_timer: supply::first_delay(cfg.storm_speed),
+            supply_drops: 0,
         };
         g.remotes = (0..g.actors.len()).map(|_| None).collect();
         g.spawn_world_loot();
@@ -537,6 +561,7 @@ impl Game {
         self.ai_paths_left = 3;
         matchflow::update_bus(self, dt);
         matchflow::update_storm(self, dt);
+        supply::update(self, dt);
         self.update_empty_vehicles(dt);
         self.apply_remote_cmds(dt);
 

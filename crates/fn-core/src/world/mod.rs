@@ -35,6 +35,10 @@ pub const CELL: f32 = WORLD_SIZE / (GRID_N - 1) as f32;
 pub const CHUNK_SIZE: f32 = CHUNK_CELLS as f32 * CELL;
 pub const SEA_LEVEL: f32 = 0.0;
 pub const NAV_CELL: f32 = CELL * 2.0;
+/// Chests lying in the open (on top of the ones inside buildings), the least distance between any two chests and how hard to look for room.
+pub const OUTDOOR_CHESTS: usize = 56;
+pub const OUTDOOR_CHEST_SPACING: f32 = 70.0;
+const OUTDOOR_CHEST_TRIES: usize = 8000;
 
 #[derive(Clone, Debug)]
 pub struct BuildingInfo {
@@ -195,6 +199,36 @@ impl World {
             }
         }
 
+        // Chests out in the open, spread over the whole island: not every one has to be raided from inside a town.
+        let mut crng = Rng::new(seed as u64 ^ 0xC4E57);
+        let mut outdoor = 0;
+        for _ in 0..OUTDOOR_CHEST_TRIES {
+            if outdoor >= OUTDOOR_CHESTS {
+                break;
+            }
+            let p = crng.in_disc(WORLD_HALF * 0.86);
+            let h = hm.height_at(p.x, p.y);
+            let yaw = crng.range(0.0, std::f32::consts::TAU);
+            // dry land, level enough for the chest to sit flat, clear of the sea, the lakes and the roads
+            if h < 2.5 || hm.slope_at(p.x, p.y) > 0.16 || layout.lakes.iter().any(|l| l.center.distance(p) < l.radius * 1.4) {
+                continue;
+            }
+            let ground = splat.sample(p);
+            if ground[splat::CH_ASPHALT] > 0.05 || ground[splat::CH_DIRT] > 0.35 {
+                continue;
+            }
+            if chest_spots.iter().any(|c| Vec2::new(c.pos.x, c.pos.z).distance(p) < OUTDOOR_CHEST_SPACING) {
+                continue;
+            }
+            let mut blocked = false;
+            statics.query(&Aabb::new(Vec3::new(p.x - 2.0, -10.0, p.y - 2.0), Vec3::new(p.x + 2.0, 100.0, p.y + 2.0)), |_, _| blocked = true);
+            if blocked {
+                continue;
+            }
+            chest_spots.push(ChestSpot { pos: Vec3::new(p.x, h, p.y), yaw, building: None });
+            outdoor += 1;
+        }
+
         let mut world = World { seed, base, layout, hm, painter, terrain, splat, statics, buildings, chunk_props: nature.chunk_props, harvest: nature.harvest, chunk_meshes: cm, windmills, loot_spots, chest_spots, nav: NavGrid::new(WORLD_HALF, NAV_CELL), no_cover };
         world.build_nav();
         world
@@ -287,6 +321,35 @@ mod tests {
         assert!(!w.chunk_meshes.is_empty());
         let town = &w.layout.pois[0];
         assert!(w.nav.nearest_free(town.center, 4).is_some());
+    }
+
+    #[test]
+    fn chests_are_scattered_across_the_whole_island() {
+        let w = crate::game::env::testutil::world();
+        let outdoor: Vec<Vec2> = w.chest_spots.iter().filter(|c| c.building.is_none()).map(|c| Vec2::new(c.pos.x, c.pos.z)).collect();
+        assert!(outdoor.len() >= OUTDOOR_CHESTS * 4 / 5, "{} chests in the open", outdoor.len());
+        for c in w.chest_spots.iter().filter(|c| c.building.is_none()) {
+            assert!(c.pos.y > 2.5 && w.on_land(c.pos.x, c.pos.z), "chest in the water at {:?}", c.pos);
+        }
+        // apart from each other
+        for (i, a) in outdoor.iter().enumerate() {
+            for b in &outdoor[i + 1..] {
+                assert!(a.distance(*b) >= OUTDOOR_CHEST_SPACING - 0.01, "two chests {:.0} m apart", a.distance(*b));
+            }
+        }
+        // spread over the island: every quarter of it has several, and some lie far out
+        for (sx, sz) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+            let n = outdoor.iter().filter(|p| p.x * sx > 0.0 && p.y * sz > 0.0).count();
+            assert!(n >= 6, "{n} chests in the quarter ({sx}, {sz})");
+        }
+        assert!(outdoor.iter().any(|p| p.length() > WORLD_HALF * 0.5), "no chest far from the middle");
+        // and a good share is out in the wild rather than beside a town
+        let wild = outdoor.iter().filter(|p| w.layout.pois.iter().all(|poi| poi.center.distance(**p) > poi.radius)).count();
+        assert!(wild * 2 >= outdoor.len(), "only {wild} of {} chests are away from the towns", outdoor.len());
+        // every client builds the same island, so the same chests
+        let again = World::generate(1234);
+        assert_eq!(again.chest_spots.len(), w.chest_spots.len());
+        assert!(again.chest_spots.iter().zip(&w.chest_spots).all(|(a, b)| a.pos == b.pos && a.yaw == b.yaw));
     }
 
     #[test]

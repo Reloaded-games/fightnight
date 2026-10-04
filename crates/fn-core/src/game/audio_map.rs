@@ -299,7 +299,7 @@ impl Mixer {
         // unopened chests hum
         let mut best: Option<(f32, Vec3)> = None;
         for c in &g.chests {
-            if !c.opened {
+            if !c.opened && !c.falling() {
                 let d = c.pos.distance(listener);
                 if d < 40.0 && best.is_none_or(|b| d < b.0) {
                     best = Some((d, c.pos));

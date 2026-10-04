@@ -32,7 +32,7 @@ impl Game {
         let chests = self.world.chest_spots.clone();
         for c in chests {
             let id = self.new_id();
-            self.chests.push(Chest { id, pos: c.pos, yaw: c.yaw, open_t: 0.0, opened: false });
+            self.chests.push(Chest::on_ground(id, c.pos, c.yaw));
         }
     }
 
@@ -70,11 +70,14 @@ impl Game {
             }
         }
         for ch in &self.chests {
-            if ch.opened {
+            // a supply crate cannot be opened while it is still coming down
+            if ch.opened || ch.falling() {
                 continue;
             }
             let d = ch.pos.distance(c);
-            if d < INTERACT_RANGE + 0.4 && best.is_none_or(|b| d < b.0 + 0.3) {
+            // (the crate is a good deal bigger than a chest)
+            let reach = INTERACT_RANGE + if ch.supply { 1.0 } else { 0.4 };
+            if d < reach && best.is_none_or(|b| d < b.0 + 0.3) {
                 best = Some((d, Target::Chest(ch.id)));
             }
         }
@@ -123,10 +126,12 @@ impl Game {
         }
         self.chests[idx].opened = true;
         let (pos, yaw) = (self.chests[idx].pos, self.chests[idx].yaw);
+        let supply = self.chests[idx].supply;
         self.events.push(Event::ChestOpen { pos });
-        self.events.push(Event::Noise { pos, radius: 30.0, source: by });
+        // a supply crate is opened with a clatter that carries
+        self.events.push(Event::Noise { pos, radius: if supply { 80.0 } else { 30.0 }, source: by });
         let mut rng = self.rng.fork(self.chests[idx].id as u64);
-        let drops = roll_chest_loot(&mut rng);
+        let drops = if supply { roll_supply_loot(&mut rng) } else { roll_chest_loot(&mut rng) };
         let n = drops.len();
         for (k, d) in drops.into_iter().enumerate() {
             // fan the loot out in front of the chest
@@ -367,6 +372,7 @@ pub fn step_loose_items(g: &mut Game, dt: f32) {
         }
     }
     for c in &mut g.chests {
+        supply::fall_step(c, dt);
         if c.opened {
             c.open_t = (c.open_t + dt * 2.6).min(1.0);
         }

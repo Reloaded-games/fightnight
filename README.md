@@ -17,8 +17,14 @@ source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard
   boost with **Shift** and brake with **Space**. Driver seats, collisions and physics are owned by the host.
 * **Multiplayer**: one player hosts a room, up to seven friends join with a copy-and-paste code (no server, no
   account: the browsers connect to each other over WebRTC), and bots fill the island. See [Multiplayer](#multiplayer).
-* **Loot**: chests, floor weapons with rarity beams (common → legendary), ammo, bandages, medkits, shield
-  potions, Chug Jugs. 5 hotbar slots + pickaxe, health + shield, materials.
+* **Loot**: chests (about 60 inside buildings and 56 spread across the open island, in the hills, forests and
+  on the coast), floor weapons with rarity beams (common → legendary), ammo, bandages, medkits, shield potions,
+  Chug Jugs. 5 hotbar slots + pickaxe, health + shield, materials. With a full hotbar **E** swaps the item on the
+  ground with the one in hand, and a click on a healing item that has nothing to heal says why.
+* **Supply drops**: a few times a match a **blue supply crate** comes down on a parachute inside the next safe
+  circle, marked by a tall blue beam, a minimap marker and a "Supply drop incoming" call-out. Open it (**E**) for
+  two epic or legendary weapons with ammo, a Chug Jug or shield potions and a medkit. Bots go for it too, so
+  expect company.
 * **Building**: walls, floors, ramps and roofs on a Fortnite-style grid in wood, stone and metal — ramp-rush
   up cliffs, box yourself in, and watch bullets and rockets chew through your pieces.
 * **Harvesting**: hit trees (wood), grey rocks (stone) and the blue-grey ore rocks (metal) with the pickaxe (trees really fall over).
@@ -108,7 +114,7 @@ player leaves or loses their connection, a bot takes over their character. Elimi
 
 How it works: the host's browser is the authority. It runs the whole simulation, with the people in the room as
 extra human actors beside the bots, and sends each player 30 snapshots a second plus every change to the loot,
-chests and buildings and the one-shot events (shots, hits, pickups) that player could see or hear. Each guest
+chests (including each supply drop as it is let go) and buildings and the one-shot events (shots, hits, pickups) that player could see or hear. Each guest
 runs its own copy of the match: its own character is **predicted** with the very same movement code the host
 runs and corrected from the host's acknowledgements (the controls never wait for the network), the others are
 **interpolated** about 100 ms in the past, and the HUD, sounds and effects work on that copy exactly as they do
@@ -159,13 +165,14 @@ exactly like the keyboard does), so the same rules apply to everyone.
 ## Tests
 
 ```bash
-cargo test --release                       # ~286 unit/integration tests (simulation, bots, models, input, shaders, ...)
+cargo test --release                       # ~300 unit/integration tests (simulation, bots, models, input, shaders, ...)
 cargo test --release -- --ignored monkey   # long randomised "monkey" soak test over many seeds
 cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only match with a timeline
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
                                            #   e2e.mjs      gameplay: move, shoot, reload, build, harvest, chests, kills...
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
                                            #   mp_e2e.mjs   two browsers host/join through the real invite codes over WebRTC
+                                           #   supply_e2e.mjs  a supply drop falls, lands, shows on the HUD and is opened with E
                                            # npm run fuzz   random keys/clicks/blur/lock releases against the UI state machine
 ```
 

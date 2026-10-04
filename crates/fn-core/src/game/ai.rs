@@ -987,11 +987,13 @@ impl Brain {
             }
         }
         for c in &g.chests {
-            if c.opened || self.blacklist.iter().any(|b| b.0 == c.id) {
+            // (a supply crate is not there to be opened until it has landed)
+            if c.opened || c.falling() || self.blacklist.iter().any(|b| b.0 == c.id) {
                 continue;
             }
             let d = c.pos.distance(pos);
-            if d > reach * 1.6 {
+            // a supply drop is worth a long walk, and the fight at the end of it
+            if d > if c.supply { reach * 4.0 } else { reach * 1.6 } {
                 continue;
             }
             if let Some(b) = building_of(g, c.pos) {
@@ -999,7 +1001,7 @@ impl Brain {
                     continue;
                 }
             }
-            let mut v = if unarmed { 90.0 } else { 62.0 };
+            let mut v = if c.supply { 150.0 } else if unarmed { 90.0 } else { 62.0 };
             if current == Some(LootRef::Chest(c.id)) {
                 v *= 1.35;
             }

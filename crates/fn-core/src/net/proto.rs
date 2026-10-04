@@ -19,7 +19,7 @@ use crate::game::vehicles::Vehicle;
 use crate::math::*;
 
 /// Bump when anything in this file changes shape; hosts and clients of different versions refuse each other.
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 3;
 /// Most people in one room, the host included.
 pub const MAX_HUMANS: usize = 8;
 /// Most commands a single packet may carry.
@@ -259,6 +259,16 @@ pub struct PieceNet {
     pub hp: f32,
 }
 
+/// A supply drop that was just let go: the island's own chests are known to everyone from its seed, this one is not.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChestNet {
+    pub id: u32,
+    pub pos: Vec3,
+    pub yaw: f32,
+    /// Where it comes to rest; every copy of the match lets it fall the same way.
+    pub land_y: f32,
+}
+
 /// A change to the things lying around the island, for everyone.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SyncOp {
@@ -274,6 +284,8 @@ pub enum SyncOp {
     PieceHp { id: u32, hp: f32 },
     /// A tree, rock or ore vein was broken: the index in the world's list of harvestables, and which way a tree falls.
     HarvestBroken { idx: u32, dir: Vec2 },
+    /// A supply crate is on its way down.
+    ChestAdd(ChestNet),
 }
 
 // ---- messages -------------------------------------------------------------------------------------------------------
@@ -777,6 +789,13 @@ impl SyncOp {
                 w.u32(*idx);
                 w.vec2(*dir);
             }
+            SyncOp::ChestAdd(c) => {
+                w.u8(9);
+                w.u32(c.id);
+                w.vec3(c.pos);
+                w.f32(c.yaw);
+                w.f32(c.land_y);
+            }
         }
     }
 
@@ -805,6 +824,7 @@ impl SyncOp {
             6 => SyncOp::PieceRemove(r.u32()?),
             7 => SyncOp::PieceHp { id: r.u32()?, hp: r.f32()? },
             8 => SyncOp::HarvestBroken { idx: r.u32()?, dir: r.vec2()? },
+            9 => SyncOp::ChestAdd(ChestNet { id: r.u32()?, pos: r.vec3()?, yaw: r.f32()?, land_y: r.f32()? }),
             _ => return Err(WireError::Invalid("sync op")),
         })
     }
@@ -1435,6 +1455,7 @@ mod tests {
             SyncOp::PieceRemove(5),
             SyncOp::PieceHp { id: 6, hp: 33.5 },
             SyncOp::HarvestBroken { idx: 4242, dir: Vec2::new(0.6, -0.8) },
+            SyncOp::ChestAdd(ChestNet { id: 901, pos: v(-120.5, 311.25, 48.0), yaw: 2.5, land_y: 71.25 }),
         ];
         let ServerMsg::Sync(back) = ServerMsg::decode(&ServerMsg::Sync(ops.clone()).encode()).unwrap() else { panic!() };
         // the spin is kept to 1/65536 of a turn
