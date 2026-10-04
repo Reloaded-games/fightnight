@@ -152,16 +152,21 @@ function resizeAll() {
 // ------------------------------------------------------------------------------------------------
 // Boot
 // ------------------------------------------------------------------------------------------------
-// Called from the wasm module when the GPU device is lost (driver reset, GPU unplugged, ...).
-window.__fnDeviceLost = (message) => {
+// Unrecoverable problems (lost GPU, a trap inside the wasm module): stop the game and offer a reload.
+function fatal(title, message) {
   ready = false;
   document.exitPointerLock?.();
   for (const id of ['menu', 'pause', 'inventory', 'map', 'over', 'settings', 'help', 'loading']) show(id, false);
   hud.clear();
-  $('nowebgpu-title').textContent = 'Graphics device lost';
-  $('nowebgpu-msg').textContent = 'The connection to your GPU was interrupted' + (message ? ' (' + message + ')' : '') + '. Reload the page to keep playing.';
+  $('nowebgpu-title').textContent = title;
+  $('nowebgpu-msg').textContent = message;
   show('nowebgpu');
-};
+}
+// Called from the wasm module when the GPU device is lost (driver reset, GPU unplugged, ...).
+window.__fnDeviceLost = (message) => fatal('Graphics device lost', 'The connection to your GPU was interrupted' + (message ? ' (' + message + ')' : '') + '. Reload the page to keep playing.');
+window.addEventListener('error', (e) => {
+  if (ready && e.error instanceof WebAssembly.RuntimeError) fatal('Something went wrong', 'The game hit an unexpected error (' + e.error.message + '). Reload the page to start a new match.');
+});
 
 async function boot() {
   wireUi();
@@ -461,6 +466,13 @@ function loop(t) {
   lastFrame = t;
   if (!ready) return;
   if (state === 'loading') { return; }
+  try { tick(dt); } catch (e) {
+    console.error(e);
+    fatal('Something went wrong', 'The game hit an unexpected error (' + (e && e.message ? e.message : e) + '). Reload the page to start a new match.');
+  }
+}
+
+function tick(dt) {
   fn.frame(dt);
   window.__game.frames++;
   if (state === 'playing' || state === 'paused') {
