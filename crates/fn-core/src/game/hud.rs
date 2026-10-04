@@ -62,14 +62,14 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
     let mut s = String::with_capacity(4096);
     let me_id = g.camera_actor();
     let me = &g.actors[me_id];
-    let player = &g.actors[PLAYER];
+    let player = &g.actors[g.local];
     let phase = match g.phase {
         Phase::Bus => 0,
         Phase::Playing => 1,
         Phase::Over => 2,
     };
     let _ = write!(s, "{{\"ph\":{phase},\"t\":{},\"alive\":{},\"total\":{},\"kills\":{},\"hp\":{},\"sh\":{},\"mode\":\"{}\",\"dead\":{},\"ads\":{},\"aim\":{}", n(g.match_time), g.alive_cache, g.actors.len(), me.kills, n(me.hp.max(0.0)), n(me.shield.max(0.0)), mode_name(me.mode), !player.alive, me.ads, n(me.anim.aim));
-    if me_id != PLAYER {
+    if me_id != g.local {
         let _ = write!(s, ",\"spec\":{}", esc(&me.name));
     }
     let agl = me.pos.y - g.world.hm.height_at(me.pos.x, me.pos.z);
@@ -233,19 +233,19 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
     let _ = write!(
         s,
         ",\"stats\":{{\"place\":{},\"kills\":{},\"dmg\":{},\"time\":{}}}",
-        if g.phase == Phase::Over && g.winner == Some(PLAYER) { 1 } else { player.placement.max(1) },
+        if g.phase == Phase::Over && g.winner == Some(g.local) { 1 } else { player.placement.max(1) },
         player.kills,
         n(player.damage_dealt),
         // the clock keeps running while a fallen player spectates, but their own time stopped when they fell
-        n(if player.alive { g.match_time } else { g.player_survived })
+        n(if player.alive { g.match_time } else { player.survived })
     );
     if g.tie {
         s.push_str(",\"tie\":true");
     }
     if let Some(w) = g.winner {
-        let _ = write!(s, ",\"winner\":{},\"won\":{}", esc(&g.actors[w].name), w == PLAYER);
+        let _ = write!(s, ",\"winner\":{},\"won\":{}", esc(&g.actors[w].name), w == g.local);
     }
-    let _ = write!(s, ",\"deadT\":{}", n(g.player_dead_time));
+    let _ = write!(s, ",\"deadT\":{}", n(player.dead_time));
     if !player.alive {
         match player.last_damage_from {
             Some(k) => {

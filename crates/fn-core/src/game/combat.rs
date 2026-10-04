@@ -545,7 +545,7 @@ impl Game {
                 return false;
             }
         }
-        if self.cfg.god_mode && victim == PLAYER {
+        if self.cfg.god_mode && victim == self.local {
             return false;
         }
         if let Some(at) = attacker {
@@ -580,8 +580,8 @@ impl Game {
         if let Some(at) = attacker {
             if at != victim {
                 self.actors[at].damage_dealt += dealt;
-                if at == PLAYER {
-                    self.events.push(Event::HitConfirm { head: headshot, shield: on_shield, kill: killed });
+                if self.actors[at].human {
+                    self.events.push(Event::HitConfirm { actor: at, head: headshot, shield: on_shield, kill: killed });
                 }
                 // the victim notices who hit them (bots react)
                 if let Some(b) = self.actors[victim].brain.as_mut() {
@@ -589,8 +589,8 @@ impl Game {
                 }
             }
         }
-        if victim == PLAYER {
-            self.events.push(Event::Hurt { amount, from });
+        if self.actors[victim].human {
+            self.events.push(Event::Hurt { actor: victim, amount, from });
         }
         if killed {
             self.eliminate(victim, attacker.filter(|&x| x != victim), weapon, weapon == "The Storm");
@@ -622,14 +622,8 @@ impl Game {
         if let Some(k) = killer {
             self.actors[k].kills += 1;
         }
-        let vname = self.actors[victim].name.clone();
-        let kname = killer.map(|k| self.actors[k].name.clone());
-        self.feed.push(FeedEntry { killer: kname, victim: vname, weapon: weapon.to_string(), by_player: killer == Some(PLAYER), victim_is_player: victim == PLAYER, storm, age: 0.0 });
+        self.actors[victim].survived = self.match_time;
         self.events.push(Event::Eliminated { victim, killer, weapon: Some(weapon), storm });
-        if victim == PLAYER {
-            self.player_dead_time = 0.0;
-            self.player_survived = self.match_time;
-        }
     }
 
     pub fn explode(&mut self, pos: Vec3, owner: usize, kind: WeaponKind, rarity: Rarity) {

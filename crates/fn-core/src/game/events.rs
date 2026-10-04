@@ -44,10 +44,12 @@ pub enum Event {
     /// A bullet trail to draw from the muzzle to where the shot ended.
     Tracer { from: Vec3, to: Vec3, weapon: WeaponKind },
     Damage { target: usize, attacker: Option<usize>, amount: f32, on_shield: bool, headshot: bool, pos: Vec3 },
-    /// The local player landed a hit (for the hit marker and its sound).
-    HitConfirm { head: bool, shield: bool, kill: bool },
-    /// The local player was hit; `from` is the attacker position (damage indicator).
-    Hurt { amount: f32, from: Option<Vec3> },
+    /// `actor` landed a hit (for their hit marker and its sound).
+    HitConfirm { actor: usize, head: bool, shield: bool, kill: bool },
+    /// `actor` was hit; `from` is the attacker position (damage indicator).
+    Hurt { actor: usize, amount: f32, from: Option<Vec3> },
+    /// A message for the HUD: for one player, or for everyone when `actor` is `None`.
+    Toast { actor: Option<usize>, text: String, secs: f32, style: u8 },
     Eliminated { victim: usize, killer: Option<usize>, weapon: Option<&'static str>, storm: bool },
     Reload { actor: usize, pos: Vec3, kind: WeaponKind },
     EmptyClick { actor: usize, pos: Vec3 },

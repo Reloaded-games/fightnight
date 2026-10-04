@@ -53,6 +53,8 @@ pub struct Fx {
     parts: Vec<Part>,
     pub tracers: Vec<TracerFx>,
     pub numbers: Vec<DamageNumber>,
+    /// The actor whose hits show damage numbers: the one the player sees the match through.
+    pub local: usize,
     rng: Rng,
 }
 
@@ -70,7 +72,7 @@ fn lerp4(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
 
 impl Fx {
     pub fn new() -> Self {
-        Self { parts: Vec::with_capacity(1024), tracers: vec![], numbers: vec![], rng: Rng::new(0xFA11) }
+        Self { parts: Vec::with_capacity(1024), tracers: vec![], numbers: vec![], local: 0, rng: Rng::new(0xFA11) }
     }
 
     pub fn count(&self) -> usize {
@@ -208,7 +210,7 @@ impl Fx {
             }
             Event::Impact { pos, normal, kind } => self.impact(*pos, *normal, *kind),
             Event::Damage { attacker, amount, on_shield, headshot, pos, .. } => {
-                if *attacker == Some(PLAYER_ID) {
+                if *attacker == Some(self.local) {
                     let kind = if *headshot { 2 } else if *on_shield { 1 } else { 0 };
                     let drift = self.rng.range(-0.8, 0.8);
                     self.numbers.push(DamageNumber { pos: *pos, amount: *amount, kind, age: 0.0, drift });
@@ -350,9 +352,6 @@ impl Fx {
         }
     }
 }
-
-/// The local player's actor id (kept here to avoid a module cycle).
-pub const PLAYER_ID: usize = 0;
 
 #[cfg(test)]
 mod tests {

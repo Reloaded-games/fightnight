@@ -279,6 +279,7 @@ pub fn weapon_score(kind: WeaponKind, rarity: Rarity) -> f32 {
 pub struct Actor {
     pub id: usize,
     pub name: String,
+    /// A person plays this actor (at this keyboard or over the network) rather than a bot's brain.
     pub human: bool,
     pub pos: Vec3,
     pub vel: Vec3,
@@ -315,6 +316,8 @@ pub struct Actor {
     pub hit_flash: f32,
     /// Seconds since death (drives the dissolve effect).
     pub dead_time: f32,
+    /// The match clock when this actor was eliminated (the end screen's "survived").
+    pub survived: f32,
     /// The simulation step this actor was eliminated in (actors that fall in the same step have no order between them).
     pub death_step: u64,
     pub build_mode: bool,
@@ -371,6 +374,7 @@ impl Actor {
             storm_acc: 0.0,
             hit_flash: 0.0,
             dead_time: 0.0,
+            survived: 0.0,
             death_step: 0,
             build_mode: false,
             build_piece: PieceKind::Wall,

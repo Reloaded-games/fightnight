@@ -52,8 +52,8 @@ impl Game {
         let (mat, kind) = (self.actors[i].build_mat, self.actors[i].build_piece);
         let cost = kind.cost();
         if self.actors[i].inv.mats[mat.index()] < cost {
-            if i == PLAYER {
-                self.toast(format!("Not enough {}", mat.name().to_lowercase()), 1.5, 3);
+            if self.actors[i].human {
+                self.toast_to(i, format!("Not enough {}", mat.name().to_lowercase()), 1.5, 3);
             }
             self.actors[i].fire_cd = 0.3;
             return false;
@@ -77,9 +77,10 @@ impl Game {
 
     /// Refresh HUD-facing previews (called once per frame).
     pub fn update_previews(&mut self) {
-        let p = &self.actors[PLAYER];
-        self.placement_preview = if p.alive && p.build_mode && p.mode == MoveMode::Ground { Some(self.plan_for(PLAYER)) } else { None };
-        self.interact_target = if p.alive && matches!(p.mode, MoveMode::Ground | MoveMode::Swim) { self.find_target(PLAYER) } else { None };
+        let me = self.local;
+        let p = &self.actors[me];
+        self.placement_preview = if p.alive && p.build_mode && p.mode == MoveMode::Ground { Some(self.plan_for(me)) } else { None };
+        self.interact_target = if p.alive && matches!(p.mode, MoveMode::Ground | MoveMode::Swim) { self.find_target(me) } else { None };
     }
 }
 

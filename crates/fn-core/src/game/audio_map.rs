@@ -129,7 +129,7 @@ impl Mixer {
                         self.at(out, listener, cam, Sfx::HarvestHit, *pos, 3.0, 30.0, 0.22);
                     }
                 }
-                Event::HitConfirm { head, shield, kill } => {
+                Event::HitConfirm { actor, head, shield, kill } if *actor == g.local => {
                     let sfx = if *kill {
                         Sfx::Kill
                     } else if *head {
@@ -141,7 +141,7 @@ impl Mixer {
                     };
                     self.two_d(out, sfx, if *kill { 0.9 } else { 0.7 });
                 }
-                Event::Hurt { from, .. } => {
+                Event::Hurt { actor, from, .. } if *actor == g.local => {
                     let storm = from.is_none() && super::matchflow::in_storm(g, g.actors[me].pos);
                     if storm {
                         self.two_d(out, Sfx::StormDamage, 0.6);
@@ -150,7 +150,7 @@ impl Mixer {
                     }
                 }
                 Event::Eliminated { victim, .. } => {
-                    if *victim == PLAYER {
+                    if *victim == g.local {
                         self.two_d(out, Sfx::Defeat, 0.8);
                     }
                 }
@@ -360,7 +360,7 @@ mod tests {
         let me = g.actors[PLAYER].pos;
         g.events.push(Event::Shot { actor: PLAYER, pos: me, weapon: WeaponKind::Shotgun, end: me, hit_actor: false });
         g.events.push(Event::Footstep { actor: 1, pos: me + Vec3::new(200.0, 0.0, 0.0), surface: Surface::Grass });
-        g.events.push(Event::HitConfirm { head: true, shield: false, kill: false });
+        g.events.push(Event::HitConfirm { actor: PLAYER, head: true, shield: false, kill: false });
         m.process(&g, &cam, &mut out);
         assert!(out.iter().any(|c| c.sfx == Sfx::ShotShotgun && c.pan == 0.0 && c.delay == 0.0));
         assert!(out.iter().any(|c| c.sfx == Sfx::HitHead));
