@@ -29,6 +29,7 @@ model or audio files.
 | ![Main menu](docs/screenshots/menu.jpg) | ![The Battle Bus over the island](docs/screenshots/bus.jpg) |
 | ![A firefight in Maple Meadows](docs/screenshots/town.jpg) | ![Lazy Lagoon](docs/screenshots/lake.jpg) |
 | ![Building a ramp](docs/screenshots/build.jpg) | ![Standing next to the storm wall](docs/screenshots/storm.jpg) |
+| ![Sniper scope](docs/screenshots/scope.jpg) | ![Victory Royale](docs/screenshots/victory.jpg) |
 | ![Inventory](docs/screenshots/inventory.jpg) | ![Island map](docs/screenshots/map.jpg) |
 
 (Regenerate them with `tools/screenshots.sh`.)

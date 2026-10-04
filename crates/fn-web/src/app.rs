@@ -340,6 +340,13 @@ impl App {
                 }
                 "ok".into()
             }
+            "stats" => {
+                // set the player's end-of-match numbers (for screenshots): kills, match seconds, damage dealt
+                g.actors[PLAYER].kills = num(1, 0.0) as u32;
+                g.match_time = num(2, 0.0);
+                g.actors[PLAYER].damage_dealt = num(3, 0.0);
+                "ok".into()
+            }
             "freeze_bots" => {
                 for i in 1..g.actors.len() {
                     g.actors[i].brain = None;
