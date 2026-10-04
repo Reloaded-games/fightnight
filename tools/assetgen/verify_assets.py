@@ -18,7 +18,7 @@ for name, stats in manifest['meshes'].items():
         assert abs(sum(v*v for v in vertex[3:6]) - 1) < 0.002, name
     assert max(struct.unpack_from('<' + 'I' * ni, data, 12 + nv * 32)) < nv, name
 
-for name in manifest['characters'] + ['items', 'foliage']:
+for name in manifest['characters'] + ['items', 'foliage', 'vehicles']:
     data = (root / (name + '.glb')).read_bytes()
     assert struct.unpack_from('<4sII', data) == (b'glTF', 2, len(data)), name
     size, kind = struct.unpack_from('<II', data, 12)

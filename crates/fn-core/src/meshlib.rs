@@ -140,6 +140,8 @@ pub enum MeshId {
     Birch3,
     Bush2,
     Bush3,
+    // Append visual variants so existing mesh indices remain stable.
+    VehicleSport,
     // --- fillers for future content are appended below by other modules -----------
     Count,
 }
@@ -734,6 +736,7 @@ pub fn build_mesh(id: MeshId) -> MeshData {
         PieceRamp => models::piece_ramp(),
         VehicleBody => crate::game::vehicles::body_mesh(),
         VehicleWheel => crate::game::vehicles::wheel_mesh(),
+        VehicleSport => crate::game::vehicles::body_mesh(),
         Pine2 => pine(true, true),
         Pine3 => pine(false, true),
         Oak2 => oak(true, true),
@@ -869,6 +872,7 @@ pub const ALL_IDS: &[MeshId] = &[
     MeshId::Birch3,
     MeshId::Bush2,
     MeshId::Bush3,
+    MeshId::VehicleSport,
 ];
 
 /// All meshes in `MeshId` order.

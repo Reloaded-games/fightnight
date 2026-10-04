@@ -250,7 +250,7 @@ export class Hud {
   ammo(s, W, H, S) {
     const x = W - 40 * S, y = H - 60 * S;
     if (s.vehicle) {
-      this.text('ISLAND BUGGY', x, y - 54 * S, 26 * S, '#ffe94a', 'right');
+      this.text((s.vehicle.name || 'Island Buggy').toUpperCase(), x, y - 54 * S, 26 * S, '#ffe94a', 'right');
       this.text(`${Math.round(Math.abs(s.vehicle.speed))} km/h`, x, y + 4 * S, 52 * S, '#fff', 'right');
       this.text('WASD drive · Shift boost · Space brake · E exit', x, y + 32 * S, 18 * S, '#d2eaff', 'right');
       return;

@@ -53,7 +53,7 @@ fn casts_shadow(m: MeshId) -> bool {
     use MeshId::*;
     matches!(
         m,
-        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | SupplyCrate | SupplyChute | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat | VehicleBody | VehicleWheel
+        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | SupplyCrate | SupplyChute | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat | VehicleBody | VehicleWheel | VehicleSport
     )
 }
 
@@ -216,7 +216,7 @@ impl Scene {
             let lean = -v.steer * (v.speed.abs() / 38.0).min(1.0) * 0.06;
             let base = Mat4::from_translation(v.pos) * Mat4::from_rotation_y(v.yaw) * Mat4::from_rotation_x(pitch) * Mat4::from_rotation_z(lean);
             let palette = [0xf1b942, 0x4aaeb7, 0xe77962, 0x617ccc];
-            self.push(MeshId::VehicleBody, base, lin(crate::mesh::hex(palette[v.id.saturating_sub(1) as usize % palette.len()])));
+            self.push(v.body_mesh_id(), base, lin(crate::mesh::hex(palette[v.id.saturating_sub(1) as usize % palette.len()])));
             for x in [-1.02, 1.02] {
                 for z in [-1.02, 1.05] {
                     let steer = if z < 0.0 { -v.steer * 0.44 } else { 0.0 };

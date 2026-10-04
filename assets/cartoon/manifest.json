@@ -16,118 +16,147 @@
     "Jump",
     "Crouch",
     "Reload",
-    "Victory"
+    "Victory",
+    "Aim",
+    "Fire"
+  ],
+  "weapons": [
+    "AK-47",
+    "Pistol",
+    "SMG",
+    "Pump Shotgun",
+    "Bolt Sniper",
+    "Rocket Launcher"
+  ],
+  "vehicles": [
+    "Island Buggy",
+    "Island Roadster"
   ],
   "meshes": {
     "CharTorso": {
-      "vertices": 1708,
-      "triangles": 1452,
-      "bytes": 72092
+      "vertices": 1132,
+      "triangles": 1060,
+      "bytes": 48956
     },
     "CharTrim": {
-      "vertices": 244,
-      "triangles": 472,
-      "bytes": 13484
+      "vertices": 700,
+      "triangles": 424,
+      "bytes": 27500
     },
     "CharPelvis": {
-      "vertices": 744,
-      "triangles": 508,
-      "bytes": 29916
+      "vertices": 1284,
+      "triangles": 932,
+      "bytes": 52284
     },
     "CharHead": {
-      "vertices": 1614,
-      "triangles": 2216,
-      "bytes": 78252
+      "vertices": 1417,
+      "triangles": 2734,
+      "bytes": 78164
     },
     "Hair1": {
-      "vertices": 716,
-      "triangles": 1400,
-      "bytes": 39724
+      "vertices": 540,
+      "triangles": 1018,
+      "bytes": 29508
     },
     "Hair2": {
-      "vertices": 862,
-      "triangles": 1688,
-      "bytes": 47852
+      "vertices": 674,
+      "triangles": 1270,
+      "bytes": 36820
     },
     "Hair3": {
-      "vertices": 996,
-      "triangles": 1948,
-      "bytes": 55260
+      "vertices": 412,
+      "triangles": 778,
+      "bytes": 22532
     },
     "CharArmUp": {
-      "vertices": 64,
-      "triangles": 124,
-      "bytes": 3548
+      "vertices": 444,
+      "triangles": 502,
+      "bytes": 20244
     },
     "CharArmLow": {
-      "vertices": 88,
-      "triangles": 168,
-      "bytes": 4844
+      "vertices": 462,
+      "triangles": 530,
+      "bytes": 21156
     },
     "CharHand": {
-      "vertices": 222,
-      "triangles": 420,
-      "bytes": 12156
+      "vertices": 336,
+      "triangles": 578,
+      "bytes": 17700
     },
     "CharLegUp": {
-      "vertices": 280,
-      "triangles": 232,
-      "bytes": 11756
+      "vertices": 1064,
+      "triangles": 770,
+      "bytes": 43300
     },
     "CharLegLow": {
-      "vertices": 280,
-      "triangles": 232,
-      "bytes": 11756
+      "vertices": 714,
+      "triangles": 620,
+      "bytes": 30300
     },
     "CharBoot": {
-      "vertices": 516,
-      "triangles": 368,
-      "bytes": 20940
+      "vertices": 556,
+      "triangles": 660,
+      "bytes": 25724
     },
     "CharBackpack": {
-      "vertices": 1560,
-      "triangles": 840,
-      "bytes": 60012
-    },
-    "WpnPistol": {
-      "vertices": 708,
-      "triangles": 432,
-      "bytes": 27852
-    },
-    "WpnSmg": {
-      "vertices": 2652,
-      "triangles": 1404,
-      "bytes": 101724
+      "vertices": 1884,
+      "triangles": 1110,
+      "bytes": 73620
     },
     "WpnAr": {
-      "vertices": 2652,
-      "triangles": 1404,
-      "bytes": 101724
+      "vertices": 3482,
+      "triangles": 2588,
+      "bytes": 142492
+    },
+    "WpnPistol": {
+      "vertices": 1470,
+      "triangles": 1132,
+      "bytes": 60636
+    },
+    "WpnSmg": {
+      "vertices": 3150,
+      "triangles": 1972,
+      "bytes": 124476
     },
     "WpnShotgun": {
-      "vertices": 2652,
-      "triangles": 1404,
-      "bytes": 101724
+      "vertices": 2228,
+      "triangles": 1520,
+      "bytes": 89548
     },
     "WpnSniper": {
-      "vertices": 2508,
-      "triangles": 1428,
-      "bytes": 97404
+      "vertices": 1616,
+      "triangles": 2036,
+      "bytes": 76156
     },
     "WpnRocket": {
-      "vertices": 508,
-      "triangles": 356,
-      "bytes": 20540
+      "vertices": 1686,
+      "triangles": 1464,
+      "bytes": 71532
     },
     "Pickaxe": {
-      "vertices": 368,
-      "triangles": 384,
-      "bytes": 16396
+      "vertices": 448,
+      "triangles": 444,
+      "bytes": 19676
     },
     "AmmoBox": {
-      "vertices": 576,
-      "triangles": 480,
-      "bytes": 24204
+      "vertices": 900,
+      "triangles": 716,
+      "bytes": 37404
+    },
+    "VehicleBody": {
+      "vertices": 2908,
+      "triangles": 4760,
+      "bytes": 150188
+    },
+    "VehicleSport": {
+      "vertices": 2570,
+      "triangles": 4228,
+      "bytes": 132988
+    },
+    "VehicleWheel": {
+      "vertices": 2040,
+      "triangles": 1920,
+      "bytes": 88332
     },
     "ItemShieldMini": {
       "vertices": 674,

@@ -6,6 +6,7 @@ use super::intent::Intent;
 use super::Game;
 use crate::math::*;
 use crate::mesh::{mat, MeshBuilder, MeshData};
+use crate::meshlib::MeshId;
 use crate::world::collision::SpatialGrid;
 use crate::world::{World, WORLD_HALF};
 
@@ -33,6 +34,15 @@ impl Vehicle {
     }
 
     pub fn velocity(&self) -> Vec3 { yaw_forward(self.yaw) * self.speed }
+
+    /// The same stable network id picks the body on hosts and guests without extra snapshot data.
+    pub fn body_mesh_id(&self) -> MeshId {
+        if self.id.is_multiple_of(3) { MeshId::VehicleSport } else { MeshId::VehicleBody }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        if self.body_mesh_id() == MeshId::VehicleSport { "Island Roadster" } else { "Island Buggy" }
+    }
 
     /// Actor feet pivot while the hips sit on the driver's seat. Rendering uses a seated pose.
     pub fn driver_position(&self) -> Vec3 {
@@ -158,7 +168,8 @@ impl Game {
         a_seat(&mut self.actors[actor], v);
         self.actors[actor].yaw = v.yaw;
         self.actors[actor].pitch = -0.12;
-        self.toast_to(actor, "Buggy: WASD drive · Shift boost · Space brake · E exit", 5.0, 1);
+        let name = v.display_name();
+        self.toast_to(actor, format!("{name}: WASD drive · Shift boost · Space brake · E exit"), 5.0, 1);
         true
     }
 
@@ -179,7 +190,8 @@ impl Game {
             }
         }
         let Some(point) = exit else {
-            self.toast_to(actor, "Exit blocked. Move the buggy to open ground.", 2.0, 3);
+            let name = v.display_name();
+            self.toast_to(actor, format!("Exit blocked. Move the {name} to open ground."), 2.0, 3);
             return false;
         };
         self.vehicles[index].driver = None;
@@ -334,6 +346,42 @@ pub fn wheel_mesh() -> MeshData {
 mod tests {
     use super::*;
     use super::super::testutil::{free_spot, game};
+
+    #[test]
+    fn both_body_styles_share_the_network_seat_and_remain_stable_while_driving() {
+        let mut v = Vehicle::new(3, Vec3::ZERO, 0.0);
+        assert_eq!(v.body_mesh_id(), MeshId::VehicleSport);
+        assert_eq!(Vehicle::new(1, Vec3::ZERO, 0.0).body_mesh_id(), MeshId::VehicleBody);
+        v.pos = Vec3::new(20.0, 2.0, -30.0);
+        v.yaw = 1.4; v.speed = 18.0; v.steer = -0.5; v.driver = Some(0);
+        assert_eq!(v.body_mesh_id(), MeshId::VehicleSport);
+        let mut buggy = v.clone(); buggy.id = 4;
+        assert_eq!(buggy.body_mesh_id(), MeshId::VehicleBody);
+        assert_eq!(buggy.driver_position(), v.driver_position());
+        assert_eq!(buggy.velocity(), v.velocity());
+    }
+
+    #[test]
+    fn roadster_name_follows_its_visible_body_in_hud_prompts_and_toasts() {
+        use super::super::hud;
+        let mut g = game(2, true);
+        let p = free_spot(&g);
+        g.pickups.clear(); g.chests.clear();
+        g.vehicles = vec![Vehicle::new(3, p, 0.0)];
+        g.actors[0].pos = p - Vec3::X * 2.0;
+        assert_eq!(g.vehicles[0].display_name(), "Island Roadster");
+        let before = hud::hud_json(&g, &g.camera(1.6), false);
+        assert!(before.contains("Drive Island Roadster") && !before.contains("Drive Island Buggy"));
+        assert!(g.enter_vehicle(0, 3));
+        let seated = hud::hud_json(&g, &g.camera(1.6), false);
+        assert!(seated.contains("\"name\":\"Island Roadster\"") && seated.contains("Exit roadster"));
+        assert!(g.events.iter().any(|event| matches!(event,
+            super::super::events::Event::Toast { actor: Some(0), text, .. }
+                if text.starts_with("Island Roadster: WASD"))));
+        assert!(g.exit_vehicle(0));
+        let after = hud::hud_json(&g, &g.camera(1.6), false);
+        assert!(after.contains("Drive Island Roadster"));
+    }
 
     #[test]
     fn parking_is_deterministic_dry_and_clear() {

@@ -7,10 +7,18 @@ All assets are covered by this repository's MIT license.
 
 - `fightnight-cartoon.blend`: editable character, skeleton, actions and prop library.
 - `scout.glb`, `ranger.glb`, `pilot.glb`, `vanguard.glb`: four outfit palettes,
-  each with a weighted skeleton and Idle, Walk, Sprint, Jump, Crouch, Reload and Victory clips.
+  each with a weighted skeleton and Idle, Walk, Sprint, Jump, Crouch, Reload,
+  Victory, Aim and Fire clips. Sculpted faces, continuous clothing surfaces,
+  gloves, kneepads and three sculpted hairstyles replace the earlier shapes.
 - `items.glb`: named weapon, consumable and chest assemblies.
+- `WpnAr` is the AK-47, with a curved magazine, wood furniture and distinct
+  sights. The pistol, SMG, pump shotgun, bolt sniper and rocket launcher have
+  independently drawn silhouettes and preserve gameplay grip/muzzle pivots.
+- `vehicles.glb`: Island Buggy, Island Roadster and a reusable wheel assembly.
+  The game animates the steering, wheel rotation and chassis lean; both bodies
+  share the checked driver seat, footwell and axle pivots.
 - `foliage.glb`: named trees, bush and curved grass assemblies.
-- `meshes/*.fnmesh`: 34 meshes baked to the existing GPU vertex layout.
+- `meshes/*.fnmesh`: 37 meshes baked to the existing GPU vertex layout.
 - `locomotion.fnmotion`: cyclic keyframes shared by the Blender walk/sprint actions
   and the live gameplay rig. Runtime weapon IK, physics and action blends remain active.
 - `manifest.json`: generator version, triangle counts and byte budgets.
@@ -26,6 +34,12 @@ Rebuild from the repository root:
 python tools/assetgen/verify_assets.py
 scripts/build.ps1
 ```
+
+The generator is split into character, animation, weapon and vehicle modules.
+`render_assets.py -- characters|weapons|vehicles` renders the exact baked FNM
+buffers with their game tints for geometry QA. The studio lighting differs
+from gameplay; `docs/screenshots/models-*.png` and gameplay screenshots show
+both views. `test_vehicle_models.py` checks the cockpit clearance in Blender.
 
 FNM1: magic + little-endian u32 vertex/index counts, then 32-byte vertices
 (position 3xf32, normal 3xf32, sRGB/tint 4xu8, AO/material/wind/specular 4xu8)

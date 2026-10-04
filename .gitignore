@@ -8,3 +8,5 @@ node_modules/
 /tools/*.png
 .venv/
 *.blend1
+__pycache__/
+*.pyc

@@ -77,7 +77,7 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
     let mode_key = match g.cfg.mode { GameMode::BattleRoyale => "battle-royale", GameMode::ZeroBuild => "zero-build", GameMode::Lego => "lego" };
     let _ = write!(s, ",\"gameMode\":{},\"worldSize\":{}", esc(mode_key), n(crate::world::WORLD_SIZE));
     if let Some(v) = g.vehicle_for_actor(me_id) {
-        let _ = write!(s, ",\"vehicle\":{{\"id\":{},\"name\":\"Island Buggy\",\"speed\":{},\"boost\":{}}}", v.id, n(v.speed.abs() * 3.6), v.speed.abs() > super::vehicles::TOP_SPEED + 0.5);
+        let _ = write!(s, ",\"vehicle\":{{\"id\":{},\"name\":{},\"speed\":{},\"boost\":{}}}", v.id, esc(v.display_name()), n(v.speed.abs() * 3.6), v.speed.abs() > super::vehicles::TOP_SPEED + 0.5);
     } else { s.push_str(",\"vehicle\":null"); }
     s.push_str(",\"vehicles\":[");
     for (i, v) in g.vehicles.iter().enumerate() {
@@ -191,10 +191,11 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
     }
     s.push(']');
     // interaction prompt
-    if g.vehicle_for_actor(me_id).is_some() {
-        s.push_str(",\"prompt\":{\"txt\":\"Exit buggy\",\"rar\":1,\"cnt\":1,\"kind\":\"vehicle\"}");
-    } else if g.interact_target.is_none() && g.nearby_vehicle(me_id).is_some() {
-        s.push_str(",\"prompt\":{\"txt\":\"Drive Island Buggy\",\"rar\":1,\"cnt\":1,\"kind\":\"vehicle\"}");
+    if let Some(v) = g.vehicle_for_actor(me_id) {
+        let kind = v.display_name().strip_prefix("Island ").unwrap_or(v.display_name()).to_ascii_lowercase();
+        let _ = write!(s, ",\"prompt\":{{\"txt\":{},\"rar\":1,\"cnt\":1,\"kind\":\"vehicle\"}}", esc(&format!("Exit {kind}")));
+    } else if let Some(v) = g.nearby_vehicle(me_id).filter(|_| g.interact_target.is_none()) {
+        let _ = write!(s, ",\"prompt\":{{\"txt\":{},\"rar\":1,\"cnt\":1,\"kind\":\"vehicle\"}}", esc(&format!("Drive {}", v.display_name())));
     } else { match g.interact_target {
         Some(Target::Pickup(id)) => {
             if let Some(i) = g.pickup_index(id) {

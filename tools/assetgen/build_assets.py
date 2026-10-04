@@ -11,6 +11,12 @@ import json
 import math
 import random
 import struct
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import character_models
+import character_animations
+import weapon_models
+import vehicle_models
 from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -137,127 +143,6 @@ def loft(profile, mat, segments=16):
     obj = bpy.data.objects.new(group, mesh)
     bpy.context.collection.objects.link(obj)
     return finish_object(obj, mat)
-
-def character():
-    begin('CharTorso')
-    loft([(0,.153,.104,0),(.055,.165,.108,0),(.19,.182,.117,0),(.36,.221,.137,0),(.445,.217,.13,0),(.51,.125,.095,0)], CLOTH)
-    for s in (-1,1):
-        sphere((s*.218,.43,0),(.08,.10,.109), CLOTH)
-        box((s*.10,.20,-.117),(.105,.078,.012), CLOTH, .014)
-        box((s*.10,.232,-.127),(.096,.009,.008), STRAP, .002)
-        cylinder((s*.155,.025,-.09),(s*.20,.34,-.10),.006,.006,STRAP,6)
-    box((0,.29,-.139),(.009,.39,.009),DARK,.002)
-    box((0,.427,-.15),(.017,.036,.012),STEEL,.004)
-    begin('CharTrim')
-    loft([(.405,.224,.14,0),(.46,.21,.129,0),(.507,.131,.099,0)], TRIM)
-    for s in (-1,1):
-        sphere((s*.232,.485,0),(.071,.04,.091),TRIM,12,8)
-    cylinder((0,.5,0),(0,.548,0),.071,.066,STRAP)
-    begin('CharPelvis')
-    loft([(-.126,.171,.105,0),(-.075,.18,.111,0),(.015,.165,.108,0),(.055,.16,.107,0)],PANTS)
-    loft([(.024,.171,.113,0),(.06,.168,.112,0)],DARK)
-    box((0,.045,-.117),(.042,.037,.014),STEEL,.008)
-    for s in (-1,1):
-        box((s*.18,-.018,0),(.044,.1,.075),STRAP,.014)
-    begin('CharHead')
-    cylinder((0,-.045,0),(0,.055,0),.043,.049,SKIN)
-    sphere((0,.128,.006),(.111,.145,.107),SKIN,20,14)
-    sphere((0,.053,-.022),(.084,.077,.083),SKIN,16,10)
-    sphere((0,.094,-.107),(.024,.034,.033),SKIN,12,8)
-    for s in (-1,1):
-        sphere((s*.108,.104,.002),(.021,.037,.018),SKIN,12,8)
-        sphere((s*.041,.151,-.094),(.026,.014,.011),WHITE,12,8)
-        sphere((s*.04,.15,-.104),(.009,.009,.0045),BLACK,10,6)
-        brow=box((s*.042,.178,-.092),(.047,.009,.009),DARK,.003)
-    box((0,.046,-.093),(.036,.005,.009),material('lips',0x986752),.002)
-    for name, kind in [('Hair1','short'),('Hair2','long'),('Hair3','ponytail')]:
-        begin(name)
-        # overlapping swept tufts, with a clean forehead and sculpted sideburns
-        sphere((0,.23,.009),(.116,.073,.11),HAIR,16,8)
-        for i in range(5):
-            sphere((-.085+i*.039,.247+(.018 if i<3 else 0),-.033+i*.012),(.038,.052,.076),HAIR,12,8)
-        for s in (-1,1):
-            sphere((s*.103,.178,.035),(.024,.052,.06),HAIR,12,8)
-        if kind!='short':
-            sphere((0,.14,.085),(.112,.123,.05),HAIR,16,10)
-        if kind=='ponytail':
-            sphere((0,.12,.14),(.045,.11,.054),HAIR,12,10)
-            cylinder((0,.18,.11),(0,.18,.155),.03,.03,STRAP)
-    begin('CharArmUp')
-    loft([(0,.073,.074,0),(-.065,.078,.077,0),(-.18,.065,.066,0),(-.29,.055,.056,0)],CLOTH)
-    begin('CharArmLow')
-    loft([(0,.055,.057,0),(-.10,.062,.056,0),(-.23,.043,.043,0),(-.27,.041,.04,0)],CLOTH)
-    cylinder((0,-.23,0),(0,-.27,0),.047,.047,STRAP)
-    begin('CharHand')
-    sphere((0,-.04,-.012),(.038,.061,.025),SKIN,12,8)
-    sphere((.028,-.031,-.026),(.018,.029,.018),SKIN,10,8)
-    for i in range(4):
-        cylinder((-.026+i*.017,-.071,-.013),(-.026+i*.017,-.096,-.018),.009,.007,SKIN,8)
-    begin('CharLegUp')
-    loft([(0,.092,.098,0),(-.09,.102,.105,0),(-.23,.082,.087,0),(-.43,.065,.068,0)],PANTS)
-    box((.084,-.19,.011),(.016,.15,.10),PANTS,.011)
-    begin('CharLegLow')
-    loft([(0,.065,.069,0),(-.08,.07,.076,0),(-.23,.060,.068,0),(-.4,.047,.052,0)],PANTS)
-    box((0,-.03,-.068),(.09,.105,.025),STRAP,.014)
-    begin('CharBoot')
-    loft([(.055,.056,.06,0),(-.02,.064,.072,-.018),(-.08,.069,.098,-.035)],STRAP)
-    box((0,-.053,-.046),(.14,.105,.255),material('boot_recolor',(.86,.87,.86),11,True),.025)
-    box((0,-.076,-.046),(.147,.028,.264),DARK,.008)
-    for y in (-.012,.009,.03):
-        cylinder((-.045,y,-.105),(.045,y,-.105),.005,.005,WHITE,6)
-    begin('CharBackpack')
-    box((0,.288,.174),(.32,.36,.145),CLOTH,.043)
-    box((0,.235,.264),(.245,.20,.059),CLOTH,.025)
-    box((0,.37,.25),(.19,.108,.027),DARK,.01)
-    box((0,.218,.299),(.17,.012,.01),STRAP,.003)
-    box((.074,.201,.305),(.018,.036,.012),STEEL,.003)
-    for s in (-1,1):
-        cylinder((s*.115,.46,.12),(s*.123,.09,.126),.015,.015,STRAP,8)
-        box((s*.124,.13,.245),(.026,.065,.025),STRAP,.005)
-    cylinder((-.067,.476,.17),(.067,.476,.17),.015,.015,STRAP,8)
-
-def weapons():
-    profiles=[('WpnPistol',.24),('WpnSmg',.51),('WpnAr',.78),('WpnShotgun',.81),('WpnSniper',1.07),('WpnRocket',.79)]
-    for name,length in profiles:
-        begin(name)
-        if name=='WpnRocket':
-            cylinder((0,.09,.14),(0,.09,-length),.077,.084,GUN,16)
-            cylinder((0,.09,-length+.01),(0,.09,-length+.08),.09,.09,STEEL,16)
-            box((0,.21,-.25),(.08,.04,.14),COPPER,.01)
-        else:
-            barrel_y={'WpnPistol':.045,'WpnShotgun':.04,'WpnSniper':.035}.get(name,.028)
-            body_len=min(length*.65,.40)
-            box((0,.035,-body_len*.37),(.073,.12,body_len),GUN,.012)
-            cylinder((0,barrel_y,-body_len*.78),(0,barrel_y,-length),.019,.015,STEEL)
-            cylinder((0,barrel_y,-length+.03),(0,barrel_y,-length),.025,.021,GUN)
-            if name!='WpnPistol':
-                box((0,.037,.14),(.071,.105,.21),COPPER,.012)
-                box((0,.035,.24),(.078,.127,.033),DARK,.008)
-                box((0,-.003,-length*.45),(.063,.066,min(.26,length*.32)),COPPER,.013)
-                for k in range(5):
-                    box((0,.073,-.13-k*.035),(.078,.022,.014),DARK,.002)
-                box((0,-.14,-.13),(.045,.19,.083),GUN,.014)
-            if name=='WpnSniper':
-                cylinder((0,.155,-.08),(0,.155,-.35),.031,.031,BLACK)
-                cylinder((0,.155,-.32),(0,.155,-.365),.042,.042,STEEL)
-                cylinder((0,.155,-.366),(0,.155,-.368),.031,.031,BLUE)
-            else:
-                box((0,.115,-.075),(.019,.025,.06),DARK,.003)
-        box((0,-.075,.014),(.048,.13,.055),STRAP,.009)
-        cylinder((-.023,-.042,-.054),(.023,-.042,-.054),.005,.005,STEEL,6)
-    begin('Pickaxe')
-    cylinder((0,-.20,0),(0,.74,0),.022,.024,WOOD)
-    for k in range(4):
-        cylinder((0,-.13+k*.04,0),(0,-.11+k*.04,0),.025,.025,STRAP,10)
-    box((0,.73,0),(.17,.11,.12),GUN,.012)
-    cylinder((0,.74,0),(-.37,.66,0),.057,.007,STEEL)
-    cylinder((0,.74,0),(.33,.65,0),.057,.01,STEEL)
-    begin('AmmoBox')
-    box((0,.065,0),(.19,.13,.13),material('ammo_box',0x657344,11),.012)
-    box((0,.10,-.071),(.11,.046,.009),GOLD,.003)
-    for x in (-.053,0,.053):
-        cylinder((x,.13,0),(x,.23,0),.016,.016,GOLD)
-        cylinder((x,.23,0),(x,.263,0),.016,.001,COPPER)
 
 def supplies():
     for name,r,h in [('ItemShieldMini',.055,.14),('ItemShieldBig',.088,.21),('ItemChug',.104,.23)]:
@@ -386,9 +271,7 @@ def export_meshes():
     return stats
 
 def motion(phase):
-    s,c=math.sin(phase),math.cos(phase)
-    return (.022*(1-math.cos(2*phase)), .62*s*(.92 if s>0 else .76)+.045,
-            .09+1.20*max(c,0)**1.7, .23*max(-s,0), -.07*s, .015*math.sin(phase))
+    return character_animations.motion(phase)
 
 def make_rig():
     """Rigid weighted segments match the runtime IK pivots; GLB contains a skeleton."""
@@ -444,7 +327,8 @@ def make_rig():
             objects.append(obj)
     rig.animation_data_create()
     bpy.context.scene.render.fps=30
-    for clip,length in [('Idle',60),('Walk',30),('Sprint',24),('Jump',36),('Crouch',36),('Reload',60),('Victory',60)]:
+    for clip,duration in character_animations.CLIPS:
+        length=round(duration*30)
         rig.animation_data.action=None
         for frame in range(1,length+2,2):
             t=(frame-1)/length
@@ -453,44 +337,7 @@ def make_rig():
                 bone.rotation_mode='XYZ'
                 bone.rotation_euler=(0,0,0)
                 bone.location=(0,0,0)
-            pelvis=rig.pose.bones['pelvis']; torso=rig.pose.bones['torso']
-            if clip=='Idle':
-                torso.rotation_euler.x=.015*math.sin(ph)
-                rig.pose.bones['head'].rotation_euler.z=.025*math.sin(ph*.5)
-            elif clip in ('Walk','Sprint'):
-                amount=1.0 if clip=='Walk' else 1.18
-                pelvis.location.y=-motion(ph)[0]*amount
-                torso.rotation_euler.x=-.11 if clip=='Walk' else -.24
-                for side,offset in [('L',0),('R',math.pi)]:
-                    _,thigh,knee,foot,_,_=motion(ph+offset)
-                    rig.pose.bones['thigh.'+side].rotation_euler.x=thigh*amount
-                    rig.pose.bones['shin.'+side].rotation_euler.x=-knee
-                    rig.pose.bones['boot.'+side].rotation_euler.x=foot
-                    rig.pose.bones['upper_arm.'+side].rotation_euler.x=-thigh*.75
-            elif clip=='Jump':
-                pelvis.location.y=.48*math.sin(math.pi*t)
-                for side in ('L','R'):
-                    rig.pose.bones['thigh.'+side].rotation_euler.x=.7*math.sin(math.pi*t)
-                    rig.pose.bones['shin.'+side].rotation_euler.x=-1.1*math.sin(math.pi*t)
-                    rig.pose.bones['upper_arm.'+side].rotation_euler.x=.45*math.sin(math.pi*t)
-            elif clip=='Crouch':
-                k=min(1,t*3);k=k*k*(3-2*k)
-                pelvis.location.y=-.30*k
-                torso.rotation_euler.x=-.35*k+.012*math.sin(ph)
-                for side in ('L','R'):
-                    rig.pose.bones['thigh.'+side].rotation_euler.x=.95*k
-                    rig.pose.bones['shin.'+side].rotation_euler.x=-1.9*k
-            elif clip=='Reload':
-                rig.pose.bones['upper_arm.R'].rotation_euler.x=.65
-                rig.pose.bones['forearm.R'].rotation_euler.x=1.05
-                rig.pose.bones['upper_arm.L'].rotation_euler.x=.35+.35*math.sin(ph)
-                rig.pose.bones['forearm.L'].rotation_euler.x=1.2+.3*math.sin(ph)
-            elif clip=='Victory':
-                torso.rotation_euler.z=.14*math.sin(ph*2)
-                for side,offset in [('L',0),('R',math.pi)]:
-                    rig.pose.bones['upper_arm.'+side].rotation_euler.x=2.2+.5*math.sin(ph*2+offset)
-                    rig.pose.bones['forearm.'+side].rotation_euler.x=.6
-                    rig.pose.bones['thigh.'+side].rotation_euler.x=.35*max(0,math.sin(ph*2+offset))
+            character_animations.pose(rig,clip,t,globals())
             for bone in rig.pose.bones:
                 bone.keyframe_insert(data_path='rotation_euler',frame=frame,group=bone.name)
                 bone.keyframe_insert(data_path='location',frame=frame,group=bone.name)
@@ -525,7 +372,8 @@ def export_roster(rig,objects):
             fallback='CharTorso' if 'Arm' in original_name else 'CharPelvis' if 'Leg' in original_name else original_name
             value=palette.get(original_name,palette.get(fallback,0xc98f67 if original_name in ('CharHead','CharHand') else 0x302820 if 'Hair' in original_name else 0x4b4139))
             m=base.copy();m.name=name+'_'+original_name
-            m.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value=(*map(linear,rgb(value)),1)
+            color=tuple(a*b for a,b in zip(rgb(value),base['engine_rgb']))
+            m.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value=(*map(linear,color),1)
             obj.data.materials[0]=m
         bpy.ops.object.select_all(action='DESELECT')
         rig.select_set(True)
@@ -536,7 +384,7 @@ def export_roster(rig,objects):
 
 def export_libraries():
     """Named prop assemblies remain independently editable in Blender and glTF."""
-    for pack,names,spacing in [('items',[n for n in groups if n.startswith(('Wpn','Item')) or n in ('Pickaxe','AmmoBox','ChestBase','ChestLid')],1.6),('foliage',['Pine0','Oak0','Birch0','Bush0','GrassTuft'],7.0)]:
+    for pack,names,spacing in [('items',[n for n in groups if n.startswith(('Wpn','Item')) or n in ('Pickaxe','AmmoBox','ChestBase','ChestLid')],1.6),('foliage',['Pine0','Oak0','Birch0','Bush0','GrassTuft'],7.0),('vehicles',[n for n in groups if n.startswith('Vehicle')],5.0)]:
         bpy.ops.object.select_all(action='DESELECT')
         for i,name in enumerate(names):
             parent=bpy.data.objects.new(name,None)
@@ -558,7 +406,10 @@ def export_libraries():
         bpy.ops.export_scene.gltf(filepath=str(OUT/(pack+'.glb')),export_format='GLB',use_selection=True,export_apply=True,export_animations=False)
 
 def main():
-    character();weapons();supplies();foliage()
+    character_models.build(globals())
+    weapon_models.build(globals())
+    vehicle_models.build(globals())
+    supplies();foliage()
     stats=export_meshes()
     samples=[motion(i*math.tau/64) for i in range(64)]
     (OUT/'locomotion.fnmotion').write_bytes(struct.pack('<4sI',b'FNA1',64)+b''.join(struct.pack('<6f',*s) for s in samples))
@@ -569,7 +420,7 @@ def main():
     export_libraries()
     bpy.context.scene.world.color=(.08,.08,.08)
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'fightnight-cartoon.blend'))
-    manifest={'generator':'Blender '+bpy.app.version_string,'cost':0,'style':'original stylized cartoon battle royale','units':'metres, Y up, forward -Z','characters':roster,'animations':['Idle','Walk','Sprint','Jump','Crouch','Reload','Victory'],'meshes':stats}
+    manifest={'generator':'Blender '+bpy.app.version_string,'cost':0,'style':'original stylized cartoon battle royale','units':'metres, Y up, forward -Z','characters':roster,'animations':[clip for clip,_ in character_animations.CLIPS],'weapons':['AK-47','Pistol','SMG','Pump Shotgun','Bolt Sniper','Rocket Launcher'],'vehicles':['Island Buggy','Island Roadster'],'meshes':stats}
     (OUT/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print('ASSET PACK COMPLETE',len(stats),'meshes',flush=True)
 

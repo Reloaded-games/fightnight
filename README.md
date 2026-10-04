@@ -4,7 +4,9 @@ A complete, playable **Fortnite-style battle royale that runs in your browser**,
 **Rust → WebAssembly** and rendered with **WebGPU**. Characters, weapons, items and nearby vegetation
 are authored in **Blender** and baked into the game. The island, towns, UI icons and sounds are generated
 in code. The [free original cartoon asset pack](assets/cartoon/README.md) includes editable Blender
-source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard are selectable in the menu.
+source, rigged GLBs and nine animation clips; Scout, Ranger, Pilot and Vanguard are selectable in the menu.
+The upgraded pack includes sculpted faces/clothing, an AK-47, five other distinct guns,
+and two detailed vehicle bodies with animated steering and wheels.
 
 * Drop from the **Battle Bus** (hot-air balloon and all), skydive and glide onto the island.
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
@@ -13,7 +15,7 @@ source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard
 * **Three modes**, selectable for solo play and by the multiplayer host: Battle Royale, **Zero Build**
   (no player or bot construction and no building materials), and **LEGO** (original brick toy characters,
   gear, vegetation, studded terrain and build pieces, with battle royale rules).
-* **Drivable Island Buggies** parked around the island. Enter or leave with **E**, drive with **WASD**,
+* **Drivable Island Buggies and Roadsters** parked around the island. Enter or leave with **E**, drive with **WASD**,
   boost with **Shift** and brake with **Space**. Driver seats, collisions and physics are owned by the host.
 * **Multiplayer**: one player hosts a room, up to seven friends join with a copy-and-paste code (no server, no
   account: the browsers connect to each other over WebRTC), and bots fill the island. See [Multiplayer](#multiplayer).
@@ -39,7 +41,12 @@ source, rigged GLBs and seven animation clips; Scout, Ranger, Pilot and Vanguard
 
 ## Screenshots
 
-![Blender-authored Scout and vegetation](docs/screenshots/cartoon-scout.jpg)
+![Upgraded cartoon characters with original clothing and sculpted faces](docs/screenshots/models-characters.png)
+![Six distinct original weapon models, including the AK-47](docs/screenshots/models-weapons.png)
+![Island Buggy and Island Roadster](docs/screenshots/models-vehicles.png)
+![Upgraded Scout and AK-47 in a live match](docs/screenshots/models-gameplay.png)
+![Live weapon grip and aiming pose](docs/screenshots/models-ak47.png)
+![Roadster cockpit and updated driving HUD](docs/screenshots/models-roadster.png)
 ![LEGO mode with a drivable buggy](docs/screenshots/lego-buggy.jpg)
 
 | | |
@@ -82,7 +89,7 @@ ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub 
 | Left mouse | Fire · swing the pickaxe · place the selected piece |
 | Right mouse | Aim down sights |
 | `R` | Reload |
-| `E` | Pick up (with a full hotbar, swaps with the item in hand) / open chest / enter or exit a buggy |
+| `E` | Pick up (with a full hotbar, swaps with the item in hand) / open chest / enter or exit a vehicle |
 | `W A S D`, `Shift`, `Space` (driving) | Steer and accelerate / boost / brake |
 | `1`–`6` / wheel | Select slot (1 is the pickaxe) |
 | `G` | Drop the selected item |
