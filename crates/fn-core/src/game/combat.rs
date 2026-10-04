@@ -483,7 +483,7 @@ impl Game {
         }
     }
 
-    fn harvest(&mut self, who: usize, idx: usize, point: Vec3) {
+    pub(crate) fn harvest(&mut self, who: usize, idx: usize, point: Vec3) {
         let Some(h) = self.world.harvest.get_mut(idx) else { return };
         if !h.alive {
             return;

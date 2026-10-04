@@ -541,7 +541,7 @@ impl Host {
 
 /// Should this player hear about / see this event? Things close to them and things that concern them, and the few that
 /// concern everybody.
-fn audience(g: &Game, e: &Event, who: usize) -> bool {
+pub(crate) fn audience(g: &Game, e: &Event, who: usize) -> bool {
     let me = &g.actors[who];
     let near = |pos: Vec3, range: f32| !me.alive || me.pos.distance(pos) < range;
     match e {
