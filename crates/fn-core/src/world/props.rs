@@ -354,6 +354,13 @@ pub fn scatter_ground_cover(world: &super::World, cx: usize, cz: usize) -> (Vec<
     let mut flowers = vec![];
     let step = 1.25;
     let n = (CHUNK_SIZE / step) as i32;
+    // footprints (building floors, docks) overlapping this chunk, grown a little so the yard is clear too
+    let margin = 0.6;
+    let cover_free: Vec<&(Vec2, Vec2)> = world
+        .no_cover
+        .iter()
+        .filter(|(mn, mx)| mn.x - margin < x0 + CHUNK_SIZE && mx.x + margin > x0 && mn.y - margin < z0 + CHUNK_SIZE && mx.y + margin > z0)
+        .collect();
     for gz in 0..n {
         for gx in 0..n {
             let (ix, iz) = (cx as i32 * n + gx, cz as i32 * n + gz);
@@ -362,6 +369,9 @@ pub fn scatter_ground_cover(world: &super::World, cx: usize, cz: usize) -> (Vec<
             let p = Vec2::new(x0 + (gx as f32 + jx) * step, z0 + (gz as f32 + jz) * step);
             let h = hm.height_at(p.x, p.y);
             if h < 2.6 {
+                continue;
+            }
+            if cover_free.iter().any(|(mn, mx)| p.x > mn.x - margin && p.x < mx.x + margin && p.y > mn.y - margin && p.y < mx.y + margin) {
                 continue;
             }
             let s = world.splat.sample(p);
@@ -403,6 +413,29 @@ pub fn scatter_ground_cover(world: &super::World, cx: usize, cz: usize) -> (Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grass_and_flowers_stay_out_of_building_footprints() {
+        let w = crate::world::World::generate(1234);
+        assert!(!w.no_cover.is_empty());
+        // check every chunk that holds a building
+        let mut chunks: Vec<usize> = w.buildings.iter().map(|b| chunk_index_of(b.aabb.center().x, b.aabb.center().z)).collect();
+        chunks.sort_unstable();
+        chunks.dedup();
+        let mut tested = 0;
+        for ci in chunks {
+            let (grass, flowers) = scatter_ground_cover(&w, ci % CHUNKS, ci / CHUNKS);
+            for inst in grass.iter().chain(&flowers) {
+                let (x, z) = (inst.m0[3], inst.m2[3]);
+                for b in &w.buildings {
+                    let inside = x > b.aabb.min.x && x < b.aabb.max.x && z > b.aabb.min.z && z < b.aabb.max.z;
+                    assert!(!inside, "ground cover at ({x:.1}, {z:.1}) is inside {} {}", b.kind, b.id);
+                }
+                tested += 1;
+            }
+        }
+        assert!(tested > 100, "expected plenty of grass around towns, got {tested}");
+    }
 
     #[test]
     fn chunk_index_bounds() {

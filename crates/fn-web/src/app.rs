@@ -504,6 +504,28 @@ impl App {
                 aim_player_at(g, target);
                 "ok".into()
             }
+            "building" => {
+                // stand just inside the nth building's door, looking into the room
+                let n = num(1, 0.0) as usize;
+                if let Some(b) = g.world.buildings.get(n % g.world.buildings.len().max(1)).cloned() {
+                    let inward = Vec2::new(b.center.x - b.door_in.x, b.center.z - b.door_in.z).try_normalize().unwrap_or(Vec2::Y);
+                    let p = Vec3::new(b.door_in.x + inward.x * 0.8, b.door_in.y, b.door_in.z + inward.y * 0.8);
+                    let a = &mut g.actors[PLAYER];
+                    a.pos = p;
+                    a.vel = Vec3::ZERO;
+                    a.mode = MoveMode::Ground;
+                    a.on_ground = true;
+                    a.eye_smooth = p.y;
+                    a.yaw = yaw_of(inward);
+                    a.pitch = -0.05;
+                    a.body_yaw = a.yaw;
+                    if g.phase == Phase::Bus {
+                        g.phase = Phase::Playing;
+                        g.bus.active = false;
+                    }
+                }
+                "ok".into()
+            }
             "chest_here" => {
                 // drop an unopened chest (and some loot) in front of the player
                 let p = g.actors[PLAYER].pos;

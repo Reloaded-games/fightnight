@@ -89,6 +89,8 @@ pub struct World {
     pub loot_spots: Vec<LootSpot>,
     pub chest_spots: Vec<ChestSpot>,
     pub nav: NavGrid,
+    /// Ground rectangles (min, max in x/z) where grass and flowers must not grow: building footprints, docks...
+    pub no_cover: Vec<(Vec2, Vec2)>,
 }
 
 impl World {
@@ -137,6 +139,16 @@ impl World {
             statics.insert(*c);
         }
 
+        // grass would poke through floors and planks, so keep it out of footprints
+        let mut no_cover: Vec<(Vec2, Vec2)> = buildings.iter().map(|b: &BuildingInfo| (Vec2::new(b.aabb.min.x, b.aabb.min.z), Vec2::new(b.aabb.max.x, b.aabb.max.z))).collect();
+        for (mesh, _) in &towns.decor {
+            let bb = mesh.bounds();
+            let (dx, dz) = (bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+            if dx.is_finite() && dz.is_finite() && dx * dz > 3.0 {
+                no_cover.push((Vec2::new(bb.min.x, bb.min.z), Vec2::new(bb.max.x, bb.max.z)));
+            }
+        }
+
         let mut nature = props::scatter_nature(&base, &layout, &hm, &painter, &splat, &mut statics);
         for p in &towns.props {
             let ci = props::chunk_index_of(p.pos.x, p.pos.z);
@@ -176,7 +188,7 @@ impl World {
             }
         }
 
-        let mut world = World { seed, base, layout, hm, painter, terrain, splat, statics, buildings, chunk_props: nature.chunk_props, harvest: nature.harvest, chunk_meshes: cm, windmills, loot_spots, chest_spots, nav: NavGrid::new(WORLD_HALF, NAV_CELL) };
+        let mut world = World { seed, base, layout, hm, painter, terrain, splat, statics, buildings, chunk_props: nature.chunk_props, harvest: nature.harvest, chunk_meshes: cm, windmills, loot_spots, chest_spots, nav: NavGrid::new(WORLD_HALF, NAV_CELL), no_cover };
         world.build_nav();
         world
     }
