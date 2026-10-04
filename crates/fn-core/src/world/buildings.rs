@@ -40,6 +40,8 @@ pub struct Geom {
     pub hub: Option<Vec3>,
     /// The raised entrance in front of the door, if the building has one.
     pub entry: Option<Entry>,
+    /// The flight of stairs up to the second floor, if there is one (local bounds; it rises toward -Z).
+    pub stairs: Option<(Vec3, Vec3)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -232,8 +234,67 @@ impl B {
     }
 
     fn finish(self, half: Vec2, height: f32, door_out: Vec3, door_in: Vec3) -> Geom {
-        Geom { mesh: self.mb.finish(), cols: self.cols, loot: self.loot, chests: self.chests, door_out, door_in, half, height, hub: None, entry: None }
+        Geom { mesh: self.mb.finish(), cols: self.cols, loot: self.loot, chests: self.chests, door_out, door_in, half, height, hub: None, entry: None, stairs: None }
     }
+}
+
+// ---------------------------------------------------------------------------------
+// Stairs
+
+/// Steps in the flight between the two floors of a house (0.19 m rise, 0.35 m run).
+const STAIR_STEPS: i32 = 16;
+/// Length of the top of the flight that stays open to the upper floor.
+const STAIR_LANDING: f32 = 1.2;
+/// Height of a handrail above the nose of the steps.
+const STAIR_RAIL: f32 = 0.9;
+
+/// One step of a flight: a solid block from the base of the flight up to its tread.
+struct Step {
+    min: Vec3,
+    max: Vec3,
+}
+
+/// A straight flight of `n` steps over `x0..x1` that rises toward -Z, from its foot at `z_bot` to its head at `z_top`. The first tread
+/// is one rise above `y_low` and the last is level with `y_high`; every step is a solid block down to `y_base`, in order from the foot.
+fn flight_steps(x0: f32, x1: f32, z_top: f32, z_bot: f32, y_base: f32, y_low: f32, y_high: f32, n: i32) -> Vec<Step> {
+    let run = (z_bot - z_top) / n as f32;
+    (0..n)
+        .map(|k| {
+            let y = y_low + (y_high - y_low) * (k + 1) as f32 / n as f32;
+            Step { min: Vec3::new(x0, y_base, z_bot - (k + 1) as f32 * run), max: Vec3::new(x1, y, z_bot - k as f32 * run) }
+        })
+        .collect()
+}
+
+/// Mesh for a flight: a riser block under each tread, and a thin tread board that overhangs the step below it.
+fn flight_mesh(mb: &mut MeshBuilder, steps: &[Step], riser: u32, tread: u32, m: u8) {
+    const BOARD: f32 = 0.05;
+    for s in steps {
+        mb.mat(m).hex(riser).ao(0.8, 1.0);
+        mb.box_min_max(s.min, Vec3::new(s.max.x, s.max.y - BOARD, s.max.z));
+        mb.hex(tread).ao(1.0, 1.0);
+        mb.box_min_max(Vec3::new(s.min.x, s.max.y - BOARD, s.min.z), Vec3::new(s.max.x, s.max.y, s.max.z + BOARD));
+    }
+}
+
+/// A guard rail standing on a floor along the straight line `a`..`c` (posts, a top and a middle bar). It stops people walking
+/// off the edge but not bullets.
+fn guard_rail(b: &mut B, a: Vec3, c: Vec3, col: u32) {
+    const H: f32 = 1.0;
+    let len = a.distance(c);
+    let n = (len / 1.0).ceil().max(1.0) as i32;
+    b.mb.mat(mat::WOOD).hex(col);
+    for k in 0..=n {
+        let p = a.lerp(c, k as f32 / n as f32);
+        b.mb.box_min_max(Vec3::new(p.x - 0.04, a.y, p.z - 0.04), Vec3::new(p.x + 0.04, a.y + H, p.z + 0.04));
+    }
+    let (lo, hi) = (a.min(c), a.max(c));
+    for (y0, y1, t) in [(a.y + H - 0.07, a.y + H + 0.02, 0.045), (a.y + 0.45, a.y + 0.5, 0.025)] {
+        b.mb.box_min_max(Vec3::new(lo.x - t, y0, lo.z - t), Vec3::new(hi.x + t, y1, hi.z + t));
+    }
+    let mut col = Collider::aabb_box(Vec3::new(lo.x - 0.04, a.y + 0.3, lo.z - 0.04), Vec3::new(hi.x + 0.04, a.y + H, hi.z + 0.04), Tag::Static);
+    col.blocks_bullets = false;
+    b.cols.push(col);
 }
 
 // ---------------------------------------------------------------------------------
@@ -560,32 +621,57 @@ pub fn gen_house(rng: &mut Rng, w: f32, d: f32, st: &Style) -> Geom {
 
     // --- stairs + upper floor
     let mut stairs_rect = None;
+    let mut stairs = None;
     if floors == 2 {
         let l = 5.6f32;
         let x0 = -hx + WALL_T + 0.15;
         let (z_t, z_b) = (-hz + WALL_T + 0.1, -hz + WALL_T + 0.1 + l);
         let up_y = FLOOR_Y + STORY_H;
-        b.mb.mat(mat::WOOD).hex(0xa57a47);
-        // visual: wedge ramp, plus a stringer
-        b.mb.wedge(Vec3::new(x0, FLOOR_Y, z_t), Vec3::new(x0 + 1.3, up_y, z_b), 3);
-        b.cols.push(Collider::wedge(Vec3::new(x0, FLOOR_Y, z_t), Vec3::new(x0 + 1.3, up_y, z_b), 3, Tag::Static));
-        b.bx(Vec3::new(x0 + 1.3, FLOOR_Y, z_t), Vec3::new(x0 + 1.36, up_y + 1.0, z_t + 0.06), 0x7a5232, mat::WOOD, false);
-        stairs_rect = Some((x0, x0 + 1.3, z_t, z_b));
-        // upper slab with a hole above the stairs
-        let hole_z1 = z_b - 1.7;
-        let (sx0, sx1) = (x0 - 0.05, x0 + 1.35);
-        let slab_y0 = up_y - 0.3;
         let (ix0, ix1, iz0, iz1) = (-hx + WALL_T, hx - WALL_T, -hz + WALL_T, hz - WALL_T);
-        let pieces = [
-            (ix0, sx0, iz0, iz1),
-            (sx1, ix1, iz0, iz1),
-            (sx0, sx1, hole_z1, iz1),
-        ];
+        // a real flight: one solid block per step, wall to wall on the left, open (with a handrail) on the right
+        let sx1 = x0 + 1.3;
+        let steps = flight_steps(ix0, sx1, z_t, z_b, FLOOR_Y, FLOOR_Y, up_y, STAIR_STEPS);
+        flight_mesh(&mut b.mb, &steps, 0x8f6a3e, 0xb98b56, mat::WOOD);
+        b.cols.extend(steps.iter().map(|s| Collider::aabb_box(s.min, s.max, Tag::Static)));
+        stairs_rect = Some((x0, sx1, z_t, z_b));
+        stairs = Some((Vec3::new(ix0, FLOOR_Y, z_t), Vec3::new(sx1, up_y, z_b)));
+        // the upper floor stops short of the top of the flight (you step off sideways) and covers its foot
+        let hole_z0 = z_t + STAIR_LANDING;
+        let hole_z1 = z_b - 1.0;
+        // handrail on the open side, from the foot up to where the stairwell guard takes over
+        let rail_x = sx1 - 0.06;
+        let (run, rise) = (l / STAIR_STEPS as f32, STORY_H / STAIR_STEPS as f32);
+        let nose = |z: f32| FLOOR_Y + rise + (z_b - z) * rise / run;
+        b.mb.mat(mat::WOOD).hex(0x6e4a2c);
+        for k in (0..STAIR_STEPS).step_by(2) {
+            let z = z_b - (k as f32 + 0.5) * run;
+            if z < hole_z0 {
+                break;
+            }
+            let y = FLOOR_Y + (k + 1) as f32 * rise;
+            b.mb.box_min_max(Vec3::new(rail_x - 0.025, y, z - 0.025), Vec3::new(rail_x + 0.025, nose(z) + STAIR_RAIL, z + 0.025));
+        }
+        let (za, zb) = (z_b - 0.12, hole_z0);
+        let slope = ((nose(zb) - nose(za)) / (za - zb)).atan();
+        let len = ((za - zb).powi(2) + (nose(zb) - nose(za)).powi(2)).sqrt();
+        b.mb.hex(0x7a5232);
+        b.mb.with_xf(Mat4::from_translation(Vec3::new(rail_x, nose(za) + STAIR_RAIL, za)) * Mat4::from_rotation_x(slope), |mb| {
+            mb.box_min_max(Vec3::new(-0.04, -0.025, -len), Vec3::new(0.04, 0.035, 0.0));
+        });
+        for z in [za - 0.04, zb + 0.04] {
+            b.mb.box_min_max(Vec3::new(rail_x - 0.045, nose(z) - 0.1, z - 0.045), Vec3::new(rail_x + 0.045, nose(z) + STAIR_RAIL + 0.1, z + 0.045));
+        }
+        // upper slab with a hole above the stairs
+        let slab_y0 = up_y - 0.3;
+        let pieces = [(sx1, ix1, iz0, iz1), (ix0, sx1, hole_z1, iz1)];
         for (a0, a1, c0, c1) in pieces {
             if a1 - a0 > 0.05 && c1 - c0 > 0.05 {
                 b.bx(Vec3::new(a0, slab_y0, c0), Vec3::new(a1, up_y, c1), 0xb98b56, mat::WOOD, true);
             }
         }
+        // guard rails around the stairwell: along its open side and across its far end, with the way on at the top
+        guard_rail(&mut b, Vec3::new(sx1 + 0.05, up_y, hole_z0), Vec3::new(sx1 + 0.05, up_y, hole_z1 + 0.05), 0x7a5232);
+        guard_rail(&mut b, Vec3::new(sx1 + 0.05, up_y, hole_z1 + 0.05), Vec3::new(ix0, up_y, hole_z1 + 0.05), 0x7a5232);
         // upper floor furnishings: a bed and loot
         b.loot.push(Vec3::new(hx * 0.4, up_y, hz * 0.2));
         b.loot.push(Vec3::new(-hx * 0.1, up_y, -hz * 0.3));
@@ -647,6 +733,7 @@ pub fn gen_house(rng: &mut Rng, w: f32, d: f32, st: &Style) -> Geom {
     let door_in = Vec3::new(door_x, FLOOR_Y, hz - 1.6);
     let mut g = b.finish(Vec2::new(hx, hz), top_y + rise, door_out, door_in);
     g.loot.truncate(8);
+    g.stairs = stairs;
     g.entry = Some(if st.porch { Entry { edge: Vec3::new(door_x, FLOOR_Y, hz + 2.6), half_w: 1.0 } } else { Entry { edge: Vec3::new(door_x, 0.14, hz + 1.0), half_w: 1.0 } });
     g
 }
@@ -1028,6 +1115,23 @@ fn rot_dir(dir: u8, k: u8) -> u8 {
     ORDER[(i + k as usize) % 4]
 }
 
+/// A flight of stairs in the world: its bounds and the direction it rises (0 +X, 1 +Z, 2 -X, 3 -Z, as for a wedge collider).
+#[derive(Clone, Copy, Debug)]
+pub struct Stairs {
+    pub min: Vec3,
+    pub max: Vec3,
+    pub dir: u8,
+}
+
+/// The direction (as for a wedge collider) of the open side of a flight of stairs that rises toward `dir`: the side with the
+/// handrail, where the upper floor is stepped onto. In a house's own frame the flight rises toward -Z and opens toward +X.
+pub fn open_side(dir: u8) -> u8 {
+    // +X(0) -> -Z(3) -> -X(2) -> +Z(1): the open side is the one a quarter turn clockwise of the rise (-Z -> +X)
+    const ORDER: [u8; 4] = [0, 3, 2, 1];
+    let i = ORDER.iter().position(|&d| d == dir & 3).unwrap();
+    ORDER[(i + 3) % 4]
+}
+
 /// A building placed in the world.
 #[derive(Clone, Debug)]
 pub struct Placed {
@@ -1042,6 +1146,8 @@ pub struct Placed {
     pub hub: Option<Vec3>,
     pub rot: u8,
     pub height: f32,
+    /// The flight up to the second floor, if there is one.
+    pub stairs: Option<Stairs>,
     /// World-space bounds of the steps added in front of a raised entrance (see [`add_entrance_steps`]).
     pub steps: Option<Aabb>,
 }
@@ -1090,6 +1196,10 @@ pub fn place(g: &Geom, pos: Vec3, rot: u8, tag: Tag) -> Placed {
         hub: g.hub.map(tp),
         rot,
         height: g.height,
+        stairs: g.stairs.map(|(lo, hi)| {
+            let (a, b) = (tp(lo), tp(hi));
+            Stairs { min: a.min(b), max: a.max(b), dir: rot_dir(3, rot) }
+        }),
         steps: None,
     }
 }
@@ -1098,8 +1208,8 @@ pub fn place(g: &Geom, pos: Vec3, rot: u8, tag: Tag) -> Placed {
 const STEP_UP: f32 = 0.4;
 
 /// On a sloping lot the door side of a house can stand a metre or more above the terrain (the floor sits at the highest
-/// point of the footprint). Run a flight of steps from the landing's edge down to the ground: stepped mesh plus a walkable
-/// wedge. Without it the door is out of reach for anyone who cannot jump that high, and bots never jump on purpose.
+/// point of the footprint). Run a flight of steps from the landing's edge down to the ground: a mesh and a solid block (to walk
+/// up, step by step) for each tread. Without it the door is out of reach for anyone who cannot jump that high, and bots never jump on purpose.
 /// `ground(x, z)` is the terrain height; `placed` and `pos`/`rot` are the building as placed by [`place`].
 pub fn add_entrance_steps(placed: &mut Placed, g: &Geom, pos: Vec3, rot: u8, tag: Tag, ground: &dyn Fn(f32, f32) -> f32) {
     let Some(entry) = g.entry else { return };
@@ -1130,21 +1240,17 @@ pub fn add_entrance_steps(placed: &mut Placed, g: &Geom, pos: Vec3, rot: u8, tag
     let base_w = (0..=runs).map(|k| lowest(len * k as f32 / runs as f32)).fold(f32::MAX, f32::min).min(top - 0.3) - 0.05;
     let (top_l, base_l) = (entry.edge.y, base_w - pos.y);
     let n = (((top_l - base_l) / 0.19).ceil() as i32).clamp(2, 14);
+    // the head of the flight is level with the landing and rises toward -Z (toward the door) in the building's frame
+    let steps = flight_steps(cx - hw, cx + hw, ez, ez + len, base_l - 0.15, base_l, top_l, n);
     let mut mb = MeshBuilder::new();
-    mb.mat(mat::STONE).hex(0xa8a7a2);
-    for j in 0..n {
-        let (z0, z1) = (ez + len * j as f32 / n as f32, ez + len * (j + 1) as f32 / n as f32);
-        // the step's tread sits at the height of the walkable slope at its middle
-        let y = top_l - (j as f32 + 0.5) * (top_l - base_l) / n as f32;
-        mb.box_min_max(Vec3::new(cx - hw, base_l - 0.15, z0), Vec3::new(cx + hw, y, z1));
-    }
+    flight_mesh(&mut mb, &steps, 0x96958f, 0xb4b3ad, mat::STONE);
     placed.mesh.append(&mb.finish(), m);
-    // the slope rises toward -Z (toward the door) in the building's frame
-    let (lo, hi) = (Vec3::new(cx - hw, base_l, ez), Vec3::new(cx + hw, top_l, ez + len));
-    let (a, b) = (m.transform_point3(lo), m.transform_point3(hi));
-    let (min, max) = (a.min(b), a.max(b));
-    placed.cols.push(Collider::wedge(min, max, rot_dir(3, rot), tag));
-    placed.steps = Some(Aabb::new(min, max));
+    for s in &steps {
+        let (a, b) = (m.transform_point3(s.min), m.transform_point3(s.max));
+        placed.cols.push(Collider::aabb_box(a.min(b), a.max(b), tag));
+    }
+    let (a, b) = (m.transform_point3(Vec3::new(cx - hw, base_l, ez)), m.transform_point3(Vec3::new(cx + hw, top_l, ez + len)));
+    placed.steps = Some(Aabb::new(a.min(b), a.max(b)));
 }
 
 #[cfg(test)]
