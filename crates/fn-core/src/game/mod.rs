@@ -261,6 +261,8 @@ pub struct Game {
     pub placement_preview: Option<Placement>,
     pub interact_target: Option<loot::Target>,
     pub alive_cache: usize,
+    /// A* searches bots may still start this tick (keeps frames smooth when many bots re-plan).
+    pub ai_paths_left: i32,
 }
 
 const BOT_NAMES: [&str; 64] = [
@@ -323,6 +325,7 @@ impl Game {
             placement_preview: None,
             interact_target: None,
             alive_cache: 0,
+            ai_paths_left: 0,
         };
         g.spawn_world_loot();
         g.setup_start();
@@ -438,6 +441,7 @@ impl Game {
         if self.phase != Phase::Over || self.player().alive {
             self.match_time += dt;
         }
+        self.ai_paths_left = 3;
         matchflow::update_bus(self, dt);
         matchflow::update_storm(self, dt);
 

@@ -122,6 +122,23 @@ impl<'a> Env<'a> {
             let p = o + d * t;
             best = Some(RayHit { t, normal: self.world.hm.normal_at(p.x, p.z), tag: None });
         }
+        let limit = best.map_or(max_t, |b| b.t.min(max_t));
+        if let Some(h) = self.collider_ray(o, d, limit, bullets) {
+            if best.map_or(true, |b| h.t < b.t) {
+                best = Some(h);
+            }
+        }
+        best
+    }
+
+    /// Ray against static colliders and player-built pieces only (no terrain, nothing is transparent).
+    /// Bots feel for walls with it.
+    pub fn probe(&self, o: Vec3, d: Vec3, max_t: f32) -> Option<RayHit> {
+        self.collider_ray(o, d, max_t, false)
+    }
+
+    fn collider_ray(&self, o: Vec3, d: Vec3, max_t: f32, bullets: bool) -> Option<RayHit> {
+        let mut best: Option<RayHit> = None;
         for grid in [&self.world.statics, self.pieces] {
             let limit = best.map_or(max_t, |b| b.t.min(max_t));
             let mut local_best: Option<(f32, Vec3, Tag)> = None;
