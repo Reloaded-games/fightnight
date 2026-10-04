@@ -30,6 +30,12 @@ export class Hud {
     this.seenFeed = new Set();
   }
 
+  /** Forget everything tied to the previous match (pickup notices, banners, change detection). */
+  reset() {
+    this.notices = []; this.prev = null; this.banners = []; this.seenFeed.clear();
+    this.matFlash = [0, 0, 0]; this.slotFlash = [0, 0, 0, 0, 0, 0];
+  }
+
   resize(w, h, dpr) {
     this.dpr = dpr; this.W = w; this.H = h;
     this.c.width = Math.floor(w * dpr); this.c.height = Math.floor(h * dpr);

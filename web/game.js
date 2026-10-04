@@ -266,6 +266,7 @@ async function startMatch() {
     return;
   }
   spectating = false; endShown = false; waitingForLock = false;
+  hud.reset();
   state = 'playing';
   $('loading').classList.add('fade');
   setTimeout(() => { show('loading', false); $('loading').classList.remove('fade'); }, 600);
