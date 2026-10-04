@@ -480,6 +480,8 @@ function startConfetti() {
 }
 function stopConfetti() { cancelAnimationFrame(confettiRaf); const c = $('confetti'); c.getContext('2d').clearRect(0, 0, c.width, c.height); }
 
+const escHtml = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 function maybeShowEnd(s) {
   if (endShown || state !== 'playing') return;
   const won = s.ph === 2 && s.won;
@@ -498,7 +500,7 @@ function maybeShowEnd(s) {
   // who or what did it: the player's own entry in the kill feed names fall damage, own rockets and so on
   const mine = (s.feed || []).find((f) => f.you);
   const cause = s.killer ? s.killer : mine && !mine.s && mine.w ? mine.w : 'the storm';
-  $('over-place').innerHTML = won ? `You are the last one standing` : `You placed <b>#${place}</b> &middot; eliminated by <b>${cause}</b>`;
+  $('over-place').innerHTML = won ? `You are the last one standing` : `You placed <b>#${place}</b> &middot; eliminated by <b>${escHtml(cause)}</b>`;
   const mins = Math.floor(s.stats.time / 60), secs = Math.floor(s.stats.time % 60);
   $('over-stats').innerHTML = `<div class="stat"><b>${s.stats.kills}</b><span>Eliminations</span></div><div class="stat"><b>${Math.round(s.stats.dmg)}</b><span>Damage dealt</span></div><div class="stat"><b>${mins}:${String(secs).padStart(2, '0')}</b><span>Survived</span></div><div class="stat"><b>#${place}</b><span>Placement</span></div>`;
   $('btn-spectate').style.display = won || over ? 'none' : '';

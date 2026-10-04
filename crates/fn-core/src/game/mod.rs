@@ -909,6 +909,29 @@ mod monkey {
         assert!(json.starts_with('{') && !json.contains("NaN"));
     }
 
+    /// Two identical matches fed identical inputs must stay identical (no hidden global state,
+    /// no iteration-order dependence), which also makes any bug report reproducible from a seed.
+    #[test]
+    fn the_simulation_is_deterministic() {
+        let mk = || game_cfg(GameConfig { bots: 16, skip_bus: false, seed: 11, storm_speed: 3.0, god_mode: false, ..Default::default() });
+        let (mut a, mut b) = (mk(), mk());
+        let (mut ra, mut rb) = (Rng::new(5), Rng::new(5));
+        let dt = 1.0 / 30.0;
+        for step in 0..(60.0 / dt) as usize {
+            let t = step as f32 * dt;
+            let ia = random_input(&mut ra, t, &a);
+            let ib = random_input(&mut rb, t, &b);
+            a.update(dt, &ia);
+            b.update(dt, &ib);
+        }
+        for (x, y) in a.actors.iter().zip(&b.actors) {
+            assert_eq!(x.pos, y.pos, "actor {} diverged", x.id);
+            assert_eq!((x.hp, x.shield, x.kills, x.alive), (y.hp, y.shield, y.kills, y.alive), "actor {} stats diverged", x.id);
+        }
+        assert_eq!(a.pickups.len(), b.pickups.len());
+        assert_eq!(a.pieces.count(), b.pieces.count());
+    }
+
     #[test]
     fn monkey_with_the_bus() {
         run(1, 24, 150.0, false);
