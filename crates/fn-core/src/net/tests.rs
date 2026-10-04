@@ -213,6 +213,30 @@ fn the_match_waits_for_every_island_then_starts() {
 }
 
 #[test]
+fn players_who_were_ready_early_are_not_timed_out_by_the_wait_for_the_slowest() {
+    let mut room = Room::new("Host");
+    for id in [1, 2] {
+        room.connect(id);
+        room.on_message(id, &ClientMsg::Hello { version: VERSION, name: format!("G{id}") }.encode());
+    }
+    let setup = room.begin(&quick_params(2, true));
+    room.drain();
+    let mut host = Host::new(World::generate(1234), setup, room);
+    host.on_message(1, &ClientMsg::Ready.encode());
+    // far longer than the timeout, with only one of the two ready
+    for _ in 0..(TIMEOUT * 2.0 * 10.0) as usize {
+        host.update(0.1, &idle());
+    }
+    assert!(!host.has_started());
+    host.on_message(2, &ClientMsg::Ready.encode());
+    for _ in 0..10 {
+        host.update(0.1, &idle());
+    }
+    assert!(host.has_started());
+    assert!(host.game.is_remote(1) && host.game.is_remote(2), "nobody was dropped for the time the match waited");
+}
+
+#[test]
 fn a_late_player_is_dropped_after_the_wait_runs_out() {
     let mut room = Room::new("Host");
     room.connect(1);
@@ -608,6 +632,8 @@ fn a_guest_who_says_goodbye_or_goes_quiet_is_replaced_by_a_bot() {
     assert!(h.host.game.actors[1].brain.is_some() && h.host.game.actors[1].name.ends_with("(bot)"));
     assert!(h.host.game.is_remote(2));
     assert!(h.host.peers().iter().any(|p| p.actor == 1 && !p.connected));
+    assert!(h.host.game.toast.iter().any(|t| t.0 == "Guest1 left"), "the host's HUD says so: {:?}", h.host.game.toast);
+    assert!(h.clients[1].game.toast.iter().any(|t| t.0 == "Guest1 left"), "and so does the other guest's: {:?}", h.clients[1].game.toast);
     // going quiet: no packets from guest 2 at all
     for _ in 0..(TIMEOUT as usize + 2) * 60 {
         h.now += 1.0 / 60.0;
@@ -737,4 +763,74 @@ fn old_and_garbled_messages_change_nothing() {
     }
     h.run(1.0, &idle(), &[idle()]);
     assert!(h.host.game.is_remote(1) && h.clients[0].game.actors[1].pos.is_finite());
+}
+
+/// A guest with a rifle fires at a bot that runs across its view at 6 m/s, on a connection with the given one-way delay;
+/// returns how much damage the bot took.
+fn damage_to_a_runner(lag_comp: bool, latency: f32) -> f32 {
+    let mut h = Harness::new(1, 2, true, Net { latency, jitter: 0.0, loss: 0.0 });
+    h.host.game.lag_comp = lag_comp;
+    started(&mut h);
+    let p = plant_guest(&mut h);
+    {
+        let g = &mut h.host.game;
+        g.actors[1].inv.add_weapon(WeaponKind::AssaultRifle, Rarity::Epic, 30);
+        g.actors[1].inv.ammo[AmmoKind::Medium.index()] = 250;
+        g.select_slot(1, 1);
+        for k in [0usize, 3] {
+            g.actors[k].brain = None;
+            g.actors[k].pos = Vec3::new(400.0, 5.0, 400.0);
+        }
+        g.actors[2].brain = None;
+        g.actors[2].mode = MoveMode::Ground;
+        g.actors[2].on_ground = true;
+        g.actors[2].hp = 100.0;
+        g.actors[2].shield = 100.0;
+    }
+    h.run(1.0, &idle(), &[idle()]);
+    let aim = PlayerInput { fire: true, fire_pressed: true, ..Default::default() };
+    // the bot runs back and forth along a line 20 m in front of the guest (the host moves it; its position is part of the sim)
+    let line = |t: f32| -> f32 { 10.0 * (t * 0.6).sin() }; // x offset, speed up to 6 m/s
+    let mut t = 0.0;
+    let mut dealt = 0.0;
+    for _ in 0..(8 * 60) {
+        t += 1.0 / 60.0;
+        let x = p.x + line(t);
+        let z = p.z - 20.0;
+        let y = h.host.game.world.hm.height_at(x, z);
+        {
+            let b = &mut h.host.game.actors[2];
+            b.vel = Vec3::new(6.0 * (t * 0.6).cos(), 0.0, 0.0);
+            b.pos = Vec3::new(x, y, z);
+        }
+        // the guest aims at where it sees the bot
+        let c = &h.clients[0].game;
+        let seen = c.actors[2].chest();
+        let to = seen - c.aim_ray(1).0;
+        let want_yaw = yaw_of(Vec2::new(to.x, to.z));
+        let want_pitch = to.y.atan2(Vec2::new(to.x, to.z).length());
+        let me = &c.actors[1];
+        let look = Vec2::new(-angle_diff(me.yaw, want_yaw).clamp(-0.5, 0.5), (want_pitch - me.pitch).clamp(-0.3, 0.3));
+        let before = h.host.game.actors[2].hp + h.host.game.actors[2].shield;
+        h.step(1.0 / 60.0, &idle(), &[PlayerInput { look, ..aim.clone() }]);
+        let after = h.host.game.actors[2].hp + h.host.game.actors[2].shield;
+        dealt += (before - after).max(0.0);
+        if after <= 0.0 {
+            // keep the target alive so that the whole run counts
+            let b = &mut h.host.game.actors[2];
+            b.hp = 100.0;
+            b.shield = 100.0;
+            b.alive = true;
+            b.mode = MoveMode::Ground;
+        }
+    }
+    dealt
+}
+
+#[test]
+fn lag_compensation_lets_a_guest_hit_what_it_sees_on_a_slow_connection() {
+    let with = damage_to_a_runner(true, 0.08);
+    let without = damage_to_a_runner(false, 0.08);
+    assert!(with > 3.0 * without + 100.0, "rewound shots: {with} damage; unrewound: {without}");
+    assert!(with > 400.0, "a guest tracking a runner by eye lands plenty of rifle hits: {with}");
 }

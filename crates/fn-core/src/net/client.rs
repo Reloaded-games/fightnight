@@ -139,6 +139,13 @@ impl Client {
         self.out.push(Outgoing { peer: 0, reliable: m.reliable(), bytes: m.encode() });
     }
 
+    /// The connection to the host broke.
+    pub fn connection_lost(&mut self) {
+        if self.closed.is_none() {
+            self.closed = Some("Lost the connection to the host.".into());
+        }
+    }
+
     /// Say goodbye (when the player leaves the match).
     pub fn leave(&mut self) {
         self.send(&ClientMsg::Bye);
@@ -303,8 +310,14 @@ impl Client {
         p.peak_y = m.peak_y;
         p.steps = m.steps;
         p.anim.time = m.anim_time;
-        if !own.alive || matches!(m.mode, MoveMode::Dead | MoveMode::Bus) {
+        if !own.alive || m.mode == MoveMode::Dead {
             self.pending.clear();
+            self.offset = Vec3::ZERO;
+            return;
+        }
+        if m.mode == MoveMode::Bus {
+            // riding the bus is not predicted (the screen follows the bus), but what the player pressed - the jump - must
+            // stay in the commands until the host has acknowledged it
             self.offset = Vec3::ZERO;
             return;
         }
@@ -487,7 +500,9 @@ impl Client {
             if !self.game.actors[self.you].alive {
                 continue;
             }
-            let cmd = Cmd::from_input(self.next_seq, h, &inp, self.view_yaw, self.view_pitch);
+            let mut cmd = Cmd::from_input(self.next_seq, h, &inp, self.view_yaw, self.view_pitch);
+            // which moment of the host's match the player is looking at (the others are drawn that far in the past)
+            cmd.view = if self.have_clock { self.render_time.max(0.001) } else { 0.0 };
             self.next_seq = self.next_seq.wrapping_add(1).max(1);
             self.pending.push_back(cmd);
             while self.pending.len() > MAX_PENDING {

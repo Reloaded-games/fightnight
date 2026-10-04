@@ -253,6 +253,13 @@ pub struct Game {
     pub local: usize,
     /// Commands from the humans playing over the network, per actor (see [`remote`]).
     pub remotes: Vec<Option<remote::Remote>>,
+    /// Where every actor stood over the last fraction of a second (kept only while people play over the network), so the
+    /// host can show a shooter's shot the world as the shooter saw it (see [`Game::positions_at`]).
+    pub history: std::collections::VecDeque<(f32, Vec<Vec3>)>,
+    /// While a remote player's shot is resolved: where each actor was on that player's screen. `None` means where they are now.
+    pub rewound: Option<Vec<Vec3>>,
+    /// Rewind other actors to what a remote shooter saw (on by default; tests turn it off to see the difference).
+    pub lag_comp: bool,
     pub cam_dist: f32,
     /// Sideways offset of the camera pivot from the body axis (m): the shoulder reach, eased over time (see [`Game::tick_camera`]).
     pub cam_reach: f32,
@@ -337,6 +344,9 @@ impl Game {
             spectating: None,
             local: PLAYER,
             remotes: Vec::new(),
+            history: Default::default(),
+            rewound: None,
+            lag_comp: true,
             cam_dist: 3.4,
             cam_reach: 0.62,
             fov_deg: 62.0,
@@ -394,6 +404,14 @@ impl Game {
     pub fn new_id(&mut self) -> u32 {
         self.next_id += 1;
         self.next_id
+    }
+
+    /// Put a message on this game's own HUD right away (messages sent with [`Game::toast`] appear when the frame ends).
+    pub fn show_toast(&mut self, text: impl Into<String>, secs: f32, style: u8) {
+        self.toast.push((text.into(), secs, style));
+        if self.toast.len() > 4 {
+            self.toast.remove(0);
+        }
     }
 
     /// Show a message to everyone.
@@ -517,6 +535,7 @@ impl Game {
         if !self.actors[self.local].alive {
             self.update_spectate(input);
         }
+        self.record_history();
         combat::update_projectiles(self, dt);
         loot::update_pickups(self, dt);
         self.pieces.tick(dt);
@@ -717,12 +736,7 @@ impl Game {
                 let entry = FeedEntry { killer: killer.map(name), victim: name(*victim), weapon: weapon.unwrap_or("").to_string(), by_player: *killer == Some(self.local), victim_is_player: *victim == self.local, storm: *storm, age: 0.0 };
                 self.feed.push(entry);
             }
-            Event::Toast { actor, text, secs, style } if actor.is_none_or(|a| a == self.local) => {
-                self.toast.push((text.clone(), *secs, *style));
-                if self.toast.len() > 4 {
-                    self.toast.remove(0);
-                }
-            }
+            Event::Toast { actor, text, secs, style } if actor.is_none_or(|a| a == self.local) => self.show_toast(text.clone(), *secs, *style),
             Event::Explosion { pos, radius } => {
                 let d = self.actors[self.camera_actor()].pos.distance(*pos);
                 if d < 60.0 {

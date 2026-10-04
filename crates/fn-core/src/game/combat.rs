@@ -87,8 +87,10 @@ impl Game {
             if !a.alive || a.id == shooter || a.mode == MoveMode::Bus {
                 continue;
             }
+            // where this actor is, or was on the shooter's screen (see `Game::rewound`)
+            let pos = self.rewound.as_ref().and_then(|r| r.get(a.id)).copied().unwrap_or(a.pos);
             // quick reject by distance to the ray
-            let to = a.chest() - origin;
+            let to = pos + Vec3::Y * (a.height() * 0.62) - origin;
             let along = to.dot(dir);
             if along < -1.0 || along > best_t + 2.0 {
                 continue;
@@ -96,10 +98,10 @@ impl Game {
             if (to - dir * along).length() > 2.2 {
                 continue;
             }
-            let base = a.pos + Vec3::Y * 0.33;
+            let base = pos + Vec3::Y * 0.33;
             // the body capsule stops at the neck so the head sphere owns everything above the shoulders
-            let top = a.pos + Vec3::Y * (a.height() - 0.62);
-            let head = ray_sphere(origin, dir, a.head_pos(), 0.23);
+            let top = pos + Vec3::Y * (a.height() - 0.62);
+            let head = ray_sphere(origin, dir, pos + Vec3::Y * (a.height() - 0.2), 0.23);
             let body = ray_capsule_y(origin, dir, base, top, 0.33);
             match (head, body) {
                 (Some(th), Some(tb)) if th <= tb + 0.05 && th < best_t => {

@@ -8,6 +8,7 @@
 //! channels in the browser, plain function calls in the tests) is somebody else's business.
 
 pub mod client;
+pub mod guest;
 pub mod host;
 pub mod proto;
 pub mod wire;

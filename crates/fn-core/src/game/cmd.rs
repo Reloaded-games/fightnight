@@ -51,11 +51,14 @@ pub struct Cmd {
     pub cycle: i8,
     /// Index into [`PieceKind::ALL`] of a building piece to choose, or [`Cmd::NONE`].
     pub piece: u8,
+    /// The host's clock at the moment the player was looking at the screen that this command answers (0 if unknown): what
+    /// the host rewinds the other actors to when the command fires a weapon, so a shot lands where it looked like it would.
+    pub view: f32,
 }
 
 impl Default for Cmd {
     fn default() -> Self {
-        Cmd { seq: 0, dt: 1.0 / 60.0, axis: [0; 2], yaw: 0.0, pitch: 0.0, buttons: 0, select: Cmd::NONE, cycle: 0, piece: Cmd::NONE }
+        Cmd { seq: 0, dt: 1.0 / 60.0, axis: [0; 2], yaw: 0.0, pitch: 0.0, buttons: 0, select: Cmd::NONE, cycle: 0, piece: Cmd::NONE, view: 0.0 }
     }
 }
 
@@ -97,12 +100,13 @@ impl Cmd {
             select: input.select.map_or(Cmd::NONE, |s| s.min(5) as u8),
             cycle: input.cycle.clamp(-1, 1) as i8,
             piece: input.piece.map_or(Cmd::NONE, |p| PieceKind::ALL.iter().position(|&k| k == p).unwrap_or(0) as u8),
+            view: 0.0,
         }
     }
 
     /// Whether the command is fit to simulate: a hostile client must not be able to feed the simulation NaNs or a huge step.
     pub fn is_sane(&self) -> bool {
-        self.dt.is_finite() && self.dt > 0.0 && self.dt <= MAX_CMD_DT && self.yaw.is_finite() && self.pitch.is_finite()
+        self.dt.is_finite() && self.dt > 0.0 && self.dt <= MAX_CMD_DT && self.yaw.is_finite() && self.pitch.is_finite() && self.view.is_finite()
     }
 
     /// The intent that both the client (predicting) and the host (applying) run.

@@ -13,6 +13,8 @@ const MAX_BACKLOG: f32 = 0.5;
 const KEEP_BACKLOG: f32 = 0.2;
 /// Commands are applied at the speed of real time. Unused time may pile up to this much so that a short stall is made up for.
 const MAX_BUDGET: f32 = 0.12;
+/// The most a shot is rewound (seconds): a player on a very slow connection does not get to shoot into the distant past.
+pub const MAX_REWIND: f32 = 0.25;
 /// While more than this is queued the host applies commands a little faster than real time to work the queue down.
 const CATCH_UP_AT: f32 = 0.1;
 const CATCH_UP_RATE: f32 = 1.5;
@@ -81,6 +83,39 @@ impl Game {
         self.actors[actor].brain = Some(brain);
     }
 
+    /// Remember where everybody is (while anyone plays over the network).
+    pub(super) fn record_history(&mut self) {
+        if !self.remotes.iter().any(|r| r.is_some()) {
+            self.history.clear();
+            return;
+        }
+        self.history.push_back((self.time, self.actors.iter().map(|a| a.pos).collect()));
+        while self.history.front().is_some_and(|f| self.time - f.0 > MAX_REWIND + 0.1) {
+            self.history.pop_front();
+        }
+    }
+
+    /// Where every actor stood at host time `t`, or `None` if that is now (or later) or nothing is known.
+    pub fn positions_at(&self, t: f32) -> Option<Vec<Vec3>> {
+        let newest = self.history.back()?;
+        if t >= newest.0 {
+            return None;
+        }
+        let t = t.max(self.time - MAX_REWIND);
+        let mut prev = self.history.front()?;
+        if t <= prev.0 {
+            return Some(prev.1.clone());
+        }
+        for f in self.history.iter().skip(1) {
+            if f.0 >= t {
+                let k = ((t - prev.0) / (f.0 - prev.0).max(1e-5)).clamp(0.0, 1.0);
+                return Some(prev.1.iter().zip(&f.1).map(|(a, b)| a.lerp(*b, k)).collect());
+            }
+            prev = f;
+        }
+        None
+    }
+
     /// Apply what the remote players asked for during this step of `dt` seconds.
     pub(super) fn apply_remote_cmds(&mut self, dt: f32) {
         for i in 0..self.remotes.len() {
@@ -120,7 +155,12 @@ impl Game {
                     break;
                 }
                 let it: Intent = c.to_intent();
+                // a shot is resolved against the world as its shooter saw it
+                if self.lag_comp && c.view > 0.0 && c.buttons & (btn::FIRE | btn::FIRE_PRESSED) != 0 {
+                    self.rewound = self.positions_at(c.view);
+                }
                 self.apply_intent(i, &it, c.dt);
+                self.rewound = None;
             }
         }
     }

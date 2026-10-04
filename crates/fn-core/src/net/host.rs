@@ -171,6 +171,16 @@ impl Room {
         setup
     }
 
+    /// Tell everybody the room is gone (the host backed out before starting).
+    pub fn close(&mut self) {
+        self.closed = true;
+        let ids: Vec<PeerId> = self.peers.iter().map(|p| p.id).collect();
+        for id in ids {
+            self.send(id, &ServerMsg::Closed);
+        }
+        self.peers.clear();
+    }
+
     pub fn is_empty(&self) -> bool {
         self.peers.iter().all(|p| p.name.is_none())
     }
@@ -306,6 +316,8 @@ pub struct Host {
     tick_no: u32,
     started: bool,
     closed: bool,
+    /// Events the host itself made up between simulation steps (a player left): sent along with the next step's.
+    extra_events: Vec<Event>,
 }
 
 impl Host {
@@ -321,7 +333,7 @@ impl Host {
         }
         let out = room.out;
         let started = peers.is_empty();
-        let mut h = Host { game, setup, peers, out, shadow: Shadow::default(), clock: 0.0, snap_acc: 0.0, tick_no: 0, started, closed: false };
+        let mut h = Host { game, setup, peers, out, shadow: Shadow::default(), clock: 0.0, snap_acc: 0.0, tick_no: 0, started, closed: false, extra_events: vec![] };
         if started {
             h.begin_match();
         }
@@ -358,6 +370,10 @@ impl Host {
     /// Everyone is in: tell them the whole picture of the island and start the clock.
     fn begin_match(&mut self) {
         self.started = true;
+        // the wait for the slowest island must not count as silence
+        for p in &mut self.peers {
+            p.last_heard = self.clock;
+        }
         let mut ops = vec![SyncOp::Reset];
         self.shadow = Shadow::default();
         self.shadow.diff(&self.game, &mut ops);
@@ -404,7 +420,9 @@ impl Host {
         let actor = self.peers[i].actor;
         let name = self.peers[i].name.clone();
         self.game.drop_remote(actor);
-        self.game.toast(format!("{name} {why}"), 3.0, 1);
+        let text = format!("{name} {why}");
+        self.game.show_toast(text.clone(), 3.0, 1);
+        self.extra_events.push(Event::Toast { actor: None, text, secs: 3.0, style: 1 });
     }
 
     /// Tell everybody the room is shut (the host went back to the menu).
@@ -453,16 +471,17 @@ impl Host {
     // ---- what the players are told --------------------------------------------------------------------------------------
 
     fn send_events(&mut self) {
-        if self.game.events.is_empty() {
+        if self.game.events.is_empty() && self.extra_events.is_empty() {
             return;
         }
+        let extra = std::mem::take(&mut self.extra_events);
         let time = self.game.time;
         for k in 0..self.peers.len() {
             if !self.peers[k].connected {
                 continue;
             }
             let actor = self.peers[k].actor;
-            let events: Vec<Event> = self.game.events.iter().filter(|e| is_sent(e) && audience(&self.game, e, actor)).cloned().collect();
+            let events: Vec<Event> = self.game.events.iter().chain(&extra).filter(|e| is_sent(e) && audience(&self.game, e, actor)).cloned().collect();
             if !events.is_empty() {
                 let id = self.peers[k].id;
                 self.send(id, &ServerMsg::Events { time, events });

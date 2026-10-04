@@ -1055,6 +1055,7 @@ impl ClientMsg {
                     w.u8(c.select);
                     w.i8(c.cycle);
                     w.u8(c.piece);
+                    w.f32(c.view);
                 }
             }
             ClientMsg::Bye => w.u8(2),
@@ -1081,7 +1082,7 @@ impl ClientMsg {
                     let (yaw, pitch) = (r.f32()?, r.f32()?);
                     let buttons = r.u16()? as u32 & btn::ALL;
                     let (select, cycle, piece) = (r.u8()?, r.i8()?, r.u8()?);
-                    cmds.push(Cmd { seq, dt, axis, yaw, pitch, buttons, select, cycle, piece });
+                    cmds.push(Cmd { seq, dt, axis, yaw, pitch, buttons, select, cycle, piece, view: r.f32()? });
                 }
                 ClientMsg::Cmds { time, cmds }
             }
@@ -1314,7 +1315,7 @@ mod tests {
     fn client_messages_round_trip() {
         let msgs = vec![
             ClientMsg::Hello { version: VERSION, name: "Ada".into() },
-            ClientMsg::Cmds { time: 123456, cmds: vec![Cmd { seq: 5, dt: 1.0 / 60.0, axis: [-127, 127], yaw: 2.5, pitch: -0.5, buttons: btn::JUMP | btn::FIRE | btn::EMOTE, select: 3, cycle: -1, piece: 2 }, Cmd { seq: 6, ..Default::default() }] },
+            ClientMsg::Cmds { time: 123456, cmds: vec![Cmd { seq: 5, dt: 1.0 / 60.0, axis: [-127, 127], yaw: 2.5, pitch: -0.5, buttons: btn::JUMP | btn::FIRE | btn::EMOTE, select: 3, cycle: -1, piece: 2, view: 99.5 }, Cmd { seq: 6, ..Default::default() }] },
             ClientMsg::Bye,
             ClientMsg::Ready,
         ];
