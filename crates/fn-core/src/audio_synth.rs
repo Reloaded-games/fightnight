@@ -254,21 +254,13 @@ impl Sfx {
     /// `true` if the buffer is meant to be looped; such buffers are seamless
     /// (`last -> first` is as smooth as any two neighbouring samples).
     pub fn is_loop(self) -> bool {
-        matches!(
-            self,
-            Sfx::ChestHum | Sfx::StormAmbient | Sfx::BusLoop | Sfx::WindLoop | Sfx::GliderLoop
-        )
+        matches!(self, Sfx::ChestHum | Sfx::StormAmbient | Sfx::BusLoop | Sfx::WindLoop | Sfx::GliderLoop)
     }
 
     /// How many distinct variants are worth pre-rendering (`variant` in `0..variants()`).
     pub fn variants(self) -> u32 {
         match self {
-            Sfx::StepGrass
-            | Sfx::StepSand
-            | Sfx::StepStone
-            | Sfx::StepWood
-            | Sfx::StepMetal
-            | Sfx::StepWater => 4,
+            Sfx::StepGrass | Sfx::StepSand | Sfx::StepStone | Sfx::StepWood | Sfx::StepMetal | Sfx::StepWater => 4,
             Sfx::ShotAr | Sfx::ShotSmg | Sfx::HarvestHit => 4,
             Sfx::ShotPistol
             | Sfx::ShotShotgun
@@ -288,7 +280,8 @@ impl Sfx {
 /// Returns mono samples in `[-1, 1]` (peak <= 0.98) at `sample_rate` (44100 or 48000 are the
 /// intended rates; anything from 8 kHz to 192 kHz works).  `variant` (`0..sfx.variants()`)
 /// deterministically changes the noise seed and slightly shifts pitch and timbre; any `u32`
-/// is accepted.  The result depends only on `(sfx, sample_rate, variant)`.
+/// is accepted.  Rates outside 8-192 kHz are clamped.  The result depends only on
+/// `(sfx, sample_rate, variant)`.
 pub fn synth(sfx: Sfx, sample_rate: u32, variant: u32) -> Vec<f32> {
     let sr = sample_rate.clamp(8_000, 192_000);
     let mut c = Ctx::new(sfx, sr, variant);
@@ -840,6 +833,9 @@ impl Fx for Vec<f32> {
     }
     fn fade_out(mut self, sr: f32, secs: f32) -> Self {
         let n = self.len();
+        if n == 0 {
+            return self;
+        }
         let m = ((secs * sr) as usize).clamp(1, n);
         for (j, x) in self[n - m..].iter_mut().enumerate() {
             // j = 0 is the first faded sample, j = m-1 the last of the buffer (-> 0)
@@ -853,6 +849,9 @@ impl Fx for Vec<f32> {
     }
     fn fade_in(mut self, sr: f32, secs: f32) -> Self {
         let n = self.len();
+        if n == 0 {
+            return self;
+        }
         let m = ((secs * sr) as usize).clamp(1, n);
         for (j, x) in self[..m].iter_mut().enumerate() {
             let t = j as f32 / m as f32;
@@ -1076,14 +1075,8 @@ fn modal(dst: &mut [f32], sr: f32, at: f32, modes: &[(f32, f32, f32)], pitch: f3
 }
 
 /// Inharmonic bell/glass partials `(ratio, amplitude, decay multiplier)`.
-const BELL: [(f32, f32, f32); 6] = [
-    (1.0, 1.0, 1.0),
-    (2.0, 0.42, 0.62),
-    (2.76, 0.30, 0.45),
-    (4.07, 0.16, 0.30),
-    (5.4, 0.11, 0.22),
-    (8.93, 0.05, 0.12),
-];
+const BELL: [(f32, f32, f32); 6] =
+    [(1.0, 1.0, 1.0), (2.0, 0.42, 0.62), (2.76, 0.30, 0.45), (4.07, 0.16, 0.30), (5.4, 0.11, 0.22), (8.93, 0.05, 0.12)];
 
 /// A struck bell/glass tone at `f` Hz: the fundamental rings for `tau` seconds, higher
 /// partials die faster.  `bright` (0..1.5) scales the upper partials.
@@ -1172,10 +1165,8 @@ impl Reverb {
                 Comb { buf: vec![0.0; len], i: 0, fb, damp, lp: 0.0 }
             })
             .collect();
-        let aps = APS
-            .iter()
-            .map(|&l| Allpass { buf: vec![0.0; ((l * scale).round() as usize).max(4)], i: 0 })
-            .collect();
+        let aps =
+            APS.iter().map(|&l| Allpass { buf: vec![0.0; ((l * scale).round() as usize).max(4)], i: 0 }).collect();
         Reverb { combs, aps, norm: 1.0 / var.sqrt() }
     }
     #[inline]
@@ -1463,10 +1454,34 @@ fn rustle(c: &mut Ctx, dur: f32, f_lo: f32, f_hi: f32, rate: f32) -> Vec<f32> {
     y
 }
 
+/// Metal/plastic friction (a magazine sliding, a pump rasping): narrow band-pass noise whose
+/// centre glides `f0 -> f1` over `dur` seconds with a random stick-slip amplitude flicker of
+/// roughly `flicker` Hz.
+fn friction(c: &mut Ctx, dur: f32, f0: f32, f1: f32, q: f32, flicker: f32) -> Vec<f32> {
+    let sr = c.sr;
+    let gate = smooth_noise(c, dur, flicker);
+    let mut y = c.white(dur).sweep(sr, Kind::Bp, q, move |t| geo(f0, f1, t / dur));
+    for (x, g) in y.iter_mut().zip(&gate) {
+        *x *= 0.6 + 0.4 * g;
+    }
+    y
+}
+
 /// Sparse random pops (debris, crackle, sparks): a Poisson process whose rate goes from
 /// `rate0` to `rate1` per second over `[t0, t1]`, each pop a short ring at a random
 /// frequency in `[f_lo, f_hi]` with amplitude scaled by `amp(t)`.
-fn crackle(c: &mut Ctx, dst: &mut [f32], t0: f32, t1: f32, rate0: f32, rate1: f32, f_lo: f32, f_hi: f32, tau: (f32, f32), amp: impl Fn(f32) -> f32) {
+fn crackle(
+    c: &mut Ctx,
+    dst: &mut [f32],
+    t0: f32,
+    t1: f32,
+    rate0: f32,
+    rate1: f32,
+    f_lo: f32,
+    f_hi: f32,
+    tau: (f32, f32),
+    amp: impl Fn(f32) -> f32,
+) {
     let sr = c.sr;
     let (i0, i1) = ((t0 * sr) as usize, ((t1 * sr) as usize).min(dst.len()));
     for i in i0..i1 {
@@ -1661,7 +1676,17 @@ fn shimmer(dst: &mut [f32], sr: f32, at: f32, dur: f32, freqs: &[f32], amp: f32,
 
 /// Falling debris: random short band-passed noise bursts (rate goes `rate0 -> rate1` per
 /// second over `[t0, t1]`) with amplitude `amp(t)`.
-fn debris(c: &mut Ctx, dst: &mut [f32], t0: f32, t1: f32, rate0: f32, rate1: f32, f_lo: f32, f_hi: f32, amp: impl Fn(f32) -> f32) {
+fn debris(
+    c: &mut Ctx,
+    dst: &mut [f32],
+    t0: f32,
+    t1: f32,
+    rate0: f32,
+    rate1: f32,
+    f_lo: f32,
+    f_hi: f32,
+    amp: impl Fn(f32) -> f32,
+) {
     let sr = c.sr;
     let mut t = t0;
     while t < t1 {
@@ -1755,18 +1780,12 @@ fn gun(c: &mut Ctx, g: &Gun) -> Vec<f32> {
     let k = c.white(0.006).hp(sr, g.click_hp * b).env(sr, 0.00004, 0.0007);
     mix(&mut out, &k, 0, g.click);
     // 2. crack: band-passed noise burst, saturated
-    let k = c
-        .white(g.crack_tau * 9.0)
-        .bp(sr, g.crack_f * b, g.crack_q)
-        .env(sr, 0.00008, g.crack_tau)
-        .clip(2.2);
+    let k = c.white(g.crack_tau * 9.0).bp(sr, g.crack_f * b, g.crack_q).env(sr, 0.00008, g.crack_tau).clip(2.2);
     mix(&mut out, &k, 0, g.crack);
     // 3. blast: noise through a low-pass sweeping bright -> dark
     let (hi, lo, tf, ta, gain) = g.blast;
-    let k = c
-        .white(ta * 9.0)
-        .sweep(sr, Kind::Lp, 0.8, move |t| b * (lo + (hi - lo) * decay(t, tf)))
-        .env(sr, 0.0003, ta);
+    let k =
+        c.white(ta * 9.0).sweep(sr, Kind::Lp, 0.8, move |t| b * (lo + (hi - lo) * decay(t, tf))).env(sr, 0.0003, ta);
     mix(&mut out, &k, 0, gain);
     // 4. snap: pitched mid "pok"
     let (f0, f1, tau, gain) = g.snap;
@@ -1905,24 +1924,21 @@ fn shot_sniper(c: &mut Ctx) -> Vec<f32> {
     let k = tick_noise(c, 0.01, 1800.0, 0.0012);
     mix(&mut dry, &k, 0, 0.8);
     // blast
-    let k = c
-        .white(0.6)
-        .sweep(sr, Kind::Lp, 0.8, move |t| b * (250.0 + 6000.0 * decay(t, 0.035)))
-        .env(sr, 0.0004, 0.12);
+    let k = c.white(0.6).sweep(sr, Kind::Lp, 0.8, move |t| b * (250.0 + 6000.0 * decay(t, 0.035))).env(sr, 0.0004, 0.1);
     mix(&mut dry, &k, 0, 1.2);
     // mid snap + deep boom
     let k = thump(sr, 0.2, 320.0 * p, 100.0 * p, 0.03, 0.04).clip(1.5);
     mix(&mut dry, &k, 0, 0.5);
-    let k = thump(sr, 1.0, 105.0 * p, 40.0 * p, 0.05, 0.14).clip(2.0);
+    let k = thump(sr, 1.0, 105.0 * p, 40.0 * p, 0.05, 0.11).clip(2.0);
     mix(&mut dry, &k, 0, 0.8);
     // tail
     let k = c.pink(0.9).hp(sr, 150.0).lp(sr, 2400.0).env(sr, 0.01, 0.2);
     mix_at(&mut dry, sr, &k, 0.01, 0.4);
     // distant slap-back echoes: darker delayed copies of the early part
     let early = dry[..(0.3 * sr) as usize].to_vec().lp(sr, 1800.0).fade_out(sr, 0.05);
-    mix_at(&mut dry, sr, &early, 0.23, 0.3);
+    mix_at(&mut dry, sr, &early, 0.27, 0.3);
     let early2 = early.lp(sr, 900.0);
-    mix_at(&mut dry, sr, &early2, 0.47, 0.5);
+    mix_at(&mut dry, sr, &early2, 0.52, 0.15);
     // long reverb tail
     let room = Room { rt60: 1.3, damp: 0.55, size: 1.4, wet: 0.3, tail: 0.55, pre: 0.012, hp: 150.0 };
     reverb(&dry, sr, room).clip(1.2)
@@ -1944,13 +1960,8 @@ fn rocket_fire(c: &mut Ctx) -> Vec<f32> {
     let k = c.white(0.06).bp(sr, 2500.0 * b, 0.7).env(sr, 0.0002, 0.006).clip(2.0);
     mix(&mut out, &k, 0, 0.4);
     // whoosh: a band-pass sweeping up quickly, then falling away as the rocket leaves
-    let path = move |t: f32| {
-        b * if t < 0.3 {
-            geo(350.0, 3000.0, t / 0.3)
-        } else {
-            geo(3000.0, 650.0, (t - 0.3) / 0.6)
-        }
-    };
+    let path =
+        move |t: f32| b * if t < 0.3 { geo(350.0, 3000.0, t / 0.3) } else { geo(3000.0, 650.0, (t - 0.3) / 0.6) };
     let amp = |t: f32| smoothstep(0.0, 0.05, t) * decay(t, 0.4);
     let w = whoosh(c, 0.9, 1.8, path, amp).clip(1.6);
     mix(&mut out, &w, 0, 1.6);
@@ -2015,19 +2026,20 @@ fn reload_mag(c: &mut Ctx) -> Vec<f32> {
     mclick(c, &mut out, 0.0, 0.8, 1800.0, &[(2900.0, 0.005, 0.6), (1800.0, 0.008, 0.5), (4300.0, 0.003, 0.25)]);
     thunk(c, &mut out, 0.012, 0.35, 420.0, 250.0, 0.012);
     // mag slides out (friction scrape, pitch falling)
-    let k = c
-        .white(0.2)
-        .sweep(sr, Kind::Bp, 2.0, |t| geo(2200.0, 1100.0, t / 0.2))
-        .env_fn(sr, |t| hump(t, 0.03, 0.17));
-    mix_at(&mut out, sr, &k, 0.07, 0.5);
+    let k = friction(c, 0.2, 2200.0, 1100.0, 3.5, 60.0).env_fn(sr, |t| hump(t, 0.03, 0.17));
+    mix_at(&mut out, sr, &k, 0.07, 0.7);
     // fresh mag slides in (pitch rising)
-    let k = c
-        .white(0.14)
-        .sweep(sr, Kind::Bp, 2.0, |t| geo(900.0, 2400.0, t / 0.14))
-        .env_fn(sr, |t| hump(t, 0.1, 0.04));
-    mix_at(&mut out, sr, &k, 0.42, 0.5);
+    let k = friction(c, 0.14, 900.0, 2400.0, 3.5, 60.0).env_fn(sr, |t| hump(t, 0.1, 0.04));
+    mix_at(&mut out, sr, &k, 0.42, 0.7);
     // firm insertion clack
-    mclick(c, &mut out, 0.575, 1.0, 1200.0, &[(1400.0, 0.012, 0.6), (2600.0, 0.008, 0.5), (3500.0, 0.005, 0.3), (950.0, 0.02, 0.35)]);
+    mclick(
+        c,
+        &mut out,
+        0.575,
+        1.0,
+        1200.0,
+        &[(1400.0, 0.012, 0.6), (2600.0, 0.008, 0.5), (3500.0, 0.005, 0.3), (950.0, 0.02, 0.35)],
+    );
     thunk(c, &mut out, 0.575, 0.7, 260.0, 150.0, 0.02);
     // charging handle ratchet: tr-r-r-rk
     let mut t = 0.75;
@@ -2037,7 +2049,14 @@ fn reload_mag(c: &mut Ctx) -> Vec<f32> {
         t += 0.024 - 0.002 * i as f32;
     }
     // bolt slams forward
-    mclick(c, &mut out, 0.93, 0.95, 1400.0, &[(1250.0, 0.016, 0.6), (2300.0, 0.01, 0.5), (3300.0, 0.006, 0.3), (850.0, 0.025, 0.4)]);
+    mclick(
+        c,
+        &mut out,
+        0.93,
+        0.95,
+        1400.0,
+        &[(1250.0, 0.016, 0.6), (2300.0, 0.01, 0.5), (3300.0, 0.006, 0.3), (850.0, 0.025, 0.4)],
+    );
     thunk(c, &mut out, 0.93, 0.55, 230.0, 120.0, 0.02);
     out.clip(1.1)
 }
@@ -2065,14 +2084,18 @@ fn pump_action(c: &mut Ctx) -> Vec<f32> {
     mclick(c, &mut out, 0.0, 0.9, 1600.0, &[(1800.0, 0.01, 0.6), (3100.0, 0.006, 0.4), (1100.0, 0.014, 0.4)]);
     thunk(c, &mut out, 0.0, 0.4, 420.0, 250.0, 0.012);
     // metal-on-metal friction while the slide travels
-    let fr = c
-        .white(0.17)
-        .bp(sr, 1300.0, 2.0)
-        .env_fn(sr, |t| hump(t, 0.02, 0.15) * (0.55 + 0.45 * (2.0 * sin_cyc(70.0 * t) * 0.5 + 0.5)));
-    mix_at(&mut out, sr, &fr, 0.04, 0.35);
+    let fr = friction(c, 0.17, 1100.0, 1500.0, 3.0, 90.0).env_fn(sr, |t| hump(t, 0.02, 0.15));
+    mix_at(&mut out, sr, &fr, 0.04, 0.5);
     // slide forward: "chunk"
     thunk(c, &mut out, 0.215, 1.0, 220.0, 110.0, 0.03);
-    mclick(c, &mut out, 0.215, 1.0, 1100.0, &[(1250.0, 0.02, 0.6), (2200.0, 0.014, 0.45), (900.0, 0.03, 0.4), (3100.0, 0.006, 0.2)]);
+    mclick(
+        c,
+        &mut out,
+        0.215,
+        1.0,
+        1100.0,
+        &[(1250.0, 0.02, 0.6), (2200.0, 0.014, 0.45), (900.0, 0.03, 0.4), (3100.0, 0.006, 0.2)],
+    );
     let k = c.white(0.06).lp(sr, 3000.0).env(sr, 0.0005, 0.012);
     mix_at(&mut out, sr, &k, 0.215, 0.5);
     out.clip(1.1)
@@ -2096,10 +2119,8 @@ fn empty_click(c: &mut Ctx) -> Vec<f32> {
 fn weapon_swap(c: &mut Ctx) -> Vec<f32> {
     let sr = c.sr;
     let mut out = c.silence(0.2);
-    let k = c
-        .white(0.12)
-        .sweep(sr, Kind::Bp, 0.8, |t| geo(1200.0, 3200.0, t / 0.12))
-        .env_fn(sr, |t| hump(t, 0.03, 0.09));
+    let k =
+        c.white(0.12).sweep(sr, Kind::Bp, 0.8, |t| geo(1200.0, 3200.0, t / 0.12)).env_fn(sr, |t| hump(t, 0.03, 0.09));
     mix(&mut out, &k, 0, 0.35);
     let k = rustle(c, 0.1, 1500.0, 6000.0, 90.0).env_fn(sr, |t| hump(t, 0.02, 0.08));
     mix(&mut out, &k, 0, 0.3);
@@ -2160,7 +2181,14 @@ fn step_stone(c: &mut Ctx) -> Vec<f32> {
     let sr = c.sr;
     let b = c.b;
     let mut out = c.silence(0.14);
-    mclick(c, &mut out, 0.0, 1.0, 2500.0, &[(1650.0, 0.010, 0.5), (3300.0, 0.005, 0.3), (2400.0, 0.007, 0.25), (900.0, 0.012, 0.3)]);
+    mclick(
+        c,
+        &mut out,
+        0.0,
+        1.0,
+        2500.0,
+        &[(1650.0, 0.010, 0.5), (3300.0, 0.005, 0.3), (2400.0, 0.007, 0.25), (900.0, 0.012, 0.3)],
+    );
     thunk(c, &mut out, 0.0, 0.22, 170.0, 100.0, 0.015);
     let k = c.white(0.05).bp(sr, 3200.0 * b, 0.9).env(sr, 0.002, 0.014);
     mix(&mut out, &k, 0, 0.15);
@@ -2172,7 +2200,15 @@ fn step_wood(c: &mut Ctx) -> Vec<f32> {
     let sr = c.sr;
     let (p, b) = (c.p, c.b);
     let mut out = c.silence(0.16);
-    modal(&mut out, sr, 0.0, &[(230.0, 0.024, 0.8), (340.0, 0.016, 0.55), (560.0, 0.010, 0.3), (850.0, 0.006, 0.2)], p, 1.0, 1.0);
+    modal(
+        &mut out,
+        sr,
+        0.0,
+        &[(230.0, 0.024, 0.8), (340.0, 0.016, 0.55), (560.0, 0.010, 0.3), (850.0, 0.006, 0.2)],
+        p,
+        1.0,
+        1.0,
+    );
     let k = c.white(0.01).lp(sr, 2200.0 * b).env(sr, 0.0001, 0.0015);
     mix(&mut out, &k, 0, 0.7);
     thunk(c, &mut out, 0.0, 0.45, 140.0, 90.0, 0.02);
@@ -2182,7 +2218,20 @@ fn step_wood(c: &mut Ctx) -> Vec<f32> {
 /// Metal step: clank with ringing 800-2000 Hz (~0.18 s).
 fn step_metal(c: &mut Ctx) -> Vec<f32> {
     let mut out = c.silence(0.18);
-    mclick(c, &mut out, 0.0, 0.8, 3000.0, &[(870.0, 0.032, 0.5), (1370.0, 0.022, 0.5), (1930.0, 0.016, 0.35), (2650.0, 0.009, 0.25), (3600.0, 0.005, 0.15)]);
+    mclick(
+        c,
+        &mut out,
+        0.0,
+        0.8,
+        3000.0,
+        &[
+            (870.0, 0.032, 0.5),
+            (1370.0, 0.022, 0.5),
+            (1930.0, 0.016, 0.35),
+            (2650.0, 0.009, 0.25),
+            (3600.0, 0.005, 0.15),
+        ],
+    );
     thunk(c, &mut out, 0.0, 0.3, 130.0, 80.0, 0.012);
     out
 }
@@ -2231,12 +2280,12 @@ fn land(c: &mut Ctx) -> Vec<f32> {
     let sr = c.sr;
     let (p, b) = (c.p, c.b);
     let mut out = c.silence(0.2);
-    let k = thump(sr, 0.2, 100.0 * p, 55.0 * p, 0.018, 0.035).clip(1.4);
+    let k = thump(sr, 0.2, 100.0 * p, 55.0 * p, 0.018, 0.035).clip(1.8);
     mix(&mut out, &k, 0, 0.8);
-    let k = c.white(0.2).lp(sr, 650.0 * b).env(sr, 0.0008, 0.035);
+    let k = c.white(0.2).lp(sr, 800.0 * b).env(sr, 0.0008, 0.035);
     mix(&mut out, &k, 0, 1.0);
     let k = rustle(c, 0.12, 1000.0 * b, 4500.0, 150.0).env(sr, 0.002, 0.045);
-    mix(&mut out, &k, 0, 0.12);
+    mix(&mut out, &k, 0, 0.2);
     let k = c.white(0.04).bp(sr, 2000.0 * b, 0.9).env(sr, 0.0003, 0.012);
     mix(&mut out, &k, 0, 0.06);
     out
@@ -2251,7 +2300,14 @@ fn pickup_weapon(c: &mut Ctx) -> Vec<f32> {
     let sr = c.sr;
     let p = c.p;
     let mut out = c.silence(0.36);
-    mclick(c, &mut out, 0.0, 0.9, 1500.0, &[(1500.0, 0.012, 0.6), (2300.0, 0.008, 0.5), (3300.0, 0.005, 0.3), (850.0, 0.02, 0.3)]);
+    mclick(
+        c,
+        &mut out,
+        0.0,
+        0.9,
+        1500.0,
+        &[(1500.0, 0.012, 0.6), (2300.0, 0.008, 0.5), (3300.0, 0.005, 0.3), (850.0, 0.02, 0.3)],
+    );
     thunk(c, &mut out, 0.0, 0.6, 220.0, 120.0, 0.02);
     bell(&mut out, sr, 0.07, 1318.5 * p, 0.45, 0.09, 0.7);
     bell(&mut out, sr, 0.15, 1975.5 * p, 0.6, 0.16, 0.8);
@@ -2352,7 +2408,14 @@ fn hit_shield(c: &mut Ctx) -> Vec<f32> {
     let sr = c.sr;
     let p = c.p;
     let mut out = c.silence(0.12);
-    let modes = [(3000.0, 0.05, 0.6), (3036.0, 0.05, 0.5), (4400.0, 0.06, 0.4), (4452.0, 0.06, 0.35), (5900.0, 0.07, 0.22), (7400.0, 0.045, 0.1)];
+    let modes = [
+        (3000.0, 0.05, 0.6),
+        (3036.0, 0.05, 0.5),
+        (4400.0, 0.06, 0.4),
+        (4452.0, 0.06, 0.35),
+        (5900.0, 0.07, 0.22),
+        (7400.0, 0.045, 0.1),
+    ];
     modal(&mut out, sr, 0.0, &modes, p, 1.0, 1.0);
     let k = tick_noise(c, 0.004, 4000.0, 0.0005);
     mix(&mut out, &k, 0, 0.3);
@@ -2369,7 +2432,10 @@ fn player_hurt(c: &mut Ctx) -> Vec<f32> {
     let k = c.white(0.25).lp(sr, 700.0 * b).env(sr, 0.0008, 0.05);
     mix(&mut out, &k, 0, 0.8);
     let k = tick_noise(c, 0.01, 1500.0, 0.004);
-    mix(&mut out, &k, 0, 0.25);
+    mix(&mut out, &k, 0, 0.5);
+    // mid-range smack so the hit reads on small speakers too
+    let k = c.white(0.1).bp(sr, 750.0 * b, 0.9).env(sr, 0.0005, 0.03);
+    mix(&mut out, &k, 0, 0.7);
     // faint "uh": a falling saw through two formants
     let g = osc_buf(sr, 0.2, Wave::Saw, move |t| geo(160.0 * p, 95.0 * p, t / 0.2)).lp(sr, 3000.0);
     let mut f1 = g.clone().bp(sr, 600.0, 3.0);
@@ -2405,8 +2471,11 @@ fn build_wood(c: &mut Ctx) -> Vec<f32> {
     let sr = c.sr;
     let (p, b) = (c.p, c.b);
     let mut out = c.silence(0.3);
-    let modes = [(150.0, 0.05, 0.8), (260.0, 0.035, 0.6), (410.0, 0.025, 0.45), (700.0, 0.015, 0.3), (1100.0, 0.008, 0.2)];
+    let modes =
+        [(150.0, 0.05, 0.8), (260.0, 0.035, 0.6), (410.0, 0.025, 0.45), (700.0, 0.015, 0.45), (1100.0, 0.008, 0.35)];
     modal(&mut out, sr, 0.0, &modes, p, 1.0, 1.0);
+    let k = c.white(0.01).lp(sr, 2500.0 * b).env(sr, 0.0001, 0.002);
+    mix(&mut out, &k, 0, 0.5);
     let k = thump(sr, 0.2, 100.0 * p, 60.0 * p, 0.02, 0.05).clip(1.4);
     mix(&mut out, &k, 0, 0.7);
     let k = c.white(0.1).lp(sr, 900.0 * b).env(sr, 0.0005, 0.02);
@@ -2442,7 +2511,14 @@ fn build_stone(c: &mut Ctx) -> Vec<f32> {
 /// Metal piece placed: metallic clank with a ring (~0.35 s).
 fn build_metal(c: &mut Ctx) -> Vec<f32> {
     let mut out = c.silence(0.35);
-    let modes = [(520.0, 0.12, 0.6), (880.0, 0.1, 0.5), (1430.0, 0.08, 0.4), (2180.0, 0.05, 0.3), (3150.0, 0.03, 0.2), (4400.0, 0.015, 0.12)];
+    let modes = [
+        (520.0, 0.12, 0.6),
+        (880.0, 0.1, 0.5),
+        (1430.0, 0.08, 0.4),
+        (2180.0, 0.05, 0.3),
+        (3150.0, 0.03, 0.2),
+        (4400.0, 0.015, 0.12),
+    ];
     mclick(c, &mut out, 0.0, 1.0, 2500.0, &modes);
     thunk(c, &mut out, 0.0, 0.6, 130.0, 90.0, 0.015);
     // slap: a second, slightly detuned hit right behind the first
@@ -2533,7 +2609,8 @@ fn tree_fall(c: &mut Ctx) -> Vec<f32> {
     let (p, b) = (c.p, c.b);
     let mut out = c.silence(1.2);
     // groaning creaks
-    let k = creak(c, 0.7, 85.0 * p, 175.0 * p, 550.0, 0.12).env_fn(sr, |t| smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(0.55, 0.7, t)));
+    let k = creak(c, 0.7, 85.0 * p, 175.0 * p, 550.0, 0.12)
+        .env_fn(sr, |t| smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(0.55, 0.7, t)));
     mix(&mut out, &k, 0, 0.6);
     let k = creak(c, 0.6, 140.0 * p, 260.0 * p, 1100.0, 0.1).env_fn(sr, |t| hump(t, 0.25, 0.3));
     mix_at(&mut out, sr, &k, 0.1, 0.25);
@@ -2803,9 +2880,9 @@ fn storm_damage(c: &mut Ctx) -> Vec<f32> {
     for (a, g) in z.iter_mut().zip(&gate) {
         *a *= 0.6 + 0.4 * g;
     }
-    let z = z.lpq(sr, 1500.0, 1.5).env(sr, 0.002, 0.1);
+    let z = z.lpq(sr, 2500.0, 1.5).env(sr, 0.002, 0.1);
     mix(&mut out, &z, 0, 0.5);
-    crackle(c, &mut out, 0.0, 0.25, 180.0, 30.0, 1500.0, 6500.0, (0.0008, 0.003), |t| 0.45 * decay(t, 0.1));
+    crackle(c, &mut out, 0.0, 0.25, 180.0, 30.0, 1500.0, 6500.0, (0.0008, 0.003), |t| 0.6 * decay(t, 0.1));
     out.clip(1.1)
 }
 
@@ -2836,12 +2913,7 @@ fn bus_loop(c: &mut Ctx) -> Vec<f32> {
     let mut out = spec.take(&drone);
     // 2. noise layers (cross-fade loop): exhaust rumble + propeller flutter
     let ph0 = c.rng.f();
-    let rumble = c
-        .brown(secs)
-        .lp(sr, 220.0)
-        .hp(sr, 25.0)
-        .norm(1.0)
-        .env_fn(sr, |t| 0.4 + 0.6 * chug(spec.cyc_t(t)));
+    let rumble = c.brown(secs).lp(sr, 220.0).hp(sr, 25.0).norm(1.0).env_fn(sr, |t| 0.4 + 0.6 * chug(spec.cyc_t(t)));
     let flutter = c
         .pink(secs)
         .sweep(sr, Kind::Bp, 1.3, |t| 650.0 + 120.0 * sin_cyc(spec.cyc_t(t) * 3.0 + ph0))
@@ -2876,11 +2948,8 @@ fn wind_loop(c: &mut Ctx) -> Vec<f32> {
         .norm(1.0)
         .env_fn(sr, |t| 0.45 + 0.55 * gust(t).powf(1.3));
     // whistle through gaps: narrow band, only in the strongest gusts
-    let whistle = c
-        .white(secs)
-        .sweep(sr, Kind::Bp, 14.0, |t| 1800.0 + 700.0 * gust(t))
-        .norm(1.0)
-        .env_fn(sr, |t| gust(t).powi(3));
+    let whistle =
+        c.white(secs).sweep(sr, Kind::Bp, 14.0, |t| 1800.0 + 700.0 * gust(t)).norm(1.0).env_fn(sr, |t| gust(t).powi(3));
     // low body
     let body = c.brown(secs).lp(sr, 160.0).hp(sr, 30.0).norm(1.0).env_fn(sr, |t| 0.3 + 0.7 * gust(t));
     let mut raw = spec.fit(rush);
@@ -2896,18 +2965,19 @@ fn glider_deploy(c: &mut Ctx) -> Vec<f32> {
     let (p, b) = (c.p, c.b);
     let mut out = c.silence(0.6);
     // fwump
-    let k = thump(sr, 0.3, 110.0 * p, 55.0 * p, 0.03, 0.08).clip(1.5);
+    let k = thump(sr, 0.5, 110.0 * p, 55.0 * p, 0.03, 0.08).clip(1.5);
     mix(&mut out, &k, 0, 0.8);
     let k = c.white(0.3).lp(sr, 450.0 * b).env(sr, 0.002, 0.06);
     mix(&mut out, &k, 0, 0.8);
     // fabric snap
     let k = c.white(0.03).bp(sr, 1400.0 * b, 0.7).env(sr, 0.0001, 0.006).clip(2.0);
-    mix(&mut out, &k, 0, 0.9);
+    mix(&mut out, &k, 0, 1.1);
     let k = tick_noise(c, 0.008, 1200.0, 0.002);
     mix(&mut out, &k, 0, 0.5);
     // air burst
-    let k = whoosh(c, 0.55, 1.0, move |t| b * geo(2800.0, 700.0, t / 0.5), |t| smoothstep(0.0, 0.01, t) * decay(t, 0.15));
-    mix(&mut out, &k, 0, 0.7);
+    let k =
+        whoosh(c, 0.55, 1.0, move |t| b * geo(2800.0, 700.0, t / 0.5), |t| smoothstep(0.0, 0.01, t) * decay(t, 0.15));
+    mix(&mut out, &k, 0, 1.0);
     // canvas flapping
     let k = c
         .white(0.5)
@@ -3099,7 +3169,13 @@ fn drop_in(c: &mut Ctx) -> Vec<f32> {
     let k = c.white(0.1).lp(sr, 500.0).env(sr, 0.001, 0.04);
     mix(&mut out, &k, 0, 0.5);
     // rising airy sweep
-    let k = whoosh(c, 1.0, 1.1, move |t| b * geo(250.0, 3800.0, (t / 0.85).min(1.0).powf(1.2)), |t| smoothstep(0.0, 0.08, t) * hump(t, 0.5, 0.45));
+    let k = whoosh(
+        c,
+        1.0,
+        1.1,
+        move |t| b * geo(250.0, 3800.0, (t / 0.85).min(1.0).powf(1.2)),
+        |t| smoothstep(0.0, 0.08, t) * hump(t, 0.5, 0.45),
+    );
     mix(&mut out, &k, 0, 1.3);
     let k = whoosh(c, 0.9, 0.7, move |t| b * geo(3000.0, 9000.0, t / 0.8), |t| hump(t, 0.6, 0.3));
     mix(&mut out, &k, 0, 0.3);
@@ -3131,7 +3207,9 @@ fn master_spec(sfx: Sfx) -> (f32, f32) {
         Sfx::EmptyClick => (0.45, 0.02),
         Sfx::WeaponSwap => (0.45, 0.02),
         // movement
-        Sfx::StepGrass | Sfx::StepSand | Sfx::StepStone | Sfx::StepWood | Sfx::StepMetal | Sfx::StepWater => (0.35, 0.02),
+        Sfx::StepGrass | Sfx::StepSand | Sfx::StepStone | Sfx::StepWood | Sfx::StepMetal | Sfx::StepWater => {
+            (0.35, 0.02)
+        }
         Sfx::Jump => (0.3, 0.03),
         Sfx::Land => (0.45, 0.03),
         // pickups
@@ -3457,7 +3535,11 @@ mod tests {
         let raw: Vec<f32> = (0..spec.total()).map(|_| rng.bi()).collect();
         let out = spec.fold(&raw);
         assert_eq!(out.len(), spec.n);
-        assert_eq!(out[0], raw[spec.warm + spec.n] * cos_cyc(0.5 / spec.xf as f32 * 0.25) + raw[spec.warm] * sin_cyc(0.5 / spec.xf as f32 * 0.25));
+        assert_eq!(
+            out[0],
+            raw[spec.warm + spec.n] * cos_cyc(0.5 / spec.xf as f32 * 0.25)
+                + raw[spec.warm] * sin_cyc(0.5 / spec.xf as f32 * 0.25)
+        );
         let (_, r_mid) = peak_rms(&out[spec.xf * 2..spec.n - 1]);
         let (_, r_fade) = peak_rms(&out[..spec.xf]);
         assert!((r_fade / r_mid - 1.0).abs() < 0.08, "cross-fade level {} vs {}", r_fade, r_mid);
