@@ -215,3 +215,58 @@ pub fn update_ground_cover(device: &Device, g: &mut WorldGpu, world: &World, cam
 pub fn mesh_ids_for_grass(mode: fn_core::game::GameMode) -> (u16, u16) {
     (fn_core::lego_models::mapped_mesh(MeshId::GrassTuft, mode).idx(), fn_core::lego_models::mapped_mesh(MeshId::FlowerClump, mode).idx())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fn_core::game::GameMode;
+
+    #[test]
+    fn prop_spheres_enclose_every_lod_and_theme_after_rotation_and_wind() {
+        for kind in PROP_KINDS {
+            for mode in [GameMode::BattleRoyale, GameMode::Lego] {
+                for lod in 0..2 {
+                    let mesh = fn_core::meshlib::build_mesh(fn_core::lego_models::mapped_mesh(kind.mesh(lod), mode));
+                    for scale in [0.55, 1.0, 1.6] {
+                        for yaw in [0.0, 0.7, 1.8, 3.4] {
+                            let p = PropInst { kind, pos: Vec3::new(17.0, 6.0, -91.0), yaw, scale, tint: [1.0; 3] };
+                            let center = prop_center(&p);
+                            let radius = prop_radius(kind, scale);
+                            let aabb = Aabb::from_center_half(center, Vec3::splat(radius));
+                            let xf = Mat4::from_translation(p.pos) * Mat4::from_rotation_y(yaw) * Mat4::from_scale(Vec3::splat(scale));
+                            for v in &mesh.verts {
+                                for wind in [Vec3::new(0.22, 0.0, 0.132), Vec3::new(-0.22, 0.0, -0.132)] {
+                                    let point = xf.transform_point3(Vec3::from(v.pos)) + wind;
+                                    assert!(point.distance(center) <= radius + 1e-4, "{kind:?} {mode:?} LOD {lod}: vertex outside sphere");
+                                    assert!(aabb.contains(point), "{kind:?} {mode:?} LOD {lod}: vertex outside chunk bounds");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn canopy_at_frustum_edge_keeps_prop_and_chunk_visible() {
+        for kind in [PropKind::PineSlim, PropKind::OakBroad, PropKind::BirchTall, PropKind::BushFlower] {
+            let p = PropInst { kind, pos: Vec3::new(-12.0, 4.0, -25.0), yaw: 0.7, scale: 1.4, tint: [1.0; 3] };
+            let center = prop_center(&p);
+            let radius = prop_radius(kind, p.scale);
+            let aabb = Aabb::from_center_half(center, Vec3::splat(radius));
+            let xf = Mat4::from_translation(p.pos) * Mat4::from_rotation_y(p.yaw) * Mat4::from_scale(Vec3::splat(p.scale));
+            for mode in [GameMode::BattleRoyale, GameMode::Lego] {
+                for lod in 0..2 {
+                    let mesh = fn_core::meshlib::build_mesh(fn_core::lego_models::mapped_mesh(kind.mesh(lod), mode));
+                    for normal in [Vec3::X, Vec3::NEG_X, Vec3::Y, Vec3::NEG_Y, Vec3::Z, Vec3::NEG_Z] {
+                        let edge = mesh.verts.iter().map(|v| normal.dot(xf.transform_point3(Vec3::from(v.pos)))).fold(f32::NEG_INFINITY, f32::max);
+                        let frustum = Frustum { planes: [normal.extend(-edge); 5] };
+                        assert!(frustum.intersects_sphere(center, radius), "{kind:?} {mode:?} LOD {lod}: canopy incorrectly culled");
+                        assert!(frustum.intersects_aabb(&aabb), "{kind:?} {mode:?} LOD {lod}: chunk incorrectly culled");
+                    }
+                }
+            }
+        }
+    }
+}
