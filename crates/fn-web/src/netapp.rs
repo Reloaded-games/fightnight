@@ -131,7 +131,7 @@ impl App {
                 let _ = write!(s, "{{\"state\":\"host\",\"started\":{},\"waiting\":{},\"names\":{},\"peers\":[{}]}}", h.has_started(), h.waiting_for(), names_json(&h.setup.names), peers.join(","));
             }
             (Mode::Guest(c), true, _) => {
-                let _ = write!(s, "{{\"state\":\"guest\",\"started\":{},\"synced\":{},\"ping\":{:.0},\"names\":{},\"closed\":{}}}", true, c.is_synced(), c.ping_ms, names_json(&c.setup.names), c.closed().map_or("null".into(), esc));
+                let _ = write!(s, "{{\"state\":\"guest\",\"started\":true,\"synced\":{},\"ping\":{:.0},\"names\":{},\"closed\":{}}}", c.is_synced(), c.ping_ms, names_json(&c.setup.names), c.closed().map_or("null".into(), esc));
             }
             (_, _, Lobby::Host(r)) => {
                 let _ = write!(s, "{{\"state\":\"host-lobby\",\"names\":{}}}", names_json(&r.names()));

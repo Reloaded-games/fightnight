@@ -47,7 +47,7 @@ fn aim_player_at(g: &mut Game, target: Vec3) {
 /// Who runs the match this page shows.
 pub enum Mode {
     /// A match against bots on this machine alone.
-    Solo(Game),
+    Solo(Box<Game>),
     /// A multiplayer match this page hosts: the simulation runs here.
     Host(Box<Host>),
     /// A multiplayer match hosted elsewhere: this page plays its own predicted copy.
@@ -128,7 +128,7 @@ impl App {
         let (w, h) = renderer.surface_size();
         let last_cam = game.camera(w as f32 / h.max(1) as f32);
         App {
-            mode: Mode::Solo(game),
+            mode: Mode::Solo(Box::new(game)),
             lobby: Lobby::None,
             net_out: vec![],
             net_live: false,
@@ -165,7 +165,7 @@ impl App {
             self.minimap = fn_core::world::minimap::render(&world, 1024);
         }
         let fov = self.mode.game().fov_deg;
-        self.mode = Mode::Solo(Game::new(world, cfg.clone()));
+        self.mode = Mode::Solo(Box::new(Game::new(world, cfg.clone())));
         self.mode.game_mut().fov_deg = fov;
         self.net_live = false;
         self.cfg = cfg;
