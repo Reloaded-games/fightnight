@@ -31,8 +31,8 @@ pub struct SceneStats {
 pub struct Scene {
     mode: GameMode,
     lists: Vec<Vec<Instance>>,
-    /// Bounding-box centre and half height per mesh (floor items are centred on their pivot).
-    centers: Vec<(Vec3, f32)>,
+    /// Bounding-box centre and half extents per mesh (floor items are centred on their pivot and sized to be seen).
+    centers: Vec<(Vec3, Vec3)>,
     ghost: Vec<Instance>,
     ghost_mesh: Option<u16>,
     pub instances: Vec<Instance>,
@@ -73,6 +73,31 @@ pub fn material_tint(m: Mat) -> Vec3 {
 
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
+/// How long (metres) a healing item or ammo box lying on the ground reads on screen, whatever size its mesh was modelled at:
+/// a bandage is 12 cm long as a prop, which is a speck from the camera.
+pub fn floor_item_size(kind: &PickupKind) -> f32 {
+    match kind {
+        PickupKind::Weapon { .. } => 0.0,
+        PickupKind::Ammo { .. } => 0.5,
+        PickupKind::Consumable { kind, .. } => match kind {
+            ConsumableKind::Bandage => 0.5,
+            ConsumableKind::MedKit => 0.62,
+            ConsumableKind::ShieldSmall => 0.5,
+            ConsumableKind::ShieldBig => 0.58,
+            ConsumableKind::ChugJug => 0.66,
+        },
+    }
+}
+
+/// How long a healing item is in the player's hand.
+pub const HELD_ITEM_SIZE: f32 = 0.3;
+
+/// Scale that makes a mesh with half extents `half` about `target` metres across its longest side.
+pub fn fit_scale(half: Vec3, target: f32) -> f32 {
+    let longest = (half.max_element() * 2.0).max(0.02);
+    (target / longest).clamp(0.25, 8.0)
+}
+
 impl Scene {
     pub fn new(meshes: &[MeshData]) -> Scene {
         let centers = meshes
@@ -80,9 +105,9 @@ impl Scene {
             .map(|m| {
                 let b = m.bounds();
                 if b.min.is_finite() && b.max.is_finite() {
-                    (b.center(), b.half().y)
+                    (b.center(), b.half())
                 } else {
-                    (Vec3::ZERO, 0.0)
+                    (Vec3::ZERO, Vec3::ZERO)
                 }
             })
             .collect();
@@ -105,6 +130,11 @@ impl Scene {
     fn push(&mut self, mesh: MeshId, m: Mat4, color: [f32; 4]) {
         let mesh = crate::lego_models::mapped_mesh(mesh, self.mode);
         self.lists[mesh as usize].push(Instance::from_mat4(m, color));
+    }
+
+    /// Scale that makes `mesh` (as the current theme draws it) about `target` metres long.
+    fn fit_to(&self, mesh: MeshId, target: f32) -> f32 {
+        fit_scale(self.centers[crate::lego_models::mapped_mesh(mesh, self.mode) as usize].1, target)
     }
 
     fn push_i(&mut self, mesh: MeshId, i: Instance) {
@@ -268,9 +298,11 @@ impl Scene {
             put(self, MeshId::CharBoot, p.boot[i], boots);
         }
         if let Some((mesh, m)) = p.item {
-            let tint = match a.inv.selected_item() {
-                Some(Item::Weapon { rarity, .. }) => lin(Vec3::ONE.lerp(rarity.color(), 0.55)),
-                _ => WHITE,
+            let (tint, m) = match a.inv.selected_item() {
+                Some(Item::Weapon { rarity, .. }) => (lin(Vec3::ONE.lerp(rarity.color(), 0.55)), m),
+                // the props are modelled at their real size; in a hand a bandage would vanish
+                Some(Item::Consumable { .. }) => (WHITE, m * Mat4::from_scale(Vec3::splat(self.fit_to(mesh, HELD_ITEM_SIZE)))),
+                _ => (WHITE, m),
             };
             put(self, mesh, m, tint);
         }
@@ -312,14 +344,15 @@ impl Scene {
             }
             self.stats.pickups += 1;
             let mesh = rig::pickup_model(&p.kind);
-            let (center, half_y) = self.centers[mesh as usize];
+            // the theme's own mesh is what gets drawn (see `push`), so its bounds are the ones that matter
+            let (center, half) = self.centers[crate::lego_models::mapped_mesh(mesh, self.mode) as usize];
             let (scale, tint, glow_col, beam_h) = match p.kind {
                 PickupKind::Weapon { rarity, .. } => (1.3, lin(Vec3::ONE.lerp(rarity.color(), 0.5)), rarity.color(), 4.8),
-                PickupKind::Ammo { kind, .. } => (1.15, lin(kind.color()), kind.color(), 2.4),
-                PickupKind::Consumable { kind, .. } => (1.35, WHITE, kind.rarity().color(), 3.2),
+                PickupKind::Ammo { kind, .. } => (fit_scale(half, floor_item_size(&p.kind)), lin(kind.color()), kind.color(), 2.4),
+                PickupKind::Consumable { kind, .. } => (fit_scale(half, floor_item_size(&p.kind)), WHITE, kind.rarity().color(), 3.2),
             };
             let bob = if p.grounded { 0.07 * (t * 2.3 + p.spin * 3.0).sin() } else { 0.0 };
-            let lift = (half_y * scale + 0.3).max(0.42);
+            let lift = (half.y * scale + 0.3).max(0.42);
             let pos = p.pos + Vec3::Y * (lift + bob);
             let m = Mat4::from_translation(pos) * Mat4::from_rotation_y(p.spin) * Mat4::from_scale(Vec3::splat(scale)) * Mat4::from_translation(-center);
             self.push(mesh, m, tint);
@@ -479,6 +512,25 @@ mod tests {
         assert!(scene.particles.iter().chain(&scene.particles_add).all(|p| p.is_sane()), "a particle with a NaN got through");
         let total: u32 = scene.batches.iter().map(|b| b.count).sum();
         assert_eq!(total as usize, scene.instances.len(), "the batches still add up");
+    }
+
+    #[test]
+    fn healing_items_and_ammo_are_big_enough_to_see_on_the_ground_and_in_the_hand() {
+        // the prop meshes are modelled at real size (a bandage is 12 cm), which is a speck from a third-person camera
+        let meshes = build_all();
+        for mode in [GameMode::BattleRoyale, GameMode::Lego] {
+            let mut scene = Scene::new(&meshes);
+            scene.mode = mode;
+            let kinds: Vec<PickupKind> = ConsumableKind::ALL.iter().map(|&kind| PickupKind::Consumable { kind, count: 1 }).chain(AmmoKind::ALL.iter().map(|&kind| PickupKind::Ammo { kind, amount: 1 })).collect();
+            for kind in kinds {
+                let mesh = rig::pickup_model(&kind);
+                let (_, half) = scene.centers[crate::lego_models::mapped_mesh(mesh, mode) as usize];
+                let on_floor = half.max_element() * 2.0 * fit_scale(half, floor_item_size(&kind));
+                assert!((0.4..=0.8).contains(&on_floor), "{mode:?} {kind:?} is {on_floor:.2} m on the ground");
+                let in_hand = half.max_element() * 2.0 * scene.fit_to(mesh, HELD_ITEM_SIZE);
+                assert!((0.22..=0.4).contains(&in_hand), "{mode:?} {kind:?} is {in_hand:.2} m in the hand");
+            }
+        }
     }
 
     #[test]

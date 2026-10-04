@@ -243,6 +243,21 @@ impl Inventory {
         left
     }
 
+    /// Whether the item in hand (a weapon or a healing item, never the harvesting tool) can be traded for something found on the ground.
+    pub fn can_swap_selected(&self) -> bool {
+        self.selected != 0 && matches!(self.slots[self.selected], Some(Item::Weapon { .. } | Item::Consumable { .. }))
+    }
+
+    /// Put `item` where the item in hand is and return what it replaced (with its slot). Nothing happens unless [`Self::can_swap_selected`].
+    pub fn swap_selected(&mut self, item: Item) -> Option<(usize, Item)> {
+        if !self.can_swap_selected() {
+            return None;
+        }
+        let slot = self.selected;
+        let old = self.slots[slot].replace(item)?;
+        Some((slot, old))
+    }
+
     /// Add ammo to the reserve; returns the amount actually added.
     pub fn add_ammo(&mut self, kind: AmmoKind, amount: u32) -> u32 {
         let cap = kind.cap();

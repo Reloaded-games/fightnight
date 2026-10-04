@@ -76,7 +76,7 @@ ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub 
 | Left mouse | Fire · swing the pickaxe · place the selected piece |
 | Right mouse | Aim down sights |
 | `R` | Reload |
-| `E` | Pick up / open chest / enter or exit a buggy |
+| `E` | Pick up (with a full hotbar, swaps with the item in hand) / open chest / enter or exit a buggy |
 | `W A S D`, `Shift`, `Space` (driving) | Steer and accelerate / boost / brake |
 | `1`–`6` / wheel | Select slot (1 is the pickaxe) |
 | `G` | Drop the selected item |

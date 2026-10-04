@@ -645,6 +645,21 @@ impl App {
                 }
                 "ok".into()
             }
+            "loot_row" => {
+                // one of every healing item and ammo box on the ground in a row in front of the player (visual checks)
+                let p = g.actors[me].pos;
+                let yaw = g.actors[me].yaw;
+                let (f, side) = (yaw_forward(yaw), yaw_right(yaw));
+                let dist = num(1, 3.0);
+                let mut kinds: Vec<PickupKind> = ConsumableKind::ALL.iter().map(|&kind| PickupKind::Consumable { kind, count: 2 }).collect();
+                kinds.extend(AmmoKind::ALL.iter().map(|&kind| PickupKind::Ammo { kind, amount: kind.box_amount() }));
+                let n = kinds.len();
+                for (k, kind) in kinds.into_iter().enumerate() {
+                    let pos = p + f * dist + side * ((k as f32 - (n as f32 - 1.0) / 2.0) * 0.9);
+                    g.spawn_pickup(Vec3::new(pos.x, g.world.hm.height_at(pos.x, pos.z), pos.z), kind, false);
+                }
+                "ok".into()
+            }
             "chest_here" => {
                 // drop an unopened chest (and some loot) in front of the player
                 let p = g.actors[me].pos;

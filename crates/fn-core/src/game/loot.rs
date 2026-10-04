@@ -96,7 +96,24 @@ impl Game {
                 }
                 false
             }
-            None => false,
+            None => {
+                self.explain_nothing_taken(who);
+                false
+            }
+        }
+    }
+
+    /// E found nothing to take. When that is because the thing lying there does not fit, say so (a player cannot tell "full" from "broken").
+    fn explain_nothing_taken(&mut self, who: usize) {
+        let a = &self.actors[who];
+        if !a.human {
+            return;
+        }
+        let c = a.pos + Vec3::Y * 0.9;
+        let nearest = self.pickups.iter().filter(|p| p.pos.distance(c) < INTERACT_RANGE).min_by(|x, y| x.pos.distance(c).total_cmp(&y.pos.distance(c)));
+        if let Some(p) = nearest {
+            let why = why_not_taken(&a.inv, &p.kind);
+            self.toast_to(who, why, 2.0, 2);
         }
     }
 
@@ -178,7 +195,29 @@ impl Game {
             PickupKind::Consumable { kind: ck, count } => {
                 let left = self.actors[who].inv.add_consumable(ck, count);
                 if left >= count {
-                    return false;
+                    // nowhere to put it: trade it for the item in hand, the way a full inventory takes a weapon
+                    let Some((_, old)) = self.actors[who].inv.swap_selected(Item::Consumable { kind: ck, count: count.min(ck.def().stack) }) else { return false };
+                    let dropped = match old {
+                        Item::Weapon { kind, rarity, ammo } => PickupKind::Weapon { kind, rarity, ammo },
+                        Item::Consumable { kind, count } => PickupKind::Consumable { kind, count },
+                        Item::Pickaxe => return true,
+                    };
+                    if count > ck.def().stack {
+                        // (a stack found on the ground is never bigger than a slot holds, but a hand-made one could be)
+                        self.pickups[idx].kind = PickupKind::Consumable { kind: ck, count: count - ck.def().stack };
+                    } else {
+                        self.pickups.remove(idx);
+                    }
+                    self.spawn_pickup(apos + Vec3::Y * 0.4, dropped, true);
+                    let a = &mut self.actors[who];
+                    if !a.build_mode {
+                        // what is in hand changed: whatever was going on with the old item (a reload, a heal) is over
+                        a.action = Action::Swap { t: 0.25 };
+                        a.ads = false;
+                        self.events.push(Event::WeaponSwitch { actor: who, pos: apos });
+                    }
+                    self.events.push(Event::Pickup { actor: who, pos: ppos, sound: PickupSound::Heal, name: ck.name(), rarity: ck.rarity(), count: count.min(ck.def().stack) });
+                    return true;
                 }
                 if left == 0 {
                     self.pickups.remove(idx);
@@ -258,12 +297,21 @@ impl Game {
 }
 
 /// Whether the inventory has room for (some of) a pickup: a weapon needs a free slot or a weapon to swap with,
-/// ammo needs headroom under the cap, a consumable needs a free slot or a part-filled stack of its kind.
+/// ammo needs headroom under the cap, a consumable needs a free slot, a part-filled stack of its kind or the item in hand to trade for.
 pub fn can_take(inv: &Inventory, kind: &PickupKind) -> bool {
     match *kind {
         PickupKind::Weapon { .. } => inv.free_slot().is_some() || (1..6).any(|i| matches!(inv.slots[i], Some(Item::Weapon { .. }))),
         PickupKind::Ammo { kind, .. } => inv.ammo[kind.index()] < kind.cap(),
-        PickupKind::Consumable { kind, .. } => inv.free_slot().is_some() || (1..6).any(|i| matches!(inv.slots[i], Some(Item::Consumable { kind: k, count }) if k == kind && count < kind.def().stack)),
+        PickupKind::Consumable { kind, .. } => inv.free_slot().is_some() || inv.can_swap_selected() || (1..6).any(|i| matches!(inv.slots[i], Some(Item::Consumable { kind: k, count }) if k == kind && count < kind.def().stack)),
+    }
+}
+
+/// Why nothing in reach can be taken, for the player who just tried: the closest thing lying there that does not fit.
+fn why_not_taken(inv: &Inventory, kind: &PickupKind) -> String {
+    match *kind {
+        PickupKind::Ammo { kind, .. } => format!("{} full", kind.name()),
+        PickupKind::Consumable { .. } if inv.selected == 0 => "Inventory full. Select an item to swap with it".to_string(),
+        PickupKind::Weapon { .. } | PickupKind::Consumable { .. } => "Inventory full".to_string(),
     }
 }
 
@@ -447,6 +495,63 @@ mod tests {
         assert_eq!(g.find_target(PLAYER), Some(Target::Pickup(gun)));
         assert!(g.interact(PLAYER));
         assert!(g.actors[PLAYER].inv.slots.iter().flatten().any(|i| matches!(i, Item::Weapon { kind: WeaponKind::Smg, .. })));
+    }
+
+    fn full_of_pistols(g: &mut Game) {
+        g.pickups.clear();
+        for _ in 0..5 {
+            g.actors[PLAYER].inv.add_weapon(WeaponKind::Pistol, Rarity::Common, 4);
+        }
+        assert!(g.actors[PLAYER].inv.free_slot().is_none());
+    }
+
+    #[test]
+    fn a_full_inventory_trades_a_healing_item_for_the_item_in_hand() {
+        let mut g = game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 7, god_mode: true, ..Default::default() });
+        let pos = g.actors[PLAYER].pos;
+        full_of_pistols(&mut g);
+        g.select_slot(PLAYER, 2);
+        let id = g.spawn_pickup(pos, PickupKind::Consumable { kind: ConsumableKind::MedKit, count: 1 }, false);
+        assert_eq!(g.find_target(PLAYER), Some(Target::Pickup(id)), "the medkit can be traded for the pistol in hand");
+        assert!(g.interact(PLAYER));
+        assert!(matches!(g.actors[PLAYER].inv.slots[2], Some(Item::Consumable { kind: ConsumableKind::MedKit, count: 1 })), "{:?}", g.actors[PLAYER].inv.slots);
+        assert_eq!(g.actors[PLAYER].inv.weapon_count(), 4);
+        assert_eq!(g.pickups.len(), 1, "the medkit is gone and the pistol lies there instead");
+        assert!(matches!(g.pickups[0].kind, PickupKind::Weapon { kind: WeaponKind::Pistol, .. }));
+        assert!(matches!(g.actors[PLAYER].action, Action::Swap { .. }), "the new item is raised");
+        assert!(g.events.iter().any(|e| matches!(e, Event::Pickup { name: "Medkit", .. })));
+        // a healing item in hand can be traded as well, and the stack that was in hand goes down whole
+        g.actors[PLAYER].action = Action::None;
+        g.pickups.clear();
+        let id = g.spawn_pickup(pos, PickupKind::Consumable { kind: ConsumableKind::ShieldBig, count: 2 }, false);
+        assert_eq!(g.find_target(PLAYER), Some(Target::Pickup(id)));
+        assert!(g.interact(PLAYER));
+        assert!(matches!(g.actors[PLAYER].inv.slots[2], Some(Item::Consumable { kind: ConsumableKind::ShieldBig, count: 2 })));
+        assert!(g.pickups.iter().any(|p| matches!(p.kind, PickupKind::Consumable { kind: ConsumableKind::MedKit, count: 1 })), "the medkit went back to the ground");
+    }
+
+    #[test]
+    fn a_full_inventory_with_the_pickaxe_in_hand_says_so_instead_of_staying_silent() {
+        let mut g = game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 7, god_mode: true, ..Default::default() });
+        let pos = g.actors[PLAYER].pos;
+        full_of_pistols(&mut g);
+        g.select_slot(PLAYER, 0);
+        g.spawn_pickup(pos, PickupKind::Consumable { kind: ConsumableKind::Bandage, count: 5 }, false);
+        assert_eq!(g.find_target(PLAYER), None, "nothing to trade with: the pickaxe is not for trading");
+        assert!(!g.interact(PLAYER));
+        assert!(g.events.iter().any(|e| matches!(e, Event::Toast { actor: Some(PLAYER), text, .. } if text.contains("Inventory full"))), "{:?}", g.events);
+        // ammo at the cap says which one
+        g.events.clear();
+        g.pickups.clear();
+        g.actors[PLAYER].inv.ammo[AmmoKind::Heavy.index()] = AmmoKind::Heavy.cap();
+        g.spawn_pickup(pos, PickupKind::Ammo { kind: AmmoKind::Heavy, amount: 6 }, false);
+        assert!(!g.interact(PLAYER));
+        assert!(g.events.iter().any(|e| matches!(e, Event::Toast { text, .. } if text.contains("Heavy Ammo full"))), "{:?}", g.events);
+        // with nothing lying around there is nothing to complain about
+        g.events.clear();
+        g.pickups.clear();
+        assert!(!g.interact(PLAYER));
+        assert!(!g.events.iter().any(|e| matches!(e, Event::Toast { .. })));
     }
 
     #[test]

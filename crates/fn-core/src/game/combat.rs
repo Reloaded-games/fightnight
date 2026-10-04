@@ -49,6 +49,18 @@ fn can_use(kind: ConsumableKind, a: &Actor) -> bool {
     (d.heal > 0.0 && a.hp < d.max_hp - 0.01) || (d.shield > 0.0 && a.shield < d.max_shield - 0.01)
 }
 
+/// What to tell a player who tries a healing item that has nothing to do right now.
+pub fn cannot_use_reason(kind: ConsumableKind) -> String {
+    let d = kind.def();
+    match (d.heal > 0.0, d.shield > 0.0) {
+        (true, true) => "Health and shield are already full".to_string(),
+        (true, false) if d.max_hp < 100.0 => format!("{} heals up to {} health only", d.name, d.max_hp),
+        (true, false) => "Health is already full".to_string(),
+        (false, _) if d.max_shield < 100.0 => format!("{} fills shield up to {} only", d.name, d.max_shield),
+        (false, _) => "Shield is already full".to_string(),
+    }
+}
+
 impl Game {
     /// Where a shot starts and which way it points (shoulder for the human, eye for bots).
     pub fn shot_ray(&self, idx: usize) -> (Vec3, Vec3) {
@@ -278,12 +290,19 @@ impl Game {
             }
             Some(Item::Consumable { kind, .. }) => {
                 let a = &self.actors[i];
-                if it.fire_pressed && matches!(a.action, Action::None) && can_use(kind, a) {
-                    let slot = a.inv.selected;
-                    let dur = kind.def().use_time;
-                    let pos = a.pos;
-                    self.actors[i].action = Action::Heal { slot, t: 0.0, dur };
-                    self.events.push(Event::HealStart { actor: i, pos });
+                // raising the item is only an animation: a click that lands while it comes up (the usual "press 3, click") must not be lost
+                if it.fire_pressed && matches!(a.action, Action::None | Action::Swap { .. }) {
+                    if can_use(kind, a) {
+                        let slot = a.inv.selected;
+                        let dur = kind.def().use_time;
+                        let pos = a.pos;
+                        self.actors[i].action = Action::Heal { slot, t: 0.0, dur };
+                        self.events.push(Event::HealStart { actor: i, pos });
+                    } else if a.human {
+                        // a click that does nothing, silently, reads as a broken item
+                        let why = cannot_use_reason(kind);
+                        self.toast_to(i, why, 2.2, 2);
+                    }
                 }
             }
             None => {}
@@ -1205,6 +1224,69 @@ mod tests {
             g.update(1.0 / 60.0, &PlayerInput::default());
         }
         assert_eq!(g.actors[a].shield, 50.0);
+    }
+
+    #[test]
+    fn a_click_while_a_healing_item_is_being_raised_still_uses_it() {
+        // "press 3, click": the item takes a quarter of a second to come up, and the click used to be thrown away
+        for (delay_frames, label) in [(0, "in the same frame as the key"), (6, "a tenth of a second later")] {
+            let mut g = game(2, true);
+            let a = PLAYER;
+            g.actors[a].inv.add_consumable(ConsumableKind::Bandage, 3);
+            g.actors[a].hp = 50.0;
+            g.update(1.0 / 60.0, &PlayerInput { select: Some(1), fire: delay_frames == 0, fire_pressed: delay_frames == 0, ..Default::default() });
+            for _ in 0..delay_frames {
+                g.update(1.0 / 60.0, &PlayerInput::default());
+            }
+            if delay_frames > 0 {
+                assert!(matches!(g.actors[a].action, Action::Swap { .. }), "still raising the bandage");
+                g.update(1.0 / 60.0, &PlayerInput { fire: true, fire_pressed: true, ..Default::default() });
+            }
+            assert!(matches!(g.actors[a].action, Action::Heal { .. }), "{label}: {:?}", g.actors[a].action);
+            assert!(g.events.iter().any(|e| matches!(e, Event::HealStart { .. })));
+            for _ in 0..(60 * 4) {
+                g.update(1.0 / 60.0, &PlayerInput::default());
+            }
+            assert_eq!(g.actors[a].hp, 65.0, "{label}: the bandage was used");
+            assert!(matches!(g.actors[a].inv.slots[1], Some(Item::Consumable { count: 2, .. })));
+        }
+    }
+
+    #[test]
+    fn a_healing_item_with_nothing_to_heal_says_why_instead_of_doing_nothing() {
+        let a = PLAYER;
+        let toast_with = |g: &Game, needle: &str| g.toast.iter().any(|t| t.0.contains(needle)) && g.events.iter().any(|e| matches!(e, Event::Toast { actor: Some(x), .. } if *x == a));
+        let try_item = |g: &mut Game, kind: ConsumableKind| {
+            g.actors[a].action = Action::None;
+            g.actors[a].inv = Inventory::new();
+            g.actors[a].inv.add_consumable(kind, 1);
+            g.select_slot(a, 1);
+            for _ in 0..30 {
+                g.update(1.0 / 60.0, &PlayerInput::default());
+            }
+            g.update(1.0 / 60.0, &PlayerInput { fire: true, fire_pressed: true, ..Default::default() });
+        };
+        let mut g = game(2, true);
+        g.actors[a].hp = 90.0;
+        try_item(&mut g, ConsumableKind::Bandage);
+        assert!(matches!(g.actors[a].action, Action::None));
+        assert!(toast_with(&g, "75"), "bandages only heal up to 75: {:?}", g.toast);
+        g.actors[a].hp = 100.0;
+        try_item(&mut g, ConsumableKind::MedKit);
+        assert!(toast_with(&g, "Health is already full"), "{:?}", g.toast);
+        g.actors[a].shield = 50.0;
+        try_item(&mut g, ConsumableKind::ShieldSmall);
+        assert!(toast_with(&g, "50"), "mini shields only fill up to 50: {:?}", g.toast);
+        g.actors[a].shield = 100.0;
+        try_item(&mut g, ConsumableKind::ShieldBig);
+        assert!(toast_with(&g, "Shield is already full"), "{:?}", g.toast);
+        try_item(&mut g, ConsumableKind::ChugJug);
+        assert!(toast_with(&g, "Health and shield"), "{:?}", g.toast);
+        // and when there is something to heal there is no complaint
+        g.actors[a].hp = 40.0;
+        g.toast.clear();
+        try_item(&mut g, ConsumableKind::MedKit);
+        assert!(matches!(g.actors[a].action, Action::Heal { .. }) && g.toast.is_empty());
     }
 
     #[test]
