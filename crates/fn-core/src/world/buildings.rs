@@ -283,7 +283,7 @@ impl B {
         // knob on a plate and a dark keyhole
         self.mb.mat(mat::METAL).hex(knob).spec(0.9);
         for s in [-1.0f32, 1.0] {
-            self.mb.sphere(Vec3::new(w - 0.14, h * 0.47, s * 0.062), 0.034, 1);
+            self.mb.sphere(Vec3::new(w - 0.14, h * 0.47, s * 0.062), 0.034, 0);
         }
         self.mb.hex(0x2b2e34);
         self.mb.box_center(Vec3::new(w - 0.14, h * 0.47 + 0.09, 0.0), Vec3::new(0.012, 0.03, 0.03));
@@ -1422,10 +1422,10 @@ fn porch_rail(b: &mut B, p0: Vec3, p1: Vec3, col: u32) {
     let (a0, a1) = if along_x { (lo.x, hi.x) } else { (lo.z, hi.z) };
     bx(b, a0, a1, y + 0.9, y + 0.97, t + 0.015);
     bx(b, a0, a1, y + 0.2, y + 0.25, t);
-    let n = (len / 0.2).floor() as i32;
+    let n = (len / 0.27).floor() as i32;
     for k in 0..=n {
         let a = a0 + (a1 - a0) * k as f32 / n.max(1) as f32;
-        bx(b, a - 0.015, a + 0.015, y + 0.25, y + 0.9, 0.015);
+        bx(b, a - 0.02, a + 0.02, y + 0.25, y + 0.9, 0.02);
     }
 }
 

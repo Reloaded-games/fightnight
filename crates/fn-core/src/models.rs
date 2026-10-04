@@ -1108,6 +1108,15 @@ pub fn pickaxe() -> MeshData {
     b.hex(0x8f98a6);
     seg(&mut b, 0.04, 0.17, 0.745, 0.745, 0.05, 0.04);
     b.box_center(Vec3::new(0.0, 0.742, 0.21), Vec3::new(0.012, 0.05, 0.045));
+    // socket plates either side of the head, a steel cap on the handle's end and a wrist strap
+    b.hex(0x8f98a6).spec(0.8);
+    b.box_center(Vec3::new(0.0, 0.7, 0.0), Vec3::new(0.026, 0.02, 0.05));
+    b.box_center(Vec3::new(0.0, 0.78, 0.0), Vec3::new(0.026, 0.012, 0.05));
+    b.hex(0xb5bcc7);
+    b.sphere(Vec3::new(0.0, -0.23, 0.0), 0.03, 1);
+    b.mat(mat::CLOTH).hex(0x4a3a2c);
+    b.box_center(Vec3::new(0.0, -0.2, 0.034), Vec3::new(0.004, 0.06, 0.012));
+    b.box_center(Vec3::new(0.0, -0.26, 0.012), Vec3::new(0.004, 0.012, 0.03));
     // accent collar
     b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(1.0, 0.55, 0.15));
     b.cylinder(Vec3::new(0.0, 0.66, 0.0), 0.027, 0.027, 0.03, 8, false, false);
