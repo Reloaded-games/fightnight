@@ -19,12 +19,4 @@ wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
-web-sys = { version = "0.3", features = [
-  "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "console", "Performance",
-  "CanvasRenderingContext2d", "KeyboardEvent", "MouseEvent", "WheelEvent", "Event", "EventTarget",
-  "PointerEvent", "FocusEvent", "ResizeObserver", "ResizeObserverEntry", "DomRect", "CssStyleDeclaration",
-  "Location", "UrlSearchParams", "Storage", "HtmlInputElement", "AudioContext", "AudioBuffer",
-  "AudioBufferSourceNode", "AudioDestinationNode", "GainNode", "AudioParam", "AudioNode", "BiquadFilterNode",
-  "StereoPannerNode", "AudioContextState", "BiquadFilterType", "DocumentFragment", "Node", "NodeList", "ImageData",
-  "Path2d", "TextMetrics", "HtmlCollection", "DomTokenList", "AddEventListenerOptions", "Gamepad",
-] }
+web-sys = { version = "0.3", features = ["Window", "HtmlCanvasElement", "console", "Performance"] }
