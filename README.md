@@ -21,6 +21,17 @@ model or audio files.
   a Canvas2D HUD in the same visual language (compass, minimap, skewed health/shield bars, rarity-coloured
   hotbar, kill feed, hit markers, damage numbers, victory screen with confetti).
 
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Main menu](docs/screenshots/menu.jpg) | ![The Battle Bus over the island](docs/screenshots/bus.jpg) |
+| ![A firefight in Maple Meadows](docs/screenshots/town.jpg) | ![Lazy Lagoon](docs/screenshots/lake.jpg) |
+| ![Building a ramp](docs/screenshots/build.jpg) | ![Standing next to the storm wall](docs/screenshots/storm.jpg) |
+| ![Inventory](docs/screenshots/inventory.jpg) | ![Island map](docs/screenshots/map.jpg) |
+
+(Regenerate them with `tools/screenshots.sh`.)
+
 ## Play
 
 You need a browser with WebGPU (Chrome / Edge 113+, Safari 18+, recent Firefox) and a GPU.

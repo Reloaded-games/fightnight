@@ -599,16 +599,27 @@ export function drawFullMap(canvas, mapImage, s, pois) {
   const toX = (x) => (x + WORLD / 2) * scale, toY = (z) => (z + WORLD / 2) * scale;
   const hud = { arrow: Hud.prototype.arrow, mapOverlays: Hud.prototype.mapOverlays };
   hud.mapOverlays(ctx, s, toX, toY, scale, N / 2, false, 1.4);
-  // points of interest
+  // points of interest: nudge a label up or down when it would overlap another one or the player marker
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const px = toX(s.pos[0]), pz = toY(s.pos[2]);
+  const taken = [{ x: px, y: pz, w: 56, h: 56 }, { x: px, y: pz - 32, w: 64, h: 26 }];
+  const clash = (x, y, w, h) => taken.some((r) => Math.abs(r.x - x) < (r.w + w) / 2 && Math.abs(r.y - y) < (r.h + h) / 2);
+  ctx.font = `italic 900 26px ${FONT}`;
   for (const p of pois) {
-    ctx.font = `italic 900 26px ${FONT}`;
+    const text = p.name.toUpperCase();
+    const w = ctx.measureText(text).width + 10, h = 30;
+    const x = toX(p.x);
+    let y = toY(p.z);
+    for (const k of [0, -1, 1, -2, 2, -3, 3]) {
+      const yy = toY(p.z) + k * h;
+      if (!clash(x, yy, w, h)) { y = yy; break; }
+    }
+    taken.push({ x, y, w, h });
     ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(8,12,44,.9)'; ctx.lineJoin = 'round';
-    ctx.strokeText(p.name.toUpperCase(), toX(p.x), toY(p.z));
-    ctx.fillStyle = '#fff'; ctx.fillText(p.name.toUpperCase(), toX(p.x), toY(p.z));
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = '#fff'; ctx.fillText(text, x, y);
   }
   // you
-  const px = toX(s.pos[0]), pz = toY(s.pos[2]);
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 250);
   ctx.strokeStyle = `rgba(255,255,255,${0.35 + 0.4 * pulse})`; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(px, pz, 16 + pulse * 8, 0, Math.PI * 2); ctx.stroke();

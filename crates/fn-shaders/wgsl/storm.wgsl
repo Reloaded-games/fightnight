@@ -40,11 +40,12 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
     let dcam = distance(i.wpos.xz, G.cam_pos.xz);
     let near = 1.0 - smoothstep(300.0, 850.0, dcam);
     let alpha = (0.30 + 0.38 * bands) * (0.35 + 0.65 * low) * sky_fade * near;
-    let base = vec3<f32>(0.46, 0.12, 0.95);
-    let hot = vec3<f32>(0.85, 0.35, 1.25);
-    var rgb = mix(base, hot, n2 * 0.8) * (0.7 + bands);
+    // deep violet energy curtain; the bright streaks stay well below white so the tone mapper keeps the hue
+    let base = vec3<f32>(0.30, 0.05, 0.78);
+    let hot = vec3<f32>(0.62, 0.20, 1.05);
+    var rgb = mix(base, hot, n2 * 0.8) * (0.45 + 0.75 * bands);
     // brighter where the wall meets the ground
-    rgb = rgb + hot * 0.7 * (1.0 - smoothstep(0.0, 18.0, abs(i.h - terrain_height(i.wpos.xz))));
+    rgb = rgb + hot * 0.5 * (1.0 - smoothstep(0.0, 18.0, abs(i.h - terrain_height(i.wpos.xz))));
     rgb = apply_fog(rgb, i.wpos);
     return vec4<f32>(rgb * alpha, alpha);
 }
