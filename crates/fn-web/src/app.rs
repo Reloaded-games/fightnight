@@ -306,6 +306,18 @@ impl App {
                 g.select_slot(PLAYER, slot);
                 "ok".into()
             }
+            "cons" => {
+                // cons <bandage|medkit|shield|bigshield|chug> [count]
+                let kind = match parts.get(1).copied().unwrap_or("bandage") {
+                    "medkit" => ConsumableKind::MedKit,
+                    "shield" => ConsumableKind::ShieldSmall,
+                    "bigshield" => ConsumableKind::ShieldBig,
+                    "chug" => ConsumableKind::ChugJug,
+                    _ => ConsumableKind::Bandage,
+                };
+                g.actors[PLAYER].inv.add_consumable(kind, num(2, 1.0) as u32);
+                "ok".into()
+            }
             "mats" => {
                 let n = num(1, 500.0) as u32;
                 g.actors[PLAYER].inv.mats = [n, n, n];

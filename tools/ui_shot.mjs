@@ -1,4 +1,4 @@
-// Usage: node ui_shot.mjs out.png [--eval "page js" --w 1280 --h 720 --opts "..." --cmd "tp ..|..." --keys "KeyW:300" --wait 1500 --state menu|playing --click "#btn-play" --after "js"]
+// Usage: node ui_shot.mjs out.png [--clip x,y,w,h --eval "page js" --w 1280 --h 720 --opts "..." --cmd "tp ..|..." --keys "KeyW:300" --wait 1500 --state menu|playing --click "#btn-play" --after "js"]
 // Boots index.html (the real UI). The WebGPU frame is read back and frozen into a 2D canvas so the
 // regular screenshot includes menus, the HUD canvas and DOM overlays.
 import { serve, launch } from './browser.mjs';
@@ -39,7 +39,8 @@ if (opt('click')) { await page.click(opt('click')); await page.waitForTimeout(40
 if (opt('eval')) console.log('eval =>', await page.evaluate(opt('eval')));
 await page.waitForTimeout(+opt('wait', 1200));
 if (opt('freeze', '1') === '1') console.log('frozen:', await page.evaluate(() => window.__game.freezeFrame()));
-await page.screenshot({ path: out });
+const clip = opt('clip') ? (([x, y, w, h]) => ({ x, y, width: w, height: h }))(opt('clip').split(',').map(Number)) : undefined; // --clip x,y,w,h: just that region
+await page.screenshot({ path: out, clip });
 console.log('wrote', out, '| state', await page.evaluate(() => window.__game.state));
 if (opt('hud')) console.log('hud:', await page.evaluate(() => JSON.stringify(window.__game.hud)));
 const bad = logs.filter(l => /error|warn|panick/i.test(l) && !/WebGPU is experimental|favicon|404|Failed to load resource/.test(l));
