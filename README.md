@@ -117,8 +117,9 @@ cd tools && npm install && npm test       # real-browser tests (needs `scripts/b
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
 ```
 
-`tools/` also has `ui_shot.mjs` / `game_shot.mjs` for scripted screenshots (the WebGPU frame is read back
-explicitly because headless Chromium cannot screenshot a WebGPU canvas). The page exposes a small debug
+`tools/` also has `ui_shot.mjs` (the real page with all its UI) and `game_shot.mjs` (the UI-less harness page
+`web/dev.html`, with crop/zoom and multi-frame series options) for scripted screenshots; the WebGPU frame is
+read back explicitly because headless Chromium cannot screenshot a WebGPU canvas. The page exposes a small debug
 console (`window.__game.fn.debug("tp 52 28")`, `give ar epic`, `chest_here`, `build_demo`, `ff 120`, ...) that
 the harnesses use.
 
