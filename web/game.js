@@ -129,6 +129,7 @@ function wireUi() {
   $('btn-help-close').addEventListener('click', () => { click(); show('help', false); });
   $('btn-resume').addEventListener('click', () => { click(); resume(); });
   $('btn-pause-settings').addEventListener('click', () => { click(); show('settings'); });
+  $('btn-pause-help').addEventListener('click', () => { click(); show('help'); });
   $('btn-quit').addEventListener('click', () => { click(); toMenu(); });
   $('btn-again').addEventListener('click', () => { click(); startMatch(); });
   $('btn-menu').addEventListener('click', () => { click(); toMenu(); });
@@ -294,7 +295,7 @@ function pause() {
 
 function resume() {
   if (state !== 'paused') return;
-  show('pause', false); show('settings', false);
+  show('pause', false); show('settings', false); show('help', false);
   state = 'playing';
   fn.set_paused(false);
   lockPointer();
