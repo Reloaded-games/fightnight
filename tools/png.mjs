@@ -27,3 +27,15 @@ export function encodePng(w, h, rgba) {
   ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
+
+/** Crop a region out of an RGBA8 image and enlarge it by an integer factor (nearest neighbour). */
+export function cropScale(w, rgba, x0, y0, cw, ch, scale = 1) {
+  const out = new Uint8Array(cw * scale * ch * scale * 4);
+  for (let y = 0; y < ch * scale; y++) {
+    for (let x = 0; x < cw * scale; x++) {
+      const si = ((y0 + Math.floor(y / scale)) * w + x0 + Math.floor(x / scale)) * 4;
+      out.set(rgba.subarray(si, si + 4), (y * cw * scale + x) * 4);
+    }
+  }
+  return { w: cw * scale, h: ch * scale, rgba: out };
+}

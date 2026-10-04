@@ -64,6 +64,34 @@ await page.mouse.down({ button: 'left' }); await frames(4); await page.mouse.up(
 await frames(2);
 check('building places a wall', (await st()).pieces > pieces0, `pieces ${(await st()).pieces}`);
 await page.keyboard.press('KeyQ');
+await frames(2);
+
+// ---- harvesting --------------------------------------------------------------------------------------------------
+await dbg('tree 0');
+await frames(2);
+const wood0 = (await hud()).mats[0];
+await page.mouse.down({ button: 'left' });
+await frames(14);
+await page.mouse.up({ button: 'left' });
+await frames(2);
+const wood1 = (await hud()).mats[0];
+check('the pickaxe harvests wood from a tree', wood1 > wood0, `wood ${wood0} -> ${wood1}`);
+
+// ---- eliminations -------------------------------------------------------------------------------------------------
+await dbg('tp 21 -171'); await dbg('look 90 0'); // open ground beside the lake
+await frames(2);
+await dbg('bots_near 1 9');
+await dbg('give ar epic');
+await dbg('aim 1');
+await frames(2);
+const kills0 = (await hud()).kills;
+await page.mouse.down({ button: 'left' });
+await frames(16);
+await page.mouse.up({ button: 'left' });
+await frames(2);
+const h3 = await hud();
+check('shooting a bot eliminates it', h3.kills > kills0, `kills ${kills0} -> ${h3.kills}`);
+check('the kill shows up in the kill feed', h3.feed.some((f) => f.me));
 
 // ---- UI overlays ---------------------------------------------------------------------------------------------------
 await page.keyboard.press('Tab');

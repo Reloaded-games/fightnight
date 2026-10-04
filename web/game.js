@@ -126,6 +126,7 @@ function wireUi() {
   $('btn-quit').addEventListener('click', () => { click(); toMenu(); });
   $('btn-again').addEventListener('click', () => { click(); startMatch(); });
   $('btn-menu').addEventListener('click', () => { click(); toMenu(); });
+  $('btn-reload').addEventListener('click', () => location.reload());
   $('btn-spectate').addEventListener('click', () => { click(); spectating = true; show('over', false); stopConfetti(); lockPointer(); });
   for (const b of document.querySelectorAll('.btn')) b.addEventListener('mouseenter', () => audio.playUi('ui_hover', 0.25));
 }
@@ -151,6 +152,17 @@ function resizeAll() {
 // ------------------------------------------------------------------------------------------------
 // Boot
 // ------------------------------------------------------------------------------------------------
+// Called from the wasm module when the GPU device is lost (driver reset, GPU unplugged, ...).
+window.__fnDeviceLost = (message) => {
+  ready = false;
+  document.exitPointerLock?.();
+  for (const id of ['menu', 'pause', 'inventory', 'map', 'over', 'settings', 'help', 'loading']) show(id, false);
+  hud.clear();
+  $('nowebgpu-title').textContent = 'Graphics device lost';
+  $('nowebgpu-msg').textContent = 'The connection to your GPU was interrupted' + (message ? ' (' + message + ')' : '') + '. Reload the page to keep playing.';
+  show('nowebgpu');
+};
+
 async function boot() {
   wireUi();
   $('tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];

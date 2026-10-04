@@ -248,7 +248,7 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
                 tint = tint_of(*rng.pick(&pal), 1.2, 0.1, &mut rng);
             } else if high || (forest > 0.55 && r < 0.5) {
                 kind = PropKind::Pine;
-                tint = tint_of(*rng.pick(&[0x2d7a3b, 0x276b35, 0x338a44, 0x2a7448]), 1.2, 0.12, &mut rng);
+                tint = tint_of(*rng.pick(&[0x379048, 0x2f8043, 0x3d9c52, 0x35884b]), 1.2, 0.12, &mut rng);
             } else if r < 0.62 {
                 kind = PropKind::Oak;
                 tint = tint_of(*rng.pick(&[0x5fb23a, 0x4fa233, 0x74bf3f, 0x62ad45]), 1.2, 0.1, &mut rng);
@@ -257,7 +257,7 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
                 tint = tint_of(*rng.pick(&[0x7bc24a, 0x8cca4f, 0x6fb844]), 1.2, 0.1, &mut rng);
             } else {
                 kind = PropKind::Pine;
-                tint = tint_of(*rng.pick(&[0x2d7a3b, 0x338a44]), 1.2, 0.12, &mut rng);
+                tint = tint_of(*rng.pick(&[0x379048, 0x3d9c52]), 1.2, 0.12, &mut rng);
             }
             let scale = rng.range(0.78, 1.32) * if kind == PropKind::Pine { 1.1 } else { 1.0 };
             let pos = Vec3::new(p.x, h - 0.1, p.y);

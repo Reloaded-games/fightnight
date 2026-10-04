@@ -8,7 +8,7 @@ use super::items::*;
 use super::*;
 use crate::math::*;
 use crate::world::collision::Tag;
-use crate::world::props::{HarvestKind, PropKind};
+use crate::world::props::HarvestKind;
 
 pub const PICKAXE_REACH: f32 = 2.7;
 pub const PICKAXE_COOLDOWN: f32 = 0.55;
@@ -494,7 +494,6 @@ impl Game {
                     self.felled.push(Felled { pos, kind: prop_kind, scale: p.scale, yaw: p.yaw, tint: p.tint, t: 0.0, dir: away });
                 }
             }
-            let _ = PropKind::Pine;
         }
     }
 

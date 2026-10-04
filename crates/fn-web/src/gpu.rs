@@ -1,5 +1,6 @@
 //! WebGPU device / surface setup through wgpu's browser backend.
 
+use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 
 pub struct Gpu {
@@ -44,6 +45,19 @@ impl Gpu {
         device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| {
             web_sys::console::error_1(&format!("[wgpu] {e}").into());
         }));
+        // A lost device (driver reset, GPU removed, ...) cannot be recovered mid-match: tell the page so it can
+        // stop rendering and offer a reload.
+        device.set_device_lost_callback(|reason, message| {
+            if matches!(reason, wgpu::DeviceLostReason::Destroyed) {
+                return;
+            }
+            web_sys::console::error_1(&format!("[wgpu] device lost ({reason:?}): {message}").into());
+            if let Ok(f) = js_sys::Reflect::get(&js_sys::global(), &"__fnDeviceLost".into()) {
+                if let Some(f) = f.dyn_ref::<js_sys::Function>() {
+                    let _ = f.call1(&wasm_bindgen::JsValue::NULL, &message.into());
+                }
+            }
+        });
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats

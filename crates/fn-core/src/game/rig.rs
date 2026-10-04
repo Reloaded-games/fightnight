@@ -681,6 +681,26 @@ mod tests {
     }
 
     #[test]
+    fn reload_phases_keep_both_hands_below_the_shoulders() {
+        for kind in WeaponKind::ALL {
+            let mut a = actor();
+            a.inv.add_weapon(kind, Rarity::Common, 2);
+            a.inv.selected = 1;
+            a.anim.aim = 0.0;
+            for k in 0..=40 {
+                a.anim.reload = k as f32 / 40.0;
+                let p = pose(&a);
+                assert!(finite(&p));
+                let shoulder_y = p.torso.transform_point3(Vec3::new(0.0, SHOULDER_Y, 0.0)).y;
+                for (i, h) in p.hand.iter().enumerate() {
+                    let hy = h.transform_point3(Vec3::ZERO).y;
+                    assert!(hy < shoulder_y + 0.05, "{kind:?} hand {i} at reload {:.2} is {:.2} m above the shoulders", a.anim.reload, hy - shoulder_y);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn every_mode_and_item_produces_a_finite_pose() {
         let mut a = actor();
         a.inv.add_weapon(WeaponKind::Sniper, Rarity::Rare, 1);

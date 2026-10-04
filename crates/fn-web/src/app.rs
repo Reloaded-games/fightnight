@@ -24,6 +24,21 @@ pub struct Timings {
     pub frame_ms: f32,
 }
 
+/// Point the human player's aim at `target`. The aim ray starts at the right shoulder (see
+/// `Game::aim_ray`), so it is re-solved a few times rather than aiming the body at the target.
+fn aim_player_at(g: &mut Game, target: Vec3) {
+    for _ in 0..3 {
+        let (o, _) = g.aim_ray(PLAYER);
+        let to = target - o;
+        let flat = Vec2::new(to.x, to.z);
+        let a = &mut g.actors[PLAYER];
+        a.yaw = yaw_of(flat);
+        a.pitch = to.y.atan2(flat.length());
+    }
+    let a = &mut g.actors[PLAYER];
+    a.body_yaw = a.yaw;
+}
+
 pub struct App {
     pub game: Game,
     pub scene: Scene,
@@ -450,6 +465,43 @@ impl App {
                         g.bus.active = false;
                     }
                 }
+                "ok".into()
+            }
+            "tree" => {
+                // stand 2.4 m from the nth nearest living tree (default: the nearest), facing it, pickaxe in hand
+                let from = g.actors[PLAYER].pos;
+                let mut trees: Vec<(f32, usize)> = g
+                    .world
+                    .harvest
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, h)| h.alive && h.kind == fn_core::world::props::HarvestKind::Tree)
+                    .map(|(i, h)| ((h.pos - from).length_squared(), i))
+                    .collect();
+                trees.sort_by(|a, b| a.0.total_cmp(&b.0));
+                if let Some(&(_, i)) = trees.get(num(1, 0.0) as usize) {
+                    let t = g.world.harvest[i].pos;
+                    let away = Vec2::new(from.x - t.x, from.z - t.z).try_normalize().unwrap_or(Vec2::X);
+                    let p = Vec2::new(t.x, t.z) + away * 2.4;
+                    let y = g.world.hm.height_at(p.x, p.y);
+                    let a = &mut g.actors[PLAYER];
+                    a.pos = Vec3::new(p.x, y, p.y);
+                    a.vel = Vec3::ZERO;
+                    a.mode = MoveMode::Ground;
+                    a.on_ground = true;
+                    a.eye_smooth = y;
+                    a.yaw = yaw_of(Vec2::new(t.x - p.x, t.z - p.y));
+                    a.body_yaw = a.yaw;
+                    g.select_slot(PLAYER, 0);
+                    aim_player_at(g, Vec3::new(t.x, t.y + 1.2, t.z));
+                }
+                "ok".into()
+            }
+            "aim" => {
+                // aim the player's shoulder ray at the chest of actor N (default 1)
+                let n = (num(1, 1.0) as usize).min(g.actors.len() - 1);
+                let target = g.actors[n].chest();
+                aim_player_at(g, target);
                 "ok".into()
             }
             "chest_here" => {

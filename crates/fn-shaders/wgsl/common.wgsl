@@ -230,7 +230,7 @@ fn light_surface(albedo: vec3<f32>, N: vec3<f32>, wpos: vec3<f32>, ao: f32, spec
     let direct = G.sun_color.rgb * (wrap * sh);
     let hemi = mix(G.ground_color.rgb, G.sky_color.rgb, N.y * 0.5 + 0.5);
     // a touch of warm bounce filling the shadow side
-    let bounce = G.sun_color.rgb * 0.06 * saturate(-ndl * 0.5 + 0.5) * (1.0 - sh * 0.5);
+    let bounce = G.sun_color.rgb * 0.10 * saturate(-ndl * 0.5 + 0.5) * (1.0 - sh * 0.5);
     var col = albedo * (direct + (hemi + bounce) * ao);
     if (spec > 0.0) {
         let H = normalize(L + V);

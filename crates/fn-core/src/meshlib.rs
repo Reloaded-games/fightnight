@@ -99,9 +99,9 @@ fn tree_gray(b: f32) -> Vec3 {
 /// Pine tree. Foliage vertex colours are neutral greys; the instance tint supplies the hue.
 fn pine(detail: bool) -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::BARK).hex(0x6b4a2b).ao(0.55, 1.0);
+    b.mat(mat::BARK).tinted(false).hex(0x6b4a2b).ao(0.55, 1.0);
     b.cylinder(Vec3::ZERO, 0.30, 0.18, if detail { 2.6 } else { 3.0 }, if detail { 7 } else { 5 }, false, false);
-    b.mat(mat::FOLIAGE).sway(0.0);
+    b.mat(mat::FOLIAGE).tinted(true).sway(0.0);
     let tiers = if detail { 5 } else { 3 };
     for i in 0..tiers {
         let t = i as f32 / (tiers - 1) as f32;
@@ -122,7 +122,7 @@ fn pine(detail: bool) -> MeshData {
 
 fn oak(detail: bool) -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::BARK).hex(0x6a4a2e).ao(0.55, 1.0);
+    b.mat(mat::BARK).tinted(false).hex(0x6a4a2e).ao(0.55, 1.0);
     b.cylinder(Vec3::ZERO, 0.36, 0.22, 3.2, if detail { 8 } else { 5 }, false, false);
     if detail {
         // two branches
@@ -134,7 +134,7 @@ fn oak(detail: bool) -> MeshData {
             b.pop_xf();
         }
     }
-    b.mat(mat::FOLIAGE);
+    b.mat(mat::FOLIAGE).tinted(true);
     let blobs: &[(Vec3, Vec3)] = &[
         (Vec3::new(0.0, 4.9, 0.0), Vec3::new(2.7, 2.2, 2.7)),
         (Vec3::new(1.9, 4.1, 0.7), Vec3::new(1.9, 1.7, 1.9)),
@@ -154,7 +154,7 @@ fn oak(detail: bool) -> MeshData {
 
 fn birch(detail: bool) -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::BARK).hex(0xe7e3d6).ao(0.6, 1.0);
+    b.mat(mat::BARK).tinted(false).hex(0xe7e3d6).ao(0.6, 1.0);
     b.cylinder(Vec3::ZERO, 0.22, 0.12, 5.2, if detail { 7 } else { 5 }, false, false);
     if detail {
         // dark birch marks
@@ -167,7 +167,7 @@ fn birch(detail: bool) -> MeshData {
             b.pop_xf();
         }
     }
-    b.mat(mat::FOLIAGE);
+    b.mat(mat::FOLIAGE).tinted(true);
     let blobs: &[(Vec3, Vec3)] = &[
         (Vec3::new(0.0, 5.4, 0.0), Vec3::new(1.5, 1.7, 1.5)),
         (Vec3::new(0.9, 4.5, 0.3), Vec3::new(1.1, 1.2, 1.1)),
@@ -189,7 +189,7 @@ fn palm(detail: bool) -> MeshData {
     let mut pos = Vec3::ZERO;
     let mut dir = Vec3::Y;
     let bend = Vec3::new(0.16, 0.0, 0.05);
-    b.mat(mat::BARK).ao(0.6, 1.0);
+    b.mat(mat::BARK).tinted(false).ao(0.6, 1.0);
     for i in 0..segs {
         let t = i as f32 / segs as f32;
         let r0 = 0.30 - 0.1 * t;
@@ -207,7 +207,7 @@ fn palm(detail: bool) -> MeshData {
         dir = (dir + bend).normalize();
     }
     // fronds
-    b.mat(mat::FOLIAGE);
+    b.mat(mat::FOLIAGE).tinted(true);
     let fronds = if detail { 9 } else { 6 };
     for f in 0..fronds {
         let a = f as f32 / fronds as f32 * TAU + 0.3;
@@ -236,7 +236,7 @@ fn palm(detail: bool) -> MeshData {
     }
     // coconuts
     if detail {
-        b.mat(mat::FLAT).hex(0x5a3d22).sway(0.0).ao(0.7, 1.0);
+        b.mat(mat::FLAT).tinted(false).hex(0x5a3d22).sway(0.0).ao(0.7, 1.0);
         for k in 0..3 {
             let a = k as f32 * 2.1;
             b.sphere(pos + Vec3::new(a.cos() * 0.25, -0.3, a.sin() * 0.25), 0.17, 1);
@@ -278,7 +278,8 @@ fn flower_clump() -> MeshData {
     for (x, z, r) in [(0.0, 0.0, 0.17), (0.22, 0.12, 0.13), (-0.18, 0.15, 0.14), (0.05, -0.22, 0.13)] {
         b.sphere(Vec3::new(x, 0.32 + r * 0.3, z), r, 0);
     }
-    b.mat(mat::GRASS).color(Vec3::new(0.78, 0.9, 0.7));
+    // leaves stay green whatever the flower colour is
+    b.mat(mat::GRASS).tinted(false).hex(0x58a63c);
     for a in [0.0f32, 2.1, 4.2] {
         let (s, c) = a.sin_cos();
         b.tri_flat(Vec3::new(c * 0.02, 0.0, s * 0.02), Vec3::new(-s * 0.03, 0.0, c * 0.03), Vec3::new(c * 0.25, 0.3, s * 0.25));
@@ -325,7 +326,7 @@ fn grass_tuft() -> MeshData {
 
 fn stump() -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::BARK).hex(0x6a4a2e).ao(0.55, 1.0);
+    b.mat(mat::BARK).tinted(false).hex(0x6a4a2e).ao(0.55, 1.0);
     b.cylinder(Vec3::ZERO, 0.42, 0.34, 0.7, 7, false, true);
     b.finish()
 }
