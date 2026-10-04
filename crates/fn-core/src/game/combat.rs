@@ -271,6 +271,7 @@ impl Game {
                     a.melee_pending = true;
                     a.anim.swing = 1.0;
                     a.shot_flash = 0.3;
+                    self.events.push(Event::Swing { actor: i });
                 }
             }
             Some(Item::Consumable { kind, .. }) => {
@@ -509,13 +510,11 @@ impl Game {
         if broke {
             self.world.statics.remove(collider);
             self.events.push(Event::TreeFelled { pos, chunk, slot });
+            let from = self.actors[who].pos;
+            let away = Vec2::new(pos.x - from.x, pos.z - from.z).normalize_or_zero();
+            self.harvest_log.push((idx as u32, away));
             if kind == HarvestKind::Tree {
-                let props = &self.world.chunk_props[chunk];
-                if let Some(p) = props.get(slot) {
-                    let from = self.actors[who].pos;
-                    let away = Vec2::new(pos.x - from.x, pos.z - from.z).normalize_or_zero();
-                    self.felled.push(Felled { pos, kind: prop_kind, scale: p.scale, yaw: p.yaw, tint: p.tint, t: 0.0, dir: away });
-                }
+                self.start_felling(pos, chunk, slot, prop_kind, away);
             }
         }
     }
@@ -523,6 +522,13 @@ impl Game {
     // ------------------------------------------------------------------------------
     // Damage
     // ------------------------------------------------------------------------------
+
+    /// A tree that was just cut down starts to fall away from `dir`.
+    pub fn start_felling(&mut self, pos: Vec3, chunk: usize, slot: usize, kind: crate::world::props::PropKind, dir: Vec2) {
+        if let Some(p) = self.world.chunk_props.get(chunk).and_then(|c| c.get(slot)) {
+            self.felled.push(Felled { pos, kind, scale: p.scale, yaw: p.yaw, tint: p.tint, t: 0.0, dir });
+        }
+    }
 
     pub fn damage_piece(&mut self, id: u32, amount: f32, _by: Option<usize>) {
         let pos_mat = self.pieces.get(id).map(|p| (shape_center(p), p.mat));

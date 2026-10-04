@@ -84,13 +84,35 @@ impl Pieces {
             self.list.push(None);
             (self.list.len() - 1) as u32
         };
+        self.place_at(id, key, mat, base_y, owner, footing);
+        id
+    }
+
+    /// Put a piece in the slot `id` (a client mirrors the ids the host handed out). A piece already there is replaced.
+    pub fn insert_with_id(&mut self, id: u32, key: PieceKey, mat: Mat, base_y: f32, owner: usize, footing: f32) {
+        if self.list.get(id as usize).is_some_and(|p| p.is_some()) {
+            self.remove(id);
+        }
+        if let Some(&other) = self.index.get(&key) {
+            self.remove(other);
+        }
+        let old_len = self.list.len();
+        while self.list.len() <= id as usize {
+            self.list.push(None);
+        }
+        // slots that were skipped over are free
+        self.free.extend((old_len..id as usize).map(|i| i as u32));
+        self.free.retain(|&f| f != id);
+        self.place_at(id, key, mat, base_y, owner, footing);
+    }
+
+    fn place_at(&mut self, id: u32, key: PieceKey, mat: Mat, base_y: f32, owner: usize, footing: f32) {
         let shape = shape_of_footed(&key, base_y, footing);
         let collider = self.grid.insert(Collider::new(shape, Tag::Piece(id)));
         let hp = mat.piece_hp();
         self.list[id as usize] = Some(Piece { id, key, mat, hp, max_hp: hp, base_y, owner, collider, age: 0.0, footing });
         self.index.insert(key, id);
         self.changed = true;
-        id
     }
 
     pub fn remove(&mut self, id: u32) -> Option<Piece> {

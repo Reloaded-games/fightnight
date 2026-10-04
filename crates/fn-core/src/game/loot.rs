@@ -269,6 +269,26 @@ pub fn can_take(inv: &Inventory, kind: &PickupKind) -> bool {
 
 /// Physics for loose items; auto-pickup of ammo; chest animation.
 pub fn update_pickups(g: &mut Game, dt: f32) {
+    step_loose_items(g, dt);
+    // auto-pickup ammo for anyone standing on it
+    let n = g.actors.len();
+    for i in 0..n {
+        let a = &g.actors[i];
+        if !a.alive || !matches!(a.mode, MoveMode::Ground) {
+            continue;
+        }
+        let c = a.pos + Vec3::Y * 0.5;
+        // a box that cannot be taken (ammo type at the cap) must not hide the ones lying on top of it
+        let in_reach: Vec<usize> = g.pickups.iter().enumerate().filter(|(_, p)| p.grounded && matches!(p.kind, PickupKind::Ammo { .. }) && p.pos.distance(c) < 1.35 && can_take(&a.inv, &p.kind)).map(|(k, _)| k).collect();
+        if let Some(&k) = in_reach.first() {
+            g.pickup_item(i, k);
+        }
+    }
+}
+
+/// The part of [`update_pickups`] that is just physics and animation, which a client's copy of the match runs as well:
+/// loose items fall and come to rest, opened chests swing their lids up.
+pub fn step_loose_items(g: &mut Game, dt: f32) {
     {
         let env = Env::new(&g.world, &g.pieces.grid);
         for p in &mut g.pickups {
@@ -301,20 +321,6 @@ pub fn update_pickups(g: &mut Game, dt: f32) {
     for c in &mut g.chests {
         if c.opened {
             c.open_t = (c.open_t + dt * 2.6).min(1.0);
-        }
-    }
-    // auto-pickup ammo for anyone standing on it
-    let n = g.actors.len();
-    for i in 0..n {
-        let a = &g.actors[i];
-        if !a.alive || !matches!(a.mode, MoveMode::Ground) {
-            continue;
-        }
-        let c = a.pos + Vec3::Y * 0.5;
-        // a box that cannot be taken (ammo type at the cap) must not hide the ones lying on top of it
-        let in_reach: Vec<usize> = g.pickups.iter().enumerate().filter(|(_, p)| p.grounded && matches!(p.kind, PickupKind::Ammo { .. }) && p.pos.distance(c) < 1.35 && can_take(&a.inv, &p.kind)).map(|(k, _)| k).collect();
-        if let Some(&k) = in_reach.first() {
-            g.pickup_item(i, k);
         }
     }
 }

@@ -7,5 +7,10 @@
 //! This module does not touch the network: it produces and consumes byte messages, and whatever carries them (WebRTC data
 //! channels in the browser, plain function calls in the tests) is somebody else's business.
 
+pub mod client;
+pub mod host;
 pub mod proto;
 pub mod wire;
+
+#[cfg(test)]
+mod tests;

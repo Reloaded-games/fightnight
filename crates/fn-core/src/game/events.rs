@@ -74,6 +74,8 @@ pub enum Event {
     Built { actor: usize, pos: Vec3, piece: PieceKind, mat: Mat },
     PieceDestroyed { pos: Vec3, mat: Mat },
     Explosion { pos: Vec3, radius: f32 },
+    /// The actor swung the pickaxe.
+    Swing { actor: usize },
     BusJump { actor: usize, pos: Vec3 },
     GliderDeploy { actor: usize, pos: Vec3 },
     HealStart { actor: usize, pos: Vec3 },

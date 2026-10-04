@@ -261,6 +261,9 @@ pub struct Game {
     pub cam_shake: f32,
     pub fov_t: f32,
     pub felled: Vec<Felled>,
+    /// Harvestables broken since the host last looked (index in `world.harvest`, and which way a tree falls): the host
+    /// tells the players about each one.
+    pub harvest_log: Vec<(u32, Vec2)>,
     pub next_id: u32,
     pub match_time: f32,
     /// Counts simulation steps; eliminations in the same step are simultaneous.
@@ -340,6 +343,7 @@ impl Game {
             cam_shake: 0.0,
             fov_t: 0.0,
             felled: vec![],
+            harvest_log: vec![],
             next_id: 1,
             match_time: 0.0,
             step_no: 0,
@@ -361,6 +365,17 @@ impl Game {
     }
 
     /// The person at this keyboard (actor 0 unless this is a client's copy of a multiplayer match).
+    /// The copy of a multiplayer match that a client plays: built exactly as the host built its game (so the island, the loot
+    /// and everyone's outfit come out the same), but nothing here thinks for the bots - the host sends what they do.
+    pub fn new_replica(world: World, cfg: GameConfig, local: usize) -> Game {
+        let mut g = Game::new(world, cfg);
+        for a in &mut g.actors {
+            a.brain = None;
+        }
+        g.local = local;
+        g
+    }
+
     pub fn player(&self) -> &Actor {
         &self.actors[self.local]
     }
@@ -509,6 +524,12 @@ impl Game {
         matchflow::check_victory(self);
     }
 
+    /// Everything that happens to a frame's events once the simulation (or, on a client, the network) has produced them: effects,
+    /// the kill feed, hit markers, timers and the HUD's previews.
+    pub fn finish_frame(&mut self, dt: f32) {
+        self.after_update(dt);
+    }
+
     fn after_update(&mut self, dt: f32) {
         // gather events into effects
         let evs = std::mem::take(&mut self.events);
@@ -651,14 +672,14 @@ impl Game {
         }
     }
 
-    fn update_felled(&mut self, dt: f32) {
+    pub(crate) fn update_felled(&mut self, dt: f32) {
         for f in &mut self.felled {
             f.t += dt;
         }
         self.felled.retain(|f| f.t < 2.6);
     }
 
-    fn update_spectate(&mut self, input: &PlayerInput) {
+    pub fn update_spectate(&mut self, input: &PlayerInput) {
         let alive: Vec<usize> = self.actors.iter().filter(|a| a.alive && a.id != self.local).map(|a| a.id).collect();
         if alive.is_empty() {
             self.spectating = None;

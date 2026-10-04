@@ -139,6 +139,8 @@ pub struct MoveState {
     pub jump_buffer: f32,
     pub peak_y: f32,
     pub steps: f32,
+    /// The animation clock: swimming bobs on it, so where the actor floats depends on it.
+    pub anim_time: f32,
 }
 
 /// A player's own actor in full: what the HUD shows and what their prediction starts from.
@@ -273,6 +275,8 @@ pub enum ClientMsg {
     /// Commands for the host to apply (see `game::cmd`): the newest ones, repeated in every packet so a lost packet costs nothing.
     Cmds { time: u32, cmds: Vec<Cmd> },
     Bye,
+    /// The island is built and the match can begin.
+    Ready,
 }
 
 #[derive(Clone, Debug)]
@@ -463,6 +467,7 @@ impl MoveState {
         w.f32(self.jump_buffer);
         w.f32(self.peak_y);
         w.f32(self.steps);
+        w.f32(self.anim_time);
     }
 
     fn read(r: &mut Reader) -> Result<Self> {
@@ -471,7 +476,7 @@ impl MoveState {
         let mode = read_mode(r)?;
         let f = r.u8()?;
         let on = |k: u8| f & (1 << k) != 0;
-        Ok(MoveState { pos, vel, mode, on_ground: on(0), crouching: on(1), sprinting: on(2), ads: on(3), glide_deployed: on(4), emoting: on(5), coyote: r.f32()?, jump_buffer: r.f32()?, peak_y: r.f32()?, steps: r.f32()? })
+        Ok(MoveState { pos, vel, mode, on_ground: on(0), crouching: on(1), sprinting: on(2), ads: on(3), glide_deployed: on(4), emoting: on(5), coyote: r.f32()?, jump_buffer: r.f32()?, peak_y: r.f32()?, steps: r.f32()?, anim_time: r.f32()? })
     }
 }
 
@@ -953,6 +958,10 @@ fn write_event(w: &mut Writer, e: &Event) {
             w.u8(27);
             actor(w, *winner);
         }
+        Event::Swing { actor: a } => {
+            w.u8(28);
+            actor(w, *a);
+        }
         Event::Noise { .. } => unreachable!("noise is not sent"),
     }
 }
@@ -1010,6 +1019,7 @@ fn read_event(r: &mut Reader) -> Result<Event> {
         25 => Event::HealDone { actor: actor(r)?, pos: r.vec3()? },
         26 => Event::StormPhase { phase: r.u8()? as usize, shrinking: r.bool()? },
         27 => Event::Victory { winner: actor(r)? },
+        28 => Event::Swing { actor: actor(r)? },
         _ => return Err(WireError::Invalid("event")),
     })
 }
@@ -1048,6 +1058,7 @@ impl ClientMsg {
                 }
             }
             ClientMsg::Bye => w.u8(2),
+            ClientMsg::Ready => w.u8(3),
         }
         w.buf
     }
@@ -1075,6 +1086,7 @@ impl ClientMsg {
                 ClientMsg::Cmds { time, cmds }
             }
             2 => ClientMsg::Bye,
+            3 => ClientMsg::Ready,
             _ => return Err(WireError::Invalid("client message")),
         };
         if !r.finished() {
@@ -1208,7 +1220,7 @@ mod tests {
             build_mode: true,
             build_piece: PieceKind::Ramp,
             build_mat: Mat::Metal,
-            mv: MoveState { pos: v(1.0, 2.0, 3.0), vel: v(-4.0, 0.5, 6.0), mode: MoveMode::Glide, on_ground: false, crouching: true, sprinting: false, ads: true, glide_deployed: true, emoting: false, coyote: 0.05, jump_buffer: 0.1, peak_y: 77.0, steps: 1.25 },
+            mv: MoveState { pos: v(1.0, 2.0, 3.0), vel: v(-4.0, 0.5, 6.0), mode: MoveMode::Glide, on_ground: false, crouching: true, sprinting: false, ads: true, glide_deployed: true, emoting: false, coyote: 0.05, jump_buffer: 0.1, peak_y: 77.0, steps: 1.25, anim_time: 31.5 },
         }
     }
 
@@ -1290,6 +1302,7 @@ mod tests {
             Event::HealDone { actor: 1, pos: p },
             Event::StormPhase { phase: 3, shrinking: true },
             Event::Victory { winner: 2 },
+            Event::Swing { actor: 3 },
         ]
     }
 
@@ -1303,6 +1316,7 @@ mod tests {
             ClientMsg::Hello { version: VERSION, name: "Ada".into() },
             ClientMsg::Cmds { time: 123456, cmds: vec![Cmd { seq: 5, dt: 1.0 / 60.0, axis: [-127, 127], yaw: 2.5, pitch: -0.5, buttons: btn::JUMP | btn::FIRE | btn::EMOTE, select: 3, cycle: -1, piece: 2 }, Cmd { seq: 6, ..Default::default() }] },
             ClientMsg::Bye,
+            ClientMsg::Ready,
         ];
         for m in msgs {
             assert_eq!(ClientMsg::decode(&m.encode()), Ok(m.clone()), "{m:?}");
