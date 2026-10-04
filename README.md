@@ -36,6 +36,10 @@ python3 -m http.server -d dist 8080    # or any static file server
 # open http://localhost:8080
 ```
 
+`dist/` is a plain static site, so any static host works (WebGPU needs HTTPS or `localhost`). The repository
+ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub Pages** workflow: enable
+*Settings → Pages → Source: GitHub Actions*, then run it from the Actions tab. Building needs Rust 1.87 or newer.
+
 ### Controls
 
 | Key / mouse | Action |
