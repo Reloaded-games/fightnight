@@ -1071,7 +1071,7 @@ impl Brain {
                 post.push(gxz);
             }
         }
-        let mut mid: Vec<Vec2> = vec![];
+        let mut mid: Vec<Vec2>;
         if start.distance(dest) > 7.0 {
             if g.ai_paths_left > 0 {
                 g.ai_paths_left -= 1;

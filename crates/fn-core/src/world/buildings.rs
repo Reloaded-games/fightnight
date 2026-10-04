@@ -1034,7 +1034,7 @@ pub fn place(g: &Geom, pos: Vec3, rot: u8, tag: Tag) -> Placed {
         door_out: tp(g.door_out),
         door_in: tp(g.door_in),
         aabb,
-        footprint_half: if rot.is_multiple_of(2) { g.half } else { Vec2::new(g.half.y, g.half.x) },
+        footprint_half: if rot % 2 == 0 { g.half } else { Vec2::new(g.half.y, g.half.x) },
         hub: g.hub.map(tp),
         rot,
         height: g.height,

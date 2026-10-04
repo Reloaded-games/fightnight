@@ -1,7 +1,7 @@
 //! FightNight core: platform independent game simulation, world generation and
 //! procedural mesh/sound generation. Compiles natively (for tests) and to wasm.
 // Graphics/sim code passes many scalars around; bundling them into structs would only add noise.
-#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+#![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::manual_is_multiple_of)]
 
 pub mod audio_synth;
 pub mod camera;
