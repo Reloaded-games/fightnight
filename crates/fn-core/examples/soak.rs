@@ -1,3 +1,4 @@
+#![allow(clippy::manual_is_multiple_of)] // `is_multiple_of` needs a newer compiler than the minimum supported one
 //! Run a bots-only match headlessly and print a timeline:
 //! `cargo run -p fn-core --release --example soak -- <bots> <seconds> <storm_speed> [bus]`
 use fn_core::game::*;
@@ -9,7 +10,7 @@ fn main() {
     let bots: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(39);
     let seconds: f32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(300.0);
     let speed: f32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1.0);
-    let bus = args.get(4).map_or(false, |s| s == "bus");
+    let bus = args.get(4).is_some_and(|s| s == "bus");
     let follow: Option<usize> = args.get(5).and_then(|s| s.parse().ok());
     let t0 = std::time::Instant::now();
     let world = World::generate(1234);

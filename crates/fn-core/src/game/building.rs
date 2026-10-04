@@ -99,7 +99,7 @@ mod tests {
         let wood0 = g.actors[PLAYER].inv.mats[0];
         g.update(1.0 / 60.0, &PlayerInput { piece: Some(PieceKind::Wall), ..Default::default() });
         assert!(g.actors[PLAYER].build_mode);
-        assert!(g.placement_preview.map_or(false, |p| p.valid));
+        assert!(g.placement_preview.is_some_and(|p| p.valid));
         g.update(1.0 / 60.0, &PlayerInput { place: true, ..Default::default() });
         assert_eq!(g.pieces.count(), 1);
         assert_eq!(g.actors[PLAYER].inv.mats[0], wood0 - 10);

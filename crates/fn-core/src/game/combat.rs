@@ -1266,6 +1266,6 @@ mod tests {
         }
         assert_eq!(g.actors[b].hp, 500.0, "the wall protects the target");
         let left = g.pieces.iter().next().map(|p| p.hp);
-        assert!(left.map_or(true, |l| l < hp0), "bullets damage the wall");
+        assert!(left.is_none_or(|l| l < hp0), "bullets damage the wall");
     }
 }
