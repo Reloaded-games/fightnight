@@ -106,8 +106,10 @@ protocol, the host, the guest and tests that drive them through a simulated loss
 
 Limits: connections are direct, so two players behind strict (symmetric) NATs may not be able to reach each other
 (there is no relay server; a public STUN server is used to find addresses); the match cannot be joined once it has
-started; there is no lag compensation for shots (on a good connection you will not notice, on a slow one you
-will have to lead your targets a little more); and the host has the advantage of zero latency.
+started; shots are lag-compensated (checked against where the target was on the shooter's screen, up to a quarter of a second
+back), but a very slow connection will still feel it; and the host has the advantage of zero latency.
+The host's browser runs the match, so it has to stay open and in the foreground: a hidden tab is slowed down by the
+browser and everybody else's match slows with it.
 
 ## How it is put together
 

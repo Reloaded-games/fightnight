@@ -108,6 +108,12 @@ try {
   failed++;
   for (const who of ['host', 'guest']) console.log(`--- ${who} log\n` + logs[who].slice(-15).join('\n'));
 }
+if (failed) {
+  for (const who of ['host', 'guest']) {
+    console.log(`--- ${who}: ${await pages[who].evaluate(() => document.getElementById('err').textContent).catch(() => '?')}`);
+    console.log(logs[who].filter((l) => !/WebGPU is experimental/.test(l)).slice(-12).join('\n'));
+  }
+}
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
 await A.browser.close(); await B.browser.close(); srv.close();
 process.exit(failed ? 1 : 0);
