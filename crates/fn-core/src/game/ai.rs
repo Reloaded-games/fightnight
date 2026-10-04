@@ -20,6 +20,9 @@ use crate::world::props::HarvestKind;
 
 /// How far bots can see.
 const SIGHT: f32 = 210.0;
+/// How close a bot must get to a route waypoint before it heads for the next one, and to a door waypoint.
+const WAYPOINT_ARRIVE: f32 = 1.7;
+const DOOR_ARRIVE: f32 = 0.9;
 /// A bot without usable ammo still goes for an enemy this close, pickaxe in hand.
 const BRAWL_RANGE: f32 = 32.0;
 /// Seconds between "slow" decisions (perception, goal choice).
@@ -121,6 +124,8 @@ pub struct Brain {
     path: Vec<Vec2>,
     path_i: usize,
     path_goal: Vec2,
+    /// Arrival radius of each waypoint of `path` (door waypoints are tight so a bot lines up with the door and its steps).
+    path_r: Vec<f32>,
     repath_t: f32,
     // stuck handling
     stuck_ref: Vec2,
@@ -182,6 +187,7 @@ impl Brain {
             path: vec![],
             path_i: 0,
             path_goal: Vec2::splat(1e9),
+            path_r: vec![],
             repath_t: 0.0,
             stuck_ref: Vec2::ZERO,
             stuck_clock: 0.0,
@@ -780,7 +786,8 @@ impl Brain {
         // landing an unarmed bot should be looking for a weapon, not trading pickaxe blows.
         let alive = g.alive_count();
         let late = alive <= 7 || g.storm.phase >= 4;
-        let brawl = late && !armed && self.visible && a.pos.distance(self.enemy_pos) < BRAWL_RANGE;
+        // (and never while the storm is on them, or about to be: surviving comes first)
+        let brawl = late && !armed && !zone_urgent && !super::matchflow::in_storm(g, a.pos) && self.visible && a.pos.distance(self.enemy_pos) < BRAWL_RANGE;
         if has_enemy && (armed || brawl) {
             let dist = a.pos.distance(self.enemy_pos);
             let range = 55.0 + self.skill.aggression * 150.0;
@@ -1057,6 +1064,7 @@ impl Brain {
         let pos = xz(a.pos);
         let gxz = xz(goal);
         self.path.clear();
+        self.path_r.clear();
         self.path_i = 0;
         self.path_goal = gxz;
         self.repath_t = 3.5 + self.rng.range(0.0, 2.0);
@@ -1078,6 +1086,9 @@ impl Brain {
             if from_b != Some(b) {
                 let bi = &g.world.buildings[b];
                 dest = xz(bi.door_out);
+                // the route ends at the nav cell nearest the door, which can be a metre or two off its axis: line up
+                // with the door (and the steps in front of it) explicitly
+                post.push(xz(bi.door_out));
                 post.push(xz(bi.door_in));
                 post.push(gxz);
             }
@@ -1113,11 +1124,17 @@ impl Brain {
         } else {
             mid = vec![dest];
         }
+        let door_nodes = pre.len();
+        let post_doors = post.len().saturating_sub(1);
+        self.path_r.extend(std::iter::repeat_n(DOOR_ARRIVE, door_nodes));
+        self.path_r.extend(std::iter::repeat_n(WAYPOINT_ARRIVE, mid.len()));
+        self.path_r.extend((0..post.len()).map(|k| if k < post_doors { DOOR_ARRIVE } else { WAYPOINT_ARRIVE }));
         self.path.extend(pre);
         self.path.extend(mid);
         self.path.extend(post);
         if self.path.is_empty() {
             self.path.push(gxz);
+            self.path_r.push(WAYPOINT_ARRIVE);
         }
     }
 
@@ -1131,7 +1148,7 @@ impl Brain {
         if self.path.is_empty() || gxz.distance(self.path_goal) > 3.0 || self.repath_t <= 0.0 {
             self.plan(g, i, goal);
         }
-        while self.path_i + 1 < self.path.len() && pos.distance(self.path[self.path_i]) < 1.7 {
+        while self.path_i + 1 < self.path.len() && pos.distance(self.path[self.path_i]) < self.path_r.get(self.path_i).copied().unwrap_or(WAYPOINT_ARRIVE) {
             self.path_i += 1;
         }
         let wp = self.path.get(self.path_i).copied().unwrap_or(gxz);
@@ -1726,8 +1743,12 @@ mod tests {
         assert!(jumped >= 22, "{jumped} bots left the bus");
         let landed = g.actors.iter().skip(1).filter(|a| matches!(a.mode, MoveMode::Ground | MoveMode::Swim | MoveMode::Dead)).count();
         assert!(landed >= 22, "{landed} bots landed after {t}s");
+        // the landing itself must not kill anyone (a fall or a drowning leaves nobody to blame); fights between neighbours
+        // dropping into the same town are another matter and cost a few bots before the last one has even landed
+        let crashed = g.actors.iter().skip(1).filter(|a| a.mode == MoveMode::Dead && a.last_damage_from.is_none()).count();
+        assert_eq!(crashed, 0, "bots that died without anyone to blame after landing");
         let standing = g.actors.iter().skip(1).filter(|a| a.mode == MoveMode::Ground).count();
-        assert!(standing >= 12, "{standing} bots standing on the island");
+        assert!(standing >= 8, "{standing} bots standing on the island");
         // they spread out over several places rather than all dropping in one spot
         let mut cells = std::collections::HashSet::new();
         for a in g.actors.iter().skip(1) {
@@ -1747,9 +1768,10 @@ mod tests {
         g
     }
 
-    /// A bot with a far-away destination, started at `at` (a point on the seed-1234 island), for `secs` seconds.
-    /// Returns the farthest it got from where it began.
-    fn farthest_walk(at: Vec2, secs: f32) -> f32 {
+    /// A bot with a destination up to 300 m away in direction `dir`, started at `at` (a point on the seed-1234 island; on
+    /// the floor at height `floor` if given, else on the terrain), for `secs` seconds. Returns the farthest it got from where
+    /// it began, or `None` if there is no dry land at least 80 m away that way (the island is only so big).
+    fn farthest_walk(at: Vec2, dir: Vec2, floor: Option<f32>, secs: f32) -> Option<f32> {
         let mut g = game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 3, god_mode: true, storm_speed: 1.0, ..Default::default() });
         g.pickups.clear();
         g.chests.clear();
@@ -1757,7 +1779,7 @@ mod tests {
         let (px, pz) = (-380.0, 380.0);
         g.actors[PLAYER].pos = Vec3::new(px, g.world.hm.height_at(px, pz), pz);
         g.actors[PLAYER].brain = None;
-        let h = g.world.hm.height_at(at.x, at.y);
+        let h = floor.unwrap_or_else(|| g.world.hm.height_at(at.x, at.y));
         {
             let a = &mut g.actors[1];
             a.pos = Vec3::new(at.x, h, at.y);
@@ -1767,7 +1789,10 @@ mod tests {
             a.inv.ammo[AmmoKind::Medium.index()] = 100;
         }
         // the safe circle lies 300 m away: the bot has to get going
-        g.storm.center = Vec2::new(at.x + 300.0, at.y);
+        // (the farthest dry land along the way: storm circles are centred over land)
+        let dir = dir.normalize();
+        let centre = (8..=30).rev().map(|k| at + dir * (k as f32 * 10.0)).find(|p| p.abs().max_element() < 600.0 && g.world.hm.height_at(p.x, p.y) > 3.0)?;
+        g.storm.center = centre;
         g.storm.radius = 150.0;
         g.storm.to_center = g.storm.center;
         g.storm.to_radius = 120.0;
@@ -1780,7 +1805,7 @@ mod tests {
             g.update(1.0 / 30.0, &PlayerInput::default());
             farthest = farthest.max(g.actors[1].pos.distance(start));
         }
-        farthest
+        Some(farthest)
     }
 
     #[test]
@@ -1809,10 +1834,107 @@ mod tests {
             spots.push((bi, side, under_eaves, at));
         }
         drop(w);
+        let mut tested = 0;
         for (bi, side, under_eaves, at) in spots {
-            let far = farthest_walk(at, 45.0);
+            // east first, and west if there is no land that way
+            let Some(far) = farthest_walk(at, Vec2::X, None, 45.0).or_else(|| farthest_walk(at, Vec2::NEG_X, None, 45.0)) else { continue };
+            tested += 1;
             assert!(far > 40.0, "house {bi}, side {side}, {}: the bot got no further than {far:.1} m in 45 s", if under_eaves { "under the eaves" } else { "in front of the door" });
         }
+        assert!(tested >= 6, "only {tested} of 7 placements had land to walk to");
+    }
+
+    #[test]
+    fn bots_sealed_into_the_alley_between_two_doors_find_their_way_out_in_every_direction() {
+        // house 3 and house 9 face each other 11 m apart; their wall margins meet on the navigation grid, so the strip of
+        // free cells in front of the doors is a closed pocket (the world itself is open on both sides). Houses 1/7 and
+        // shops 23/28 are the other two such pairs on this island. Neither the route out nor the straight line towards
+        // the goal works from in there for most directions, and from inside the house the straight line is the back wall.
+        let w = crate::world::World::generate(1234);
+        let door = |bi: usize| {
+            let b = &w.buildings[bi];
+            (Vec2::new(b.door_out.x, b.door_out.z), Vec2::new(b.door_in.x, b.door_in.z), b.door_in.y)
+        };
+        let mut cases = vec![];
+        for bi in [3usize, 1, 23] {
+            let (out, inn, floor) = door(bi);
+            let dir = (out - inn).normalize();
+            for goal in [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y] {
+                cases.push((bi, "doorstep", out + dir * 3.0, goal, None));
+                cases.push((bi, "inside", inn - dir * 1.5, goal, Some(floor)));
+            }
+        }
+        drop(w);
+        let (mut stuck, mut tested) = (vec![], 0);
+        for (bi, label, at, goal, floor) in cases {
+            let Some(far) = farthest_walk(at, goal, floor, 40.0) else { continue };
+            tested += 1;
+            if far < 40.0 {
+                stuck.push(format!("building {bi} {label} -> {goal}: {far:.1} m"));
+            }
+        }
+        assert!(tested >= 16, "only {tested} of 24 cases had land to walk to");
+        assert!(stuck.is_empty(), "{} of {tested} bots never got out: {stuck:?}", stuck.len());
+    }
+
+    #[test]
+    fn a_bot_walks_into_every_building_to_pick_up_a_weapon_lying_inside() {
+        // the route ends at the navigation cell nearest the door, a metre or two off its axis: the bot has to line up
+        // with the door (and the steps in front of a raised one) instead of cutting across the porch face
+        let mut g = game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 3, god_mode: true, storm_speed: 1.0, ..Default::default() });
+        g.actors[PLAYER].brain = None;
+        let (px, pz) = (-380.0, 380.0);
+        g.actors[PLAYER].pos = Vec3::new(px, g.world.hm.height_at(px, pz), pz);
+        let (mut tested, mut failed) = (0, vec![]);
+        for b in g.world.buildings.clone() {
+            if !matches!(b.kind, "house" | "cabin" | "shop" | "barn" | "lodge") {
+                continue;
+            }
+            tested += 1;
+            g.pickups.clear();
+            g.chests.clear();
+            let out = Vec2::new(b.door_out.x - b.door_in.x, b.door_out.z - b.door_in.z).normalize();
+            let start = Vec2::new(b.door_out.x, b.door_out.z) + out * 14.0;
+            let inside = Vec2::new(b.door_in.x, b.door_in.z) - out * 1.5;
+            let mut rng = Rng::new(5);
+            let h = g.world.hm.height_at(start.x, start.y);
+            {
+                let a = &mut g.actors[1];
+                a.brain = Some(Box::new(Brain::new(&mut rng, Difficulty::Normal)));
+                a.pos = Vec3::new(start.x, h, start.y);
+                a.vel = Vec3::ZERO;
+                a.mode = MoveMode::Ground;
+                a.on_ground = true;
+                a.alive = true;
+                a.hp = 100.0;
+                a.inv = Inventory::new();
+                a.action = Action::None;
+            }
+            // a safe circle all around: nothing but the weapon on the floor to go for
+            g.storm.center = start;
+            g.storm.radius = 500.0;
+            g.storm.to_center = start;
+            g.storm.to_radius = 500.0;
+            g.storm.from_center = start;
+            g.storm.from_radius = 500.0;
+            g.storm.dmg = 0.0;
+            g.storm.timer = 500.0;
+            g.storm.state = StormState::Waiting;
+            let id = g.spawn_pickup(Vec3::new(inside.x, b.door_in.y, inside.y), PickupKind::Weapon { kind: WeaponKind::AssaultRifle, rarity: Rarity::Rare, ammo: 30 }, false);
+            let mut got = false;
+            for _ in 0..(60 * 30) {
+                g.update(1.0 / 30.0, &PlayerInput::default());
+                if g.pickup_index(id).is_none() {
+                    got = true;
+                    break;
+                }
+            }
+            if !got {
+                failed.push((b.id, b.kind, b.door_in.y - g.world.hm.height_at(b.door_out.x, b.door_out.z)));
+            }
+        }
+        assert!(tested > 40, "{tested} buildings");
+        assert!(failed.is_empty(), "{} of {tested} bots never got the weapon inside (building, kind, sill): {failed:?}", failed.len());
     }
 
     #[test]

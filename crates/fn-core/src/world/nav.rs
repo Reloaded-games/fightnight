@@ -16,6 +16,15 @@ pub struct NavGrid {
     pub blocked: Vec<u8>,
 }
 
+/// Outcome of a grid search.
+enum Search {
+    /// A route (to the goal, or a partial one when the search was capped or `partial_ok`).
+    Path(Vec<Vec2>),
+    /// The start is sealed off from the goal: the search ran out of cells, and these are the cells it explored.
+    Sealed(Vec<bool>),
+    Nothing,
+}
+
 const SQRT2_X16: u32 = 23; // 1.414 * 16
 const ONE_X16: u32 = 16;
 
@@ -155,9 +164,16 @@ impl NavGrid {
         partial_ok: bool,
         extra: impl Fn(i32, i32) -> Option<f32>,
     ) -> Option<Vec<Vec2>> {
-        let goal = self.nearest_free(to, 6)?;
+        match self.search(start, to, max_expansions, partial_ok, extra) {
+            Search::Path(p) => Some(p),
+            Search::Sealed(_) | Search::Nothing => None,
+        }
+    }
+
+    fn search(&self, start: (i32, i32), to: Vec2, max_expansions: usize, partial_ok: bool, extra: impl Fn(i32, i32) -> Option<f32>) -> Search {
+        let Some(goal) = self.nearest_free(to, 6) else { return Search::Nothing };
         if start == goal {
-            return Some(vec![self.center(start.0, start.1)]);
+            return Search::Path(vec![self.center(start.0, start.1)]);
         }
         let w = self.w as i32;
         let idx = |i: i32, j: i32| (j * w + i) as usize;
@@ -223,8 +239,11 @@ impl NavGrid {
             }
         }
         let end = if found { goal } else { (best_node.1, best_node.2) };
-        if !found && (end == start || (!capped && !partial_ok)) {
-            return None;
+        if !found && end == start {
+            return if !capped && !partial_ok { Search::Sealed(closed) } else { Search::Nothing };
+        }
+        if !found && !capped && !partial_ok {
+            return Search::Sealed(closed);
         }
         let mut path = vec![];
         let mut cur = idx(end.0, end.1);
@@ -241,7 +260,7 @@ impl NavGrid {
             cur = p as usize;
         }
         path.reverse();
-        Some(path)
+        Search::Path(path)
     }
 
     pub fn find_path(&self, from: Vec2, to: Vec2, max_expansions: usize) -> Option<Vec<Vec2>> {
@@ -250,12 +269,48 @@ impl NavGrid {
 
     /// `find_path` for a walker (a bot) rather than a road builder. If it stands in a blocked cell (against a wall) the
     /// route starts from the nearest free cell it can actually see instead of the nearest one by distance. And when the
-    /// cells around it are sealed off from the goal (an alley between two houses whose margins touch) it gets `None`
-    /// instead of a route to the closest dead end — the grid is coarser than the world, so the caller should simply
-    /// head for the goal and let local avoidance sort it out.
+    /// cells around it are sealed off from the goal (the alley between two facing doors, whose margins meet) the route
+    /// first leads out to the nearest visible cell outside that pocket: the grid is coarser than the world, so the pocket
+    /// is only closed on the map. `None` when even that cannot be seen (the caller heads straight for the goal).
     pub fn find_path_visible(&self, from: Vec2, to: Vec2, max_expansions: usize, visible: &dyn Fn(Vec2) -> bool) -> Option<Vec<Vec2>> {
         let start = self.nearest_free_visible(from, 6, visible)?;
-        self.find_path_from(start, to, max_expansions, false, |_, _| Some(0.0))
+        let free = |_: i32, _: i32| Some(0.0);
+        let Search::Sealed(pocket) = (match self.search(start, to, max_expansions, false, free) {
+            Search::Path(p) => return Some(p),
+            Search::Nothing => return None,
+            sealed => sealed,
+        }) else {
+            return None;
+        };
+        let (ci, cj) = self.cell_of(from);
+        for r in 1..=12i32 {
+            let mut best: Option<(f32, i32, i32)> = None;
+            for dj in -r..=r {
+                for di in -r..=r {
+                    if di.abs().max(dj.abs()) != r {
+                        continue;
+                    }
+                    let (i, j) = (ci + di, cj + dj);
+                    if self.is_blocked(i, j) || pocket[j as usize * self.w + i as usize] {
+                        continue;
+                    }
+                    let c = self.center(i, j);
+                    let d = c.distance_squared(from);
+                    if best.is_none_or(|b| d < b.0) && visible(c) {
+                        best = Some((d, i, j));
+                    }
+                }
+            }
+            if let Some((_, i, j)) = best {
+                let mut path = vec![self.center(i, j)];
+                // and on from there, if that is not sealed in as well
+                if let Search::Path(rest) = self.search((i, j), to, max_expansions, false, free) {
+                    path.extend(rest.into_iter().skip(1));
+                }
+                return Some(path);
+            }
+        }
+        None
     }
 
     /// String-pulling: drop waypoints whose neighbours can see each other.

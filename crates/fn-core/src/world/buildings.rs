@@ -608,10 +608,11 @@ pub fn gen_house(rng: &mut Rng, w: f32, d: f32, st: &Style) -> Geom {
     }
 
     // --- stoop / porch
-    let stoop_w = 1.0;
-    b.bx(Vec3::new(door_x - stoop_w, -1.0, hz), Vec3::new(door_x + stoop_w, 0.14, hz + 1.0), 0xa8a7a2, mat::STONE, true);
+    // (the stoop is as wide as the porch in front of it: otherwise the corners beside it are pits when the ground falls away)
+    let (px0, px1) = ((door_x - 1.9).max(-hx + 0.2), (door_x + 1.9).min(hx - 0.2));
+    let (sx0, sx1) = if st.porch { (px0, px1) } else { (door_x - 1.0, door_x + 1.0) };
+    b.bx(Vec3::new(sx0, -1.0, hz), Vec3::new(sx1, 0.14, hz + 1.0), 0xa8a7a2, mat::STONE, true);
     if st.porch {
-        let (px0, px1) = ((door_x - 1.9).max(-hx + 0.2), (door_x + 1.9).min(hx - 0.2));
         b.bx(Vec3::new(px0, -1.0, hz + 1.0), Vec3::new(px1, FLOOR_Y, hz + 2.6), 0xa88556, mat::WOOD, true);
         for px in [px0 + 0.12, px1 - 0.12] {
             b.bx(Vec3::new(px - 0.1, FLOOR_Y, hz + 2.4), Vec3::new(px + 0.1, FLOOR_Y + 2.7, hz + 2.6), st.trim, mat::FLAT, true);

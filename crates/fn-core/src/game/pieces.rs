@@ -159,7 +159,7 @@ pub fn shape_of_footed(k: &PieceKey, base_y: f32, footing: f32) -> Shape {
 /// A structure sits on the highest terrain point of its footprint, so on a slope the pieces on the downhill side stand
 /// clear of the ground, and a wall there leaves a gap under it big enough to walk or shoot through. Level-0 walls and
 /// floors therefore get a footing that reaches down to the lowest ground under them (ramps are meant to climb out of the
-/// slope, roofs only exist above other pieces).
+/// slope, and a roof sits a whole level up, out of reach of anything walking beneath it).
 pub fn footing_for(key: &PieceKey, base_y: f32, env: &Env) -> f32 {
     if key.level != 0 || !matches!(key.kind, PieceKind::Wall | PieceKind::Floor) {
         return 0.0;
