@@ -159,6 +159,19 @@ read back explicitly because headless Chromium cannot screenshot a WebGPU canvas
 console (`window.__game.fn.debug("tp 52 28")`, `give ar epic`, `chest_here`, `build_demo`, `ff 120`, ...) that
 the harnesses use.
 
+To run the browser tests on a Windows desktop with a real WebGPU-capable GPU:
+
+```powershell
+cd tools
+npm ci
+$env:CHROME_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+$env:FN_FLAGS = 'native'
+npm test
+```
+
+The native GPU mode waits for simulation time as well as rendered frames, so fast
+hardware gets the same movement, reload and harvesting durations as software rendering.
+
 ## Notes and limitations
 
 * Multiplayer is peer-to-peer with hand-exchanged codes: no matchmaking, no relay server, no late joining

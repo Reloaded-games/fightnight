@@ -10,12 +10,23 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
 const dbg = (c) => page.evaluate((c) => window.__game.fn.debug(c), c);
 const st = async () => JSON.parse(await dbg('state'));
 const hud = () => page.evaluate(() => window.__game.hud);
-// software rendering is slow (about one frame per second), so wait for frames instead of wall time
-const frames = async (n) => { const f0 = await page.evaluate(() => window.__game.frames); await page.waitForFunction((t) => window.__game.frames >= t, f0 + n, { timeout: 120000 }); };
+// Software frames advance the simulation by its 0.1s cap. Hardware frames can be
+// much faster, so also wait for equivalent simulation time on the native GPU.
+const frames = async (n) => {
+  const start = await page.evaluate(() => ({ frames: window.__game.frames, t: JSON.parse(window.__game.fn.debug('state')).t }));
+  await page.waitForFunction(({ frames, t, native }) =>
+    window.__game.frames >= frames && (!native || window.__game.state !== 'playing' || JSON.parse(window.__game.fn.debug('state')).t >= t),
+  { frames: start.frames + n, t: start.t + n / 10, native: process.env.FN_FLAGS === 'native' }, { timeout: 120000 });
+};
 
 await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=15;god=1'));
 try { await page.waitForFunction(() => window.__game && window.__game.state === 'playing', null, { timeout: 240000 }); } catch (e) { /* reported below */ }
 check('match starts and enters the playing state', (await page.evaluate(() => window.__game && window.__game.state)) === 'playing');
+if (failed) {
+  console.error(logs.join('\n'));
+  await browser.close(); srv.close();
+  process.exit(1);
+}
 await frames(3);
 
 // ---- movement -------------------------------------------------------------------------------------

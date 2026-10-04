@@ -154,7 +154,10 @@ for (const [w, h] of [[320, 200], [1280, 720], [100, 100], [900, 300], [2000, 12
   await frames(p3, 2);
 }
 const gpuSize = await ev(p3, () => [document.getElementById('gpu').width, document.getElementById('gpu').height]);
-check('the renderer survives rapid window resizing', (await state(p3)) === 'playing' && gpuSize[0] === 640 && gpuSize[1] === 360 && !logs3.some((l) => /error|warn/i.test(l) && !/WebGPU is experimental/.test(l)), `${gpuSize.join('x')} ${logs3.filter((l) => /error|warn/i.test(l)).slice(0, 2).join(' | ')}`);
+// Chromium on Windows reports that adapter powerPreference is ignored. It is an
+// informational platform limitation; keep rejecting other GPU errors/warnings.
+const expectedGpuNotice = /WebGPU is experimental|The powerPreference option is currently ignored when calling requestAdapter\(\) on Windows\./;
+check('the renderer survives rapid window resizing', (await state(p3)) === 'playing' && gpuSize[0] === 640 && gpuSize[1] === 360 && !logs3.some((l) => /error|warn/i.test(l) && !expectedGpuNotice.test(l)), `${gpuSize.join('x')} ${logs3.filter((l) => /error|warn/i.test(l)).slice(0, 2).join(' | ')}`);
 await p3.close();
 
 const bad = logs.filter((l) => /error|panick|unreachable/i.test(l) && !/WebGPU is experimental|denied/.test(l));

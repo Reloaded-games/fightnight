@@ -47,6 +47,8 @@ export function findChrome() {
 const COMMON = ['--no-sandbox', '--ignore-gpu-blocklist', '--allow-loopback-in-peer-connection', '--disable-features=WebRtcHideLocalIpsWithMdns', ...(process.env.FN_CHROME_LOG ? ['--enable-logging=stderr', '--v=1'] : []), '--autoplay-policy=no-user-gesture-required'];
 function flagSet(name) {
   const sets = {
+    // Use the machine's real GPU when testing on a desktop with hardware WebGPU.
+    native: ['--enable-unsafe-webgpu', '--enable-webgpu-developer-features'],
     // software Vulkan (SwiftShader) for WebGPU, ANGLE/SwiftShader for compositing
     // SkiaGraphite + SwiftShader Vulkan is what makes the WebGPU canvas swapchain work headlessly
     default: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,SkiaGraphite', '--use-vulkan=swiftshader', '--use-angle=swiftshader', '--use-webgpu-adapter=swiftshader', '--enable-webgpu-developer-features'],
