@@ -11,6 +11,10 @@ use fn_core::game::events::Event;
 use fn_core::game::items::*;
 use fn_core::game::scene::{storm_params, Scene};
 use fn_core::game::*;
+use fn_core::net::client::Client;
+use fn_core::net::guest::GuestRoom;
+use fn_core::net::host::{Host, Outgoing, Room};
+use fn_core::net::proto::MatchSetup;
 use fn_core::math::*;
 use fn_core::mesh::MeshData;
 use fn_core::world::World;
@@ -27,20 +31,62 @@ pub struct Timings {
 /// Point the human player's aim at `target`. The aim ray starts at the right shoulder (see
 /// `Game::aim_ray`), so it is re-solved a few times rather than aiming the body at the target.
 fn aim_player_at(g: &mut Game, target: Vec3) {
+    let me = g.local;
     for _ in 0..3 {
-        let (o, _) = g.aim_ray(PLAYER);
+        let (o, _) = g.aim_ray(me);
         let to = target - o;
         let flat = Vec2::new(to.x, to.z);
-        let a = &mut g.actors[PLAYER];
+        let a = &mut g.actors[me];
         a.yaw = yaw_of(flat);
         a.pitch = to.y.atan2(flat.length());
     }
-    let a = &mut g.actors[PLAYER];
+    let a = &mut g.actors[me];
     a.body_yaw = a.yaw;
 }
 
+/// Who runs the match this page shows.
+pub enum Mode {
+    /// A match against bots on this machine alone.
+    Solo(Box<Game>),
+    /// A multiplayer match this page hosts: the simulation runs here.
+    Host(Box<Host>),
+    /// A multiplayer match hosted elsewhere: this page plays its own predicted copy.
+    Guest(Box<Client>),
+}
+
+impl Mode {
+    pub fn game(&self) -> &Game {
+        match self {
+            Mode::Solo(g) => g,
+            Mode::Host(h) => &h.game,
+            Mode::Guest(c) => &c.game,
+        }
+    }
+    pub fn game_mut(&mut self) -> &mut Game {
+        match self {
+            Mode::Solo(g) => g,
+            Mode::Host(h) => &mut h.game,
+            Mode::Guest(c) => &mut c.game,
+        }
+    }
+}
+
+/// The room before a multiplayer match starts.
+pub enum Lobby {
+    None,
+    Host(Room),
+    Guest(GuestRoom),
+}
+
 pub struct App {
-    pub game: Game,
+    pub mode: Mode,
+    pub lobby: Lobby,
+    /// Messages for the network, waiting for the page to send them.
+    pub net_out: Vec<Outgoing>,
+    /// Whether the multiplayer match in `mode` is still connected (otherwise it only provides the island behind the menu).
+    pub net_live: bool,
+    /// The room and the setup of a match the host has announced but whose island is not built yet.
+    pub pending_host: Option<(Room, MatchSetup)>,
     pub scene: Scene,
     pub renderer: Renderer,
     pub input: Input,
@@ -67,7 +113,7 @@ pub struct App {
     pub frame_no: u64,
 }
 
-fn now_ms() -> f64 {
+pub(crate) fn now_ms() -> f64 {
     web_sys::window().and_then(|w| w.performance()).map(|p| p.now()).unwrap_or(0.0)
 }
 
@@ -82,7 +128,11 @@ impl App {
         let (w, h) = renderer.surface_size();
         let last_cam = game.camera(w as f32 / h.max(1) as f32);
         App {
-            game,
+            mode: Mode::Solo(Box::new(game)),
+            lobby: Lobby::None,
+            net_out: vec![],
+            net_live: false,
+            pending_host: None,
             scene,
             renderer,
             input: Input::new(),
@@ -114,10 +164,16 @@ impl App {
         if cfg.seed != self.cfg.seed || self.minimap.is_empty() {
             self.minimap = fn_core::world::minimap::render(&world, 1024);
         }
-        let fov = self.game.fov_deg;
-        self.game = Game::new(world, cfg.clone());
-        self.game.fov_deg = fov;
+        let fov = self.mode.game().fov_deg;
+        self.mode = Mode::Solo(Box::new(Game::new(world, cfg.clone())));
+        self.mode.game_mut().fov_deg = fov;
+        self.net_live = false;
         self.cfg = cfg;
+        self.reset_for_match();
+    }
+
+    /// Fresh input, sound and storm state for a match that is about to begin.
+    pub fn reset_for_match(&mut self) {
         self.input.release_all();
         self.mixer = Mixer::new();
         self.cues.clear();
@@ -136,7 +192,7 @@ impl App {
         let eye = Vec3::new(ctr.x + t.cos() * r, 120.0 + (self.menu_t * 0.11).sin() * 22.0, ctr.z + t.sin() * r);
         let cam = Camera::look(eye, (ctr - eye).normalize(), 0.0, 58f32.to_radians(), aspect, 0.2);
         self.last_cam = cam;
-        self.renderer.update_ground_cover(&self.game.world, cam.pos);
+        self.renderer.update_ground_cover(&self.mode.game().world, cam.pos);
         let f = FrameInput {
             time: self.menu_t,
             camera: cam,
@@ -165,50 +221,74 @@ impl App {
         let t_frame = now_ms();
         self.frame_no += 1;
         let dt = (dt_real * self.time_scale).clamp(0.0, 0.1);
-        let ads_scale = if self.game.actors[PLAYER].ads { 0.62 } else { 1.0 };
+        let ads_scale = {
+            let g = self.mode.game();
+            if g.actors[g.local].ads { 0.62 } else { 1.0 }
+        };
         let pi = self.input.take(self.sens * ads_scale, self.invert_y);
         let t0 = now_ms();
-        if !self.paused {
-            self.game.update(dt, &pi);
-            self.game.tick_camera(dt);
+        match &mut self.mode {
+            Mode::Solo(g) => {
+                if !self.paused {
+                    g.update(dt, &pi);
+                    g.tick_camera(dt);
+                }
+            }
+            // a multiplayer match goes on whatever this page is doing (the pause menu only hides the screen)
+            Mode::Host(h) => {
+                if self.net_live {
+                    h.update(dt, &pi);
+                    self.net_out.extend(h.drain());
+                }
+                h.game.tick_camera(dt);
+            }
+            Mode::Guest(c) => {
+                if self.net_live {
+                    c.update(dt, &pi, now_ms() as u32);
+                    self.net_out.extend(c.drain());
+                }
+                c.game.tick_camera(dt);
+            }
         }
         let t1 = now_ms();
         let (w, h) = self.renderer.surface_size();
         let aspect = w as f32 / h.max(1) as f32;
-        let mut cam = self.game.camera(aspect);
+        let mut cam = self.mode.game().camera(aspect);
         if let Some((p, yaw, pitch, fov)) = self.debug_cam {
             cam = Camera::from_yaw_pitch(p, yaw, pitch, fov.to_radians(), aspect, 0.05);
         } else if let Some((yaw, pitch, dist, height)) = self.debug_orbit {
-            let t = self.game.actors[self.game.camera_actor()].pos + Vec3::Y * height;
+            let g = self.mode.game();
+            let t = g.actors[g.camera_actor()].pos + Vec3::Y * height;
             let dir = look_dir(yaw, pitch);
             cam = Camera::look(t - dir * dist, dir, 0.0, 50f32.to_radians(), aspect, 0.05);
         }
         self.last_cam = cam;
         if !self.paused {
-            for e in &self.game.events {
+            for e in &self.mode.game().events {
                 if let Event::TreeFelled { chunk, slot, .. } = e {
                     self.renderer.remove_prop(*chunk, *slot);
                 }
             }
             self.mixer_step(&cam);
         }
-        self.renderer.update_ground_cover(&self.game.world, cam.pos);
-        self.scene.build(&self.game, &cam);
+        let game = self.mode.game();
+        self.renderer.update_ground_cover(&game.world, cam.pos);
+        self.scene.build(game, &cam);
         let t2 = now_ms();
 
-        let me = &self.game.actors[self.game.camera_actor()];
-        let outside = self.game.storm.active && Vec2::new(me.pos.x, me.pos.z).distance(self.game.storm.center) > self.game.storm.radius;
+        let me = &game.actors[game.camera_actor()];
+        let outside = game.storm.active && Vec2::new(me.pos.x, me.pos.z).distance(game.storm.center) > game.storm.radius;
         self.in_storm_t = lerp(self.in_storm_t, if outside { 1.0 } else { 0.0 }, damp(2.5, dt_real.min(0.1)));
         let low = (1.0 - (me.hp / 100.0)).clamp(0.0, 1.0);
-        let sp = storm_params(&self.game);
+        let sp = storm_params(game);
         let f = FrameInput {
-            time: self.game.time,
+            time: game.time,
             camera: cam,
             sun_dir: Vec3::new(0.55, 0.62, 0.42),
             storm: Vec4::new(sp[0], sp[1], sp[2], sp[3]),
-            storm_time: self.game.time,
+            storm_time: game.time,
             in_storm: self.in_storm_t,
-            damage: self.game.hurt_flash * 0.8 + low * low * 0.25,
+            damage: game.hurt_flash * 0.8 + low * low * 0.25,
             vignette: 0.27 + low * 0.2,
             wind: 1.0,
             batches: &self.scene.batches,
@@ -225,11 +305,22 @@ impl App {
 
     fn mixer_step(&mut self, cam: &Camera) {
         self.cues.clear();
-        self.loops = self.mixer.process(&self.game, cam, &mut self.cues);
+        self.loops = self.mixer.process(self.mode.game(), cam, &mut self.cues);
     }
 
     pub fn hud(&self) -> String {
-        fn_core::game::hud::hud_json(&self.game, &self.last_cam, self.show_tags)
+        let mut json = fn_core::game::hud::hud_json(self.mode.game(), &self.last_cam, self.show_tags);
+        // a multiplayer match shows who is playing and how good the connection is
+        let net = match (&self.mode, self.net_live) {
+            (Mode::Host(h), true) => Some(format!("\"role\":\"host\",\"ping\":0,\"players\":{}", 1 + h.peers().iter().filter(|p| p.connected).count())),
+            (Mode::Guest(c), true) => Some(format!("\"role\":\"guest\",\"ping\":{:.0},\"players\":{}", c.ping_ms, c.setup.names.len())),
+            _ => None,
+        };
+        if let Some(net) = net {
+            json.pop();
+            json.push_str(&format!(",\"net\":{{{net}}}}}"));
+        }
+        json
     }
 
     // ---- debug / test commands -------------------------------------------------------------------------------
@@ -237,12 +328,13 @@ impl App {
     pub fn debug(&mut self, cmd: &str) -> String {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         let num = |i: usize, d: f32| parts.get(i).and_then(|s| s.parse::<f32>().ok()).unwrap_or(d);
-        let g = &mut self.game;
+        let g = self.mode.game_mut();
+        let me = g.local;
         match parts.first().copied().unwrap_or("") {
             "tp" => {
                 let (x, z) = (num(1, 0.0), num(2, 0.0));
                 let y = g.world.hm.height_at(x, z);
-                let a = &mut g.actors[PLAYER];
+                let a = &mut g.actors[me];
                 a.pos = Vec3::new(x, y, z);
                 a.vel = Vec3::ZERO;
                 a.mode = MoveMode::Ground;
@@ -259,7 +351,7 @@ impl App {
             }
             "sky" => {
                 let (x, y, z) = (num(1, 0.0), num(2, 200.0), num(3, 0.0));
-                let a = &mut g.actors[PLAYER];
+                let a = &mut g.actors[me];
                 a.pos = Vec3::new(x, y, z);
                 a.mode = MoveMode::Freefall;
                 a.vel = Vec3::new(0.0, -20.0, 0.0);
@@ -268,7 +360,7 @@ impl App {
             }
             "glide" => {
                 let (x, y, z) = (num(1, 0.0), num(2, 80.0), num(3, 0.0));
-                let a = &mut g.actors[PLAYER];
+                let a = &mut g.actors[me];
                 a.pos = Vec3::new(x, y, z);
                 a.mode = MoveMode::Glide;
                 a.vel = Vec3::new(0.0, -6.0, -12.0);
@@ -277,7 +369,7 @@ impl App {
                 "ok".into()
             }
             "look" => {
-                let a = &mut g.actors[PLAYER];
+                let a = &mut g.actors[me];
                 a.yaw = num(1, 0.0).to_radians();
                 a.pitch = num(2, 0.0).to_radians();
                 a.body_yaw = a.yaw;
@@ -299,26 +391,38 @@ impl App {
                     "legendary" => Rarity::Legendary,
                     _ => Rarity::Rare,
                 };
-                let a = &mut g.actors[PLAYER];
+                let a = &mut g.actors[me];
                 a.inv.add_weapon(kind, rarity, kind.def().mag);
                 a.inv.ammo[kind.def().ammo.index()] = kind.def().ammo.cap();
                 let slot = a.inv.slots.iter().position(|s| matches!(s, Some(Item::Weapon { kind: k, .. }) if *k == kind)).unwrap_or(1);
-                g.select_slot(PLAYER, slot);
+                g.select_slot(me, slot);
+                "ok".into()
+            }
+            "cons" => {
+                // cons <bandage|medkit|shield|bigshield|chug> [count]
+                let kind = match parts.get(1).copied().unwrap_or("bandage") {
+                    "medkit" => ConsumableKind::MedKit,
+                    "shield" => ConsumableKind::ShieldSmall,
+                    "bigshield" => ConsumableKind::ShieldBig,
+                    "chug" => ConsumableKind::ChugJug,
+                    _ => ConsumableKind::Bandage,
+                };
+                g.actors[me].inv.add_consumable(kind, num(2, 1.0) as u32);
                 "ok".into()
             }
             "mats" => {
                 let n = num(1, 500.0) as u32;
-                g.actors[PLAYER].inv.mats = [n, n, n];
+                g.actors[me].inv.mats = [n, n, n];
                 "ok".into()
             }
             "heal" => {
-                let a = &mut g.actors[PLAYER];
+                let a = &mut g.actors[me];
                 a.hp = 100.0;
                 a.shield = 100.0;
                 "ok".into()
             }
             "hurt" => {
-                let a = &mut g.actors[PLAYER];
+                let a = &mut g.actors[me];
                 a.hp = num(1, 40.0);
                 a.shield = num(2, 0.0);
                 "ok".into()
@@ -329,7 +433,7 @@ impl App {
             }
             "kill_me" => {
                 // eliminate the player (killed by bot 1)
-                g.eliminate(PLAYER, Some(1), "Assault Rifle", false);
+                g.eliminate(me, Some(1), "Assault Rifle", false);
                 "ok".into()
             }
             "kill_bots" => {
@@ -342,9 +446,9 @@ impl App {
             }
             "stats" => {
                 // set the player's end-of-match numbers (for screenshots): kills, match seconds, damage dealt
-                g.actors[PLAYER].kills = num(1, 0.0) as u32;
+                g.actors[me].kills = num(1, 0.0) as u32;
                 g.match_time = num(2, 0.0);
-                g.actors[PLAYER].damage_dealt = num(3, 0.0);
+                g.actors[me].damage_dealt = num(3, 0.0);
                 "ok".into()
             }
             "freeze_bots" => {
@@ -368,8 +472,8 @@ impl App {
                 // place bots in a ring around the player, standing still
                 let n = num(1, 6.0) as usize;
                 let dist = num(2, 14.0);
-                let p = g.actors[PLAYER].pos;
-                let yaw = g.actors[PLAYER].yaw;
+                let p = g.actors[me].pos;
+                let yaw = g.actors[me].yaw;
                 let n_actors = g.actors.len();
                 for k in 0..n.min(n_actors - 1) {
                     let ang = yaw + (k as f32 - (n as f32 - 1.0) / 2.0) * 0.55;
@@ -393,8 +497,8 @@ impl App {
             }
             "showcase" => {
                 // a row of bots, each holding something different, for visual checks
-                let p = g.actors[PLAYER].pos;
-                let yaw = g.actors[PLAYER].yaw;
+                let p = g.actors[me].pos;
+                let yaw = g.actors[me].yaw;
                 let (dist, spacing, first, turn) = (num(1, 7.0), num(2, 1.7), num(3, 0.0) as usize, num(4, 180.0).to_radians());
                 let kinds = WeaponKind::ALL;
                 let n_actors = g.actors.len();
@@ -465,7 +569,7 @@ impl App {
                 if let Some(c) = g.chests.get(idx % g.chests.len().max(1)).cloned() {
                     let fwd = yaw_forward(c.yaw);
                     let p = c.pos + fwd * 2.4;
-                    let a = &mut g.actors[PLAYER];
+                    let a = &mut g.actors[me];
                     a.pos = Vec3::new(p.x, c.pos.y, p.z);
                     a.mode = MoveMode::Ground;
                     a.on_ground = true;
@@ -481,7 +585,7 @@ impl App {
             }
             "tree" => {
                 // stand 2.4 m from the nth nearest living tree (default: the nearest), facing it, pickaxe in hand
-                let from = g.actors[PLAYER].pos;
+                let from = g.actors[me].pos;
                 let mut trees: Vec<(f32, usize)> = g
                     .world
                     .harvest
@@ -496,7 +600,7 @@ impl App {
                     let away = Vec2::new(from.x - t.x, from.z - t.z).try_normalize().unwrap_or(Vec2::X);
                     let p = Vec2::new(t.x, t.z) + away * 2.4;
                     let y = g.world.hm.height_at(p.x, p.y);
-                    let a = &mut g.actors[PLAYER];
+                    let a = &mut g.actors[me];
                     a.pos = Vec3::new(p.x, y, p.y);
                     a.vel = Vec3::ZERO;
                     a.mode = MoveMode::Ground;
@@ -504,7 +608,7 @@ impl App {
                     a.eye_smooth = y;
                     a.yaw = yaw_of(Vec2::new(t.x - p.x, t.z - p.y));
                     a.body_yaw = a.yaw;
-                    g.select_slot(PLAYER, 0);
+                    g.select_slot(me, 0);
                     aim_player_at(g, Vec3::new(t.x, t.y + 1.2, t.z));
                 }
                 "ok".into()
@@ -522,7 +626,7 @@ impl App {
                 if let Some(b) = g.world.buildings.get(n % g.world.buildings.len().max(1)).cloned() {
                     let inward = Vec2::new(b.center.x - b.door_in.x, b.center.z - b.door_in.z).try_normalize().unwrap_or(Vec2::Y);
                     let p = Vec3::new(b.door_in.x + inward.x * 0.8, b.door_in.y, b.door_in.z + inward.y * 0.8);
-                    let a = &mut g.actors[PLAYER];
+                    let a = &mut g.actors[me];
                     a.pos = p;
                     a.vel = Vec3::ZERO;
                     a.mode = MoveMode::Ground;
@@ -540,8 +644,8 @@ impl App {
             }
             "chest_here" => {
                 // drop an unopened chest (and some loot) in front of the player
-                let p = g.actors[PLAYER].pos;
-                let yaw = g.actors[PLAYER].yaw;
+                let p = g.actors[me].pos;
+                let yaw = g.actors[me].yaw;
                 let f = yaw_forward(yaw);
                 let pos = p + f * num(1, 5.0);
                 let pos = Vec3::new(pos.x, g.world.hm.height_at(pos.x, pos.z), pos.z);
@@ -576,8 +680,8 @@ impl App {
             }
             "build_demo" => {
                 use fn_core::game::pieces::*;
-                let p = g.actors[PLAYER].pos;
-                let yaw = g.actors[PLAYER].yaw;
+                let p = g.actors[me].pos;
+                let yaw = g.actors[me].yaw;
                 let f = yaw_forward(yaw);
                 let base = p + f * 9.0;
                 let (cx, cz) = cell_of(base);
@@ -592,12 +696,12 @@ impl App {
                         let key = PieceKey { kind, x: x + dx, z: cz + dz, level, dir };
                         if g.pieces.at(&key).is_none() {
                             let foot = footing_for(&key, y0, &g.env());
-                            g.pieces.insert_footed(key, *m, y0, PLAYER, foot);
+                            g.pieces.insert_footed(key, *m, y0, me, foot);
                             n += 1;
                         }
                     }
                     let key = PieceKey { kind: PieceKind::Ramp, x, z: cz + 1, level: 0, dir: 3 };
-                    g.pieces.insert(key, *m, y0, PLAYER);
+                    g.pieces.insert(key, *m, y0, me);
                 }
                 format!("placed {n}")
             }
@@ -613,8 +717,8 @@ impl App {
             }
             "gallery" => {
                 // bots frozen in different activities, for animation review (use `speed 0.02` to hold the poses)
-                let p = g.actors[PLAYER].pos;
-                let yaw = g.actors[PLAYER].yaw;
+                let p = g.actors[me].pos;
+                let yaw = g.actors[me].yaw;
                 let (dist, spacing, turn) = (num(1, 6.0), num(2, 1.9), num(3, 90.0).to_radians());
                 let n_actors = g.actors.len();
                 let side = yaw_right(yaw);
@@ -690,8 +794,14 @@ impl App {
                 "ok".into()
             }
             "state" => {
-                let a = &g.actors[PLAYER];
+                let a = &g.actors[me];
                 format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{},\"outfit\":{}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting, g.cfg.player_outfit)
+            }
+            "actor" => {
+                // actor <index>: where somebody is, whoever they are (for multiplayer tests)
+                let i = (num(1, 0.0) as usize).min(g.actors.len() - 1);
+                let a = &g.actors[i];
+                format!("{{\"id\":{},\"name\":\"{}\",\"human\":{},\"alive\":{},\"mode\":\"{:?}\",\"pos\":[{:.2},{:.2},{:.2}],\"hp\":{:.0},\"yaw\":{:.2}}}", a.id, a.name, a.human, a.alive, a.mode, a.pos.x, a.pos.y, a.pos.z, a.hp, a.yaw)
             }
             "timings" => {
                 let t = self.timings;

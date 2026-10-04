@@ -44,6 +44,8 @@ pub struct BuildingInfo {
     pub center: Vec3,
     /// Quarter turns the building was rotated by.
     pub rot: u8,
+    /// The flight of stairs up to the second floor, if the building has one.
+    pub stairs: Option<buildings::Stairs>,
 }
 
 #[derive(Clone, Debug)]
@@ -120,7 +122,7 @@ impl World {
             let center = p.aabb.center();
             let ci = props::chunk_index_of(center.x, center.z);
             chunk_meshes.entry(ci).or_default().append(&p.mesh, Mat4::IDENTITY);
-            buildings.push(BuildingInfo { id: b.id, poi: b.poi, kind: b.kind, aabb: p.aabb, door_out: p.door_out, door_in: p.door_in, center, rot: p.rot });
+            buildings.push(BuildingInfo { id: b.id, poi: b.poi, kind: b.kind, aabb: p.aabb, door_out: p.door_out, door_in: p.door_in, center, rot: p.rot, stairs: p.stairs });
             for l in &p.loot {
                 loot_spots.push(LootSpot { pos: *l, building: Some(b.id) });
             }

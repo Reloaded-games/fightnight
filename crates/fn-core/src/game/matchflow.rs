@@ -127,7 +127,7 @@ pub fn update_storm(g: &mut Game, dt: f32) {
                 continue;
             }
             if Vec2::new(a.pos.x, a.pos.z).distance(c) > r {
-                if g.cfg.god_mode && i == PLAYER {
+                if g.cfg.god_mode && i == g.local {
                     continue;
                 }
                 let pos = a.pos + Vec3::Y;

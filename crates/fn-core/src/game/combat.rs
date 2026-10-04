@@ -87,8 +87,10 @@ impl Game {
             if !a.alive || a.id == shooter || a.mode == MoveMode::Bus {
                 continue;
             }
+            // where this actor is, or was on the shooter's screen (see `Game::rewound`)
+            let pos = self.rewound.as_ref().and_then(|r| r.get(a.id)).copied().unwrap_or(a.pos);
             // quick reject by distance to the ray
-            let to = a.chest() - origin;
+            let to = pos + Vec3::Y * (a.height() * 0.62) - origin;
             let along = to.dot(dir);
             if along < -1.0 || along > best_t + 2.0 {
                 continue;
@@ -96,10 +98,10 @@ impl Game {
             if (to - dir * along).length() > 2.2 {
                 continue;
             }
-            let base = a.pos + Vec3::Y * 0.33;
+            let base = pos + Vec3::Y * 0.33;
             // the body capsule stops at the neck so the head sphere owns everything above the shoulders
-            let top = a.pos + Vec3::Y * (a.height() - 0.62);
-            let head = ray_sphere(origin, dir, a.head_pos(), 0.23);
+            let top = pos + Vec3::Y * (a.height() - 0.62);
+            let head = ray_sphere(origin, dir, pos + Vec3::Y * (a.height() - 0.2), 0.23);
             let body = ray_capsule_y(origin, dir, base, top, 0.33);
             match (head, body) {
                 (Some(th), Some(tb)) if th <= tb + 0.05 && th < best_t => {
@@ -271,6 +273,7 @@ impl Game {
                     a.melee_pending = true;
                     a.anim.swing = 1.0;
                     a.shot_flash = 0.3;
+                    self.events.push(Event::Swing { actor: i });
                 }
             }
             Some(Item::Consumable { kind, .. }) => {
@@ -482,7 +485,7 @@ impl Game {
         }
     }
 
-    fn harvest(&mut self, who: usize, idx: usize, point: Vec3) {
+    pub(crate) fn harvest(&mut self, who: usize, idx: usize, point: Vec3) {
         let Some(h) = self.world.harvest.get_mut(idx) else { return };
         if !h.alive {
             return;
@@ -509,13 +512,11 @@ impl Game {
         if broke {
             self.world.statics.remove(collider);
             self.events.push(Event::TreeFelled { pos, chunk, slot });
+            let from = self.actors[who].pos;
+            let away = Vec2::new(pos.x - from.x, pos.z - from.z).normalize_or_zero();
+            self.harvest_log.push((idx as u32, away));
             if kind == HarvestKind::Tree {
-                let props = &self.world.chunk_props[chunk];
-                if let Some(p) = props.get(slot) {
-                    let from = self.actors[who].pos;
-                    let away = Vec2::new(pos.x - from.x, pos.z - from.z).normalize_or_zero();
-                    self.felled.push(Felled { pos, kind: prop_kind, scale: p.scale, yaw: p.yaw, tint: p.tint, t: 0.0, dir: away });
-                }
+                self.start_felling(pos, chunk, slot, prop_kind, away);
             }
         }
     }
@@ -523,6 +524,13 @@ impl Game {
     // ------------------------------------------------------------------------------
     // Damage
     // ------------------------------------------------------------------------------
+
+    /// A tree that was just cut down starts to fall away from `dir`.
+    pub fn start_felling(&mut self, pos: Vec3, chunk: usize, slot: usize, kind: crate::world::props::PropKind, dir: Vec2) {
+        if let Some(p) = self.world.chunk_props.get(chunk).and_then(|c| c.get(slot)) {
+            self.felled.push(Felled { pos, kind, scale: p.scale, yaw: p.yaw, tint: p.tint, t: 0.0, dir });
+        }
+    }
 
     pub fn damage_piece(&mut self, id: u32, amount: f32, _by: Option<usize>) {
         let pos_mat = self.pieces.get(id).map(|p| (shape_center(p), p.mat));
@@ -545,7 +553,7 @@ impl Game {
                 return false;
             }
         }
-        if self.cfg.god_mode && victim == PLAYER {
+        if self.cfg.god_mode && victim == self.local {
             return false;
         }
         if let Some(at) = attacker {
@@ -580,8 +588,8 @@ impl Game {
         if let Some(at) = attacker {
             if at != victim {
                 self.actors[at].damage_dealt += dealt;
-                if at == PLAYER {
-                    self.events.push(Event::HitConfirm { head: headshot, shield: on_shield, kill: killed });
+                if self.actors[at].human {
+                    self.events.push(Event::HitConfirm { actor: at, head: headshot, shield: on_shield, kill: killed });
                 }
                 // the victim notices who hit them (bots react)
                 if let Some(b) = self.actors[victim].brain.as_mut() {
@@ -589,8 +597,8 @@ impl Game {
                 }
             }
         }
-        if victim == PLAYER {
-            self.events.push(Event::Hurt { amount, from });
+        if self.actors[victim].human {
+            self.events.push(Event::Hurt { actor: victim, amount, from });
         }
         if killed {
             self.eliminate(victim, attacker.filter(|&x| x != victim), weapon, weapon == "The Storm");
@@ -622,14 +630,8 @@ impl Game {
         if let Some(k) = killer {
             self.actors[k].kills += 1;
         }
-        let vname = self.actors[victim].name.clone();
-        let kname = killer.map(|k| self.actors[k].name.clone());
-        self.feed.push(FeedEntry { killer: kname, victim: vname, weapon: weapon.to_string(), by_player: killer == Some(PLAYER), victim_is_player: victim == PLAYER, storm, age: 0.0 });
+        self.actors[victim].survived = self.match_time;
         self.events.push(Event::Eliminated { victim, killer, weapon: Some(weapon), storm });
-        if victim == PLAYER {
-            self.player_dead_time = 0.0;
-            self.player_survived = self.match_time;
-        }
     }
 
     pub fn explode(&mut self, pos: Vec3, owner: usize, kind: WeaponKind, rarity: Rarity) {

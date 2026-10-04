@@ -2,6 +2,7 @@
 import init, * as fn from './pkg/fightnight.js';
 import { Hud, drawFullMap } from './hud.js';
 import { GameAudio } from './audio.js';
+import { createMultiplayer } from './multiplayer.js';
 import { RARITY, RARITY_NAMES, RARITY_DARK, drawItem, AMMO_NAMES, AMMO_COLORS, MAT_NAMES, MAT_COLORS } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
@@ -33,7 +34,18 @@ const gpuCanvas = $('gpu');
 const hudCanvas = $('hud');
 const mapImage = document.createElement('canvas');
 const hud = new Hud(hudCanvas, mapImage);
+const mp = createMultiplayer({
+  fn,
+  cfg,
+  show: (id, on) => show(id, on),
+  click: () => click(),
+  note: (t, ms) => note(t, ms),
+  name: () => String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You',
+  startMatch: (kind) => startMatch(kind),
+  setProgress: (p, t) => setProgress(p, t),
+});
 window.__game = { get state() { return state; }, get overlay() { return overlay; }, get waiting() { return waitingForLock; }, get hud() { return hudState; }, fn, cfg, frames: 0, audio };
+window.__game.mp = mp;
 // Test helper: read back the rendered frame and paint it into a plain 2D canvas so a normal page
 // screenshot (which cannot see the WebGPU swapchain in headless mode) shows the whole UI.
 window.__game.freezeFrame = async () => {
@@ -121,6 +133,10 @@ function wireUi() {
   bindSeg('seg-outfit', 'outfit');
   bindSeg('seg-quality', 'quality');
   bindCheck('opt-skipbus', 'skipbus');
+  bindRange('lb-bots', 'lb-val-bots', 'bots');
+  bindSeg('lb-diff', 'difficulty');
+  bindCheck('lb-skipbus', 'skipbus');
+  mp.wire();
   bindRange('set-sens', 'val-sens', 'sens', (v) => v, applyRuntimeOptions);
   bindRange('set-fov', 'val-fov', 'fov', (v) => v, applyRuntimeOptions);
   bindRange('set-vol', 'val-vol', 'vol', (v) => v, applyRuntimeOptions);
@@ -240,7 +256,8 @@ function buildMap() {
 // ------------------------------------------------------------------------------------------------
 // Match lifecycle
 // ------------------------------------------------------------------------------------------------
-async function startMatch() {
+// kind: 'solo' (against bots on this machine), 'host' (a multiplayer match this page runs) or 'guest' (one somebody else runs)
+async function startMatch(kind = 'solo') {
   if (state === 'loading') return;
   // Ask for the pointer lock right away, while the click / key press that got us here still counts as a user
   // gesture: loading the island can take longer than the browser keeps that gesture alive.
@@ -249,7 +266,7 @@ async function startMatch() {
   $('click-to-play').style.display = 'none';
   state = 'loading';
   $('tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
-  for (const id of ['menu', 'over', 'pause', 'settings', 'help', 'inventory', 'map']) show(id, false);
+  for (const id of ['menu', 'over', 'pause', 'settings', 'help', 'inventory', 'map', 'mp', 'lobby']) show(id, false);
   stopConfetti();
   overlay = null;
   $('err').textContent = '';
@@ -264,14 +281,21 @@ async function startMatch() {
     } else audio.resume();
     setProgress(0.65, 'Building the island');
     await nextFrame();
-    fn.start_match(matchOptions());
+    if (kind === 'solo') {
+      mp.leave();
+      fn.start_match(matchOptions());
+    } else {
+      await mp.begin(kind, matchOptions());
+    }
     applyRuntimeOptions();
     fn.set_menu(false);
     fn.set_paused(false);
+    if (kind !== 'solo') await mp.waitForStart();
     setProgress(1, 'Ready');
   } catch (e) {
     console.error(e);
     // back to the menu with the reason shown there (the loading screen hides the menu's message area)
+    mp.leave();
     $('err').textContent = 'Could not start the match: ' + (e && e.message ? e.message : e);
     try { fn.set_menu(true); } catch (e2) { /* the module may be unusable; the message above says why */ }
     state = 'menu';
@@ -288,6 +312,7 @@ async function startMatch() {
 }
 
 function toMenu() {
+  mp.leave();
   state = 'menu'; overlay = null;
   fn.set_paused(false); fn.set_menu(true);
   audio.silenceLoops();
@@ -358,7 +383,7 @@ window.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.code !== 'ControlLeft') e.preventDefault();
   } else if (state === 'paused' && e.code === 'Escape') {
     resume();
-  } else if (state === 'menu' && e.code === 'Enter' && !document.activeElement?.matches('input,button,select,textarea') && !$('settings').classList.contains('active') && !$('help').classList.contains('active')) {
+  } else if (state === 'menu' && e.code === 'Enter' && !document.activeElement?.matches('input,button,select,textarea') && !['settings', 'help', 'mp', 'lobby'].some((id) => $(id).classList.contains('active'))) {
     startMatch();
   }
 });
@@ -519,6 +544,8 @@ function maybeShowEnd(s) {
   const mins = Math.floor(s.stats.time / 60), secs = Math.floor(s.stats.time % 60);
   $('over-stats').innerHTML = `<div class="stat"><b>${s.stats.kills}</b><span>Eliminations</span></div><div class="stat"><b>${Math.round(s.stats.dmg)}</b><span>Damage dealt</span></div><div class="stat"><b>${mins}:${String(secs).padStart(2, '0')}</b><span>Survived</span></div><div class="stat"><b>#${place}</b><span>Placement</span></div>`;
   $('btn-spectate').style.display = won || over ? 'none' : '';
+  // a multiplayer match cannot be restarted from here: everybody goes back to the menu
+  $('btn-again').style.display = mp.active ? 'none' : '';
   show('over');
   unlockPointer();
   if (won) startConfetti();
@@ -581,7 +608,12 @@ function autoQuality(dt) {
 function tick(dt) {
   autoQuality(dt);
   fn.frame(dt);
+  mp.pump();
   window.__game.frames++;
+  if (mp.active && (state === 'playing' || state === 'paused' || state === 'over')) {
+    const why = mp.problem();
+    if (why) { note(why, 8000); toMenu(); return; }
+  }
   if (state === 'playing' || state === 'paused' || state === 'over') {
     try { hudState = JSON.parse(fn.hud()); } catch (e) { hudState = null; }
     if (hudState) {

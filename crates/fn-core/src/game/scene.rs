@@ -120,6 +120,13 @@ impl Scene {
     }
 
     fn finish(&mut self) {
+        // whatever slipped through with a NaN or an infinity would end up as a black square on screen
+        for l in &mut self.lists {
+            l.retain(|i| i.is_sane());
+        }
+        self.ghost.retain(|i| i.is_sane());
+        self.particles.retain(|p| p.is_sane());
+        self.particles_add.retain(|p| p.is_sane());
         self.instances.clear();
         self.batches.clear();
         for (mesh, list) in self.lists.iter().enumerate() {
@@ -400,6 +407,28 @@ mod tests {
     use super::super::testutil::game;
     use super::*;
     use crate::meshlib::build_all;
+
+    #[test]
+    fn nothing_with_a_nan_reaches_the_gpu() {
+        // a NaN that gets as far as the screen is smeared by the bloom into a black square
+        let mut g = game(6, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        g.actors[1].pos = Vec3::new(f32::NAN, 5.0, 2.0);
+        g.actors[2].yaw = f32::INFINITY;
+        g.actors[2].mode = MoveMode::Ground;
+        g.fx.on_event(&crate::game::events::Event::Explosion { pos: Vec3::new(1.0, f32::NAN, 1.0), radius: 7.0 }, &g.actors, 0.0);
+        g.pickups.push(crate::game::Pickup { id: 999_999, pos: Vec3::new(f32::INFINITY, 0.0, 0.0), vel: Vec3::ZERO, kind: crate::game::PickupKind::Ammo { kind: AmmoKind::Light, amount: 1 }, age: 0.0, grounded: true, spin: 0.0 });
+        let meshes = build_all();
+        let mut scene = Scene::new(&meshes);
+        let p = g.actors[PLAYER].pos;
+        let cam = Camera::look(p + Vec3::new(0.0, 6.0, 9.0), Vec3::new(0.0, -0.3, -1.0).normalize(), 0.0, 70f32.to_radians(), 1.6, 0.1);
+        scene.build(&g, &cam);
+        assert!(!scene.instances.is_empty());
+        assert!(scene.instances.iter().all(|i| i.is_sane()), "an instance with a NaN got through");
+        assert!(scene.particles.iter().chain(&scene.particles_add).all(|p| p.is_sane()), "a particle with a NaN got through");
+        let total: u32 = scene.batches.iter().map(|b| b.count).sum();
+        assert_eq!(total as usize, scene.instances.len(), "the batches still add up");
+    }
 
     #[test]
     fn a_fresh_match_produces_characters_pickups_and_chests() {

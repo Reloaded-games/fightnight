@@ -43,7 +43,8 @@ export function findChrome() {
   return undefined; // let playwright find its own
 }
 
-const COMMON = ['--no-sandbox', '--ignore-gpu-blocklist', ...(process.env.FN_CHROME_LOG ? ['--enable-logging=stderr', '--v=1'] : []), '--autoplay-policy=no-user-gesture-required'];
+// (the WebRTC flags let two pages of the multiplayer test find each other over the loopback interface)
+const COMMON = ['--no-sandbox', '--ignore-gpu-blocklist', '--allow-loopback-in-peer-connection', '--disable-features=WebRtcHideLocalIpsWithMdns', ...(process.env.FN_CHROME_LOG ? ['--enable-logging=stderr', '--v=1'] : []), '--autoplay-policy=no-user-gesture-required'];
 function flagSet(name) {
   const sets = {
     // Use the machine's real GPU when testing on a desktop with hardware WebGPU.

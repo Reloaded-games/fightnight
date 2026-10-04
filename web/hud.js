@@ -5,6 +5,16 @@ const FONT = '"Burbank Big Condensed","Bebas Neue","Oswald","Impact","Haettensch
 const WORLD = 1280;
 const STORM_PHASES = 7; // matches PHASES in matchflow.rs
 
+// What each hotbar slot is, written under its icon (same order as WeaponKind::ALL / ConsumableKind::ALL in the game).
+const WEAPON_LABELS = ['PISTOL', 'SUBMACHINE', 'RIFLE', 'SHOTGUN', 'SNIPER', 'ROCKET'];
+const CONSUMABLE_LABELS = ['BANDAGE', 'MEDKIT', 'MINI SHIELD', 'BIG SHIELD', 'CHUG JUG'];
+export function slotLabel(slot) {
+  if (!slot) return '';
+  if (slot.t === 'p') return 'PICKAXE';
+  if (slot.t === 'w') return WEAPON_LABELS[slot.k] || String(slot.n || '').toUpperCase();
+  return CONSUMABLE_LABELS[slot.k] || String(slot.n || '').toUpperCase();
+}
+
 function fmtTime(s) {
   s = Math.max(0, Math.ceil(s));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -52,8 +62,9 @@ export class Hud {
     ctx.save();
     ctx.font = `${opts.weight || 900} ${opts.italic === false ? '' : 'italic '}${size}px ${FONT}`;
     ctx.textAlign = align; ctx.textBaseline = opts.base || 'alphabetic';
-    if (opts.shadow !== false) { ctx.lineWidth = Math.max(2, size * 0.14); ctx.strokeStyle = opts.stroke || 'rgba(8,12,40,.85)'; ctx.lineJoin = 'round'; ctx.strokeText(str, x, y); }
-    ctx.fillStyle = color; ctx.fillText(str, x, y);
+    const mw = opts.maxWidth || undefined; // long labels are squeezed to fit instead of overflowing
+    if (opts.shadow !== false) { ctx.lineWidth = Math.max(2, size * 0.14); ctx.strokeStyle = opts.stroke || 'rgba(8,12,40,.85)'; ctx.lineJoin = 'round'; ctx.strokeText(str, x, y, mw); }
+    ctx.fillStyle = color; ctx.fillText(str, x, y, mw);
     ctx.restore();
   }
 
@@ -103,6 +114,14 @@ export class Hud {
     if (!dead || s.spec) this.nameTags(s, W, H, S);
     this.damageNumbers(s, W, H, S);
     if (this.showPerf) this.text(this.perf, 12, H - 14, 15 * S, '#9dffb0', 'left', { italic: false, weight: 600 });
+    if (s.net) this.netInfo(s.net, W, H, S);
+  }
+
+  // Multiplayer: who is playing and how good the connection is, small, in the bottom right.
+  netInfo(n, W, H, S) {
+    const ping = n.role === 'guest' ? `${n.ping} ms` : 'host';
+    const col = n.role === 'guest' ? (n.ping < 70 ? '#9dffb0' : n.ping < 150 ? '#ffe08a' : '#ff8f9a') : '#9dffb0';
+    this.text(`${n.players} players  \u00b7  ${ping}`, W - 12, H - 8, 13 * S, col, 'right', { italic: false, weight: 600 });
   }
 
   // Detect pickups / changes between frames for the notification list.
@@ -185,7 +204,11 @@ export class Hud {
       ctx.lineWidth = sel ? 3.5 * S : 2 * S; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,.35)'; ctx.strokeRect(x, y, w, h);
       if (sel) { ctx.shadowColor = base; ctx.shadowBlur = 18 * S; ctx.strokeRect(x, y, w, h); }
       ctx.restore();
-      if (slot) drawItem(ctx, slot, x + 5 * S, y + 8 * S, w - 10 * S, h - 24 * S);
+      if (slot) {
+        drawItem(ctx, slot, x + 5 * S, y + 8 * S, w - 10 * S, h - 30 * S);
+        // what it is, in words
+        this.text(slotLabel(slot), x + w / 2, y + h - 9 * S, 12.5 * S, sel ? '#fff' : 'rgba(235,242,255,.92)', 'center', { maxWidth: w - 8 * S, weight: 800 });
+      }
       this.text(String(i + 1), x + 6 * S, y + 17 * S, 17 * S, 'rgba(255,255,255,.85)');
       if (slot && slot.t === 'w') this.text(String(slot.a), x + w - 6 * S, y + 18 * S, 17 * S, slot.a === 0 ? '#ff7d7d' : '#fff', 'right');
       if (slot && slot.t === 'c') this.text(String(slot.c), x + w - 6 * S, y + 18 * S, 19 * S, '#fff', 'right');

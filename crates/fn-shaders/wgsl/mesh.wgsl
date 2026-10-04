@@ -66,7 +66,7 @@ fn planks(coord: vec2<f32>, width: f32) -> f32 {
     let b = coord.x / width;
     let f = fract(b);
     let id = floor(b);
-    let groove = smoothstep(0.0, 0.06, f) * smoothstep(1.0, 0.94, f);
+    let groove = smoothstep(0.0, 0.06, f) * (1.0 - smoothstep(0.94, 1.0, f));
     let grain = vnoise(vec2<f32>(coord.y * 0.7 + id * 3.1, id * 7.3)) * 0.25;
     return groove * (0.78 + grain + hash21(vec2<f32>(id, 1.0)) * 0.18);
 }
@@ -76,7 +76,7 @@ fn bricks(coord: vec2<f32>) -> f32 {
     let off = select(0.0, 0.5, (i32(row) & 1) == 1);
     let bx = fract(coord.x / 0.45 + off);
     let by = fract(coord.y / 0.2);
-    let mortar = smoothstep(0.0, 0.07, bx) * smoothstep(1.0, 0.93, bx) * smoothstep(0.0, 0.14, by) * smoothstep(1.0, 0.86, by);
+    let mortar = smoothstep(0.0, 0.07, bx) * (1.0 - smoothstep(0.93, 1.0, bx)) * smoothstep(0.0, 0.14, by) * (1.0 - smoothstep(0.86, 1.0, by));
     let id = vec2<f32>(floor(coord.x / 0.45 + off), row);
     return mix(0.62, 0.88 + hash21(id) * 0.18, mortar);
 }
@@ -86,7 +86,7 @@ fn shingles(coord: vec2<f32>) -> f32 {
     let off = select(0.0, 0.5, (i32(row) & 1) == 1);
     let sx = fract(coord.x / 0.4 + off);
     let sy = fract(coord.y / 0.28);
-    let edge = smoothstep(0.0, 0.12, sy) * smoothstep(0.0, 0.05, sx) * smoothstep(1.0, 0.95, sx);
+    let edge = smoothstep(0.0, 0.12, sy) * smoothstep(0.0, 0.05, sx) * (1.0 - smoothstep(0.95, 1.0, sx));
     let id = vec2<f32>(floor(coord.x / 0.4 + off), row);
     return mix(0.58, 0.9 + hash21(id) * 0.16, edge);
 }
@@ -110,7 +110,7 @@ fn build_pattern(kind: i32, lp: vec3<f32>, wp: vec3<f32>, n: vec3<f32>) -> vec3<
         m = vec3<f32>(bricks(vec2<f32>(uv.x, uv.y)));
     } else {
         let f = fract(uv * vec2<f32>(0.5, 0.5));
-        let seam = smoothstep(0.0, 0.03, f.x) * smoothstep(1.0, 0.97, f.x) * smoothstep(0.0, 0.03, f.y) * smoothstep(1.0, 0.97, f.y);
+        let seam = smoothstep(0.0, 0.03, f.x) * (1.0 - smoothstep(0.97, 1.0, f.x)) * smoothstep(0.0, 0.03, f.y) * (1.0 - smoothstep(0.97, 1.0, f.y));
         m = vec3<f32>(mix(0.62, 1.0, seam));
     }
     return m;

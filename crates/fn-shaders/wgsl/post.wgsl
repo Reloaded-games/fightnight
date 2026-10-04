@@ -29,10 +29,19 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
 
 fn luma(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722)); }
 
+// A NaN or infinity anywhere in the HDR image would be smeared by the bloom chain into a black (or white) square; these
+// comparisons are false for NaN, so it becomes black, and everything else is kept within a sane brightness.
+fn clean(c: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        select(0.0, min(c.x, 100.0), c.x >= 0.0),
+        select(0.0, min(c.y, 100.0), c.y >= 0.0),
+        select(0.0, min(c.z, 100.0), c.z >= 0.0));
+}
+
 fn karis(c: vec3<f32>) -> f32 { return 1.0 / (1.0 + luma(c)); }
 
 fn sample_src(uv: vec2<f32>) -> vec3<f32> {
-    return textureSampleLevel(src_tex, samp, uv, 0.0).rgb;
+    return clean(textureSampleLevel(src_tex, samp, uv, 0.0).rgb);
 }
 
 // 13-tap downsample (Call of Duty: Advanced Warfare style)
@@ -112,8 +121,8 @@ fn grade(hdr: vec3<f32>) -> vec3<f32> {
 }
 
 fn fetch_graded(uv: vec2<f32>) -> vec3<f32> {
-    let h = textureSampleLevel(src_tex, samp, uv, 0.0).rgb;
-    let b = textureSampleLevel(bloom_tex, samp, uv, 0.0).rgb;
+    let h = clean(textureSampleLevel(src_tex, samp, uv, 0.0).rgb);
+    let b = clean(textureSampleLevel(bloom_tex, samp, uv, 0.0).rgb);
     return grade(h + b * P.b.z);
 }
 

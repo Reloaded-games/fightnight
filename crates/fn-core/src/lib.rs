@@ -12,6 +12,7 @@ pub mod math;
 pub mod mesh;
 pub mod meshlib;
 pub mod models;
+pub mod net;
 pub mod noise;
 pub mod png;
 pub mod rng;

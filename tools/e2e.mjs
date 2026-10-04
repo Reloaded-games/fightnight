@@ -146,6 +146,12 @@ check('the simulation survives a four minute fast-forward', ff.alive >= 1, JSON.
 
 const hs = await hud();
 check('HUD snapshot is produced', !!hs && typeof hs.hp === 'number' && Array.isArray(hs.slots));
+// every hotbar slot is labelled with what it is
+const labels = await page.evaluate(async () => {
+  const { slotLabel } = await import('./hud.js');
+  return [{ t: 'p' }, { t: 'w', k: 0 }, { t: 'w', k: 1 }, { t: 'w', k: 2 }, { t: 'w', k: 3 }, { t: 'w', k: 4 }, { t: 'w', k: 5 }, { t: 'c', k: 0 }, { t: 'c', k: 4 }].map(slotLabel);
+});
+check('hotbar slots are labelled with the weapon type', labels.join(',') === 'PICKAXE,PISTOL,SUBMACHINE,RIFLE,SHOTGUN,SNIPER,ROCKET,BANDAGE,CHUG JUG', labels.join(','));
 const bad = logs.filter((l) => /error|panick|unreachable/i.test(l) && !/WebGPU is experimental|favicon|404|Failed to load resource/.test(l));
 check('no console errors', bad.length === 0, bad.slice(0, 3).join(' | '));
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');

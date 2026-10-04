@@ -5,6 +5,7 @@ pub mod actor;
 pub mod ai;
 pub mod audio_map;
 pub mod building;
+pub mod cmd;
 pub mod combat;
 pub mod env;
 pub mod events;
@@ -16,6 +17,7 @@ pub mod loot;
 pub mod matchflow;
 pub mod movement;
 pub mod pieces;
+pub mod remote;
 pub mod rig;
 pub mod scene;
 
@@ -45,8 +47,12 @@ pub struct GameConfig {
     pub bots: usize,
     pub difficulty: Difficulty,
     pub player_name: String,
-    /// Scout, Ranger, Pilot or Vanguard palette (0..3).
+    /// Scout, Ranger, Pilot or Vanguard for the solo player (0..3).
     pub player_outfit: u8,
+    /// How many of the first actors are people rather than bots (a multiplayer room); `bots` more actors follow them.
+    pub humans: usize,
+    /// Names of the humans after the first (missing ones are called "Player N").
+    pub human_names: Vec<String>,
     pub start_mats: u32,
     /// Skip the bus and start everyone on the ground (used by tests).
     pub skip_bus: bool,
@@ -58,7 +64,7 @@ pub struct GameConfig {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        Self { seed: 1, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
+        Self { seed: 1, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, humans: 1, human_names: vec![], start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
     }
 }
 
@@ -244,6 +250,18 @@ pub struct Game {
     pub feed: Vec<FeedEntry>,
     pub winner: Option<usize>,
     pub spectating: Option<usize>,
+    /// The actor this game is seen through (HUD, camera, sounds): the person at this keyboard. A host plays actor 0; a
+    /// client's copy of the match is played through the actor the host gave it.
+    pub local: usize,
+    /// Commands from the humans playing over the network, per actor (see [`remote`]).
+    pub remotes: Vec<Option<remote::Remote>>,
+    /// Where every actor stood over the last fraction of a second (kept only while people play over the network), so the
+    /// host can show a shooter's shot the world as the shooter saw it (see [`Game::positions_at`]).
+    pub history: std::collections::VecDeque<(f32, Vec<Vec3>)>,
+    /// While a remote player's shot is resolved: where each actor was on that player's screen. `None` means where they are now.
+    pub rewound: Option<Vec<Vec3>>,
+    /// Rewind other actors to what a remote shooter saw (on by default; tests turn it off to see the difference).
+    pub lag_comp: bool,
     pub cam_dist: f32,
     /// Sideways offset of the camera pivot from the body axis (m): the shoulder reach, eased over time (see [`Game::tick_camera`]).
     pub cam_reach: f32,
@@ -252,11 +270,11 @@ pub struct Game {
     pub cam_shake: f32,
     pub fov_t: f32,
     pub felled: Vec<Felled>,
+    /// Harvestables broken since the host last looked (index in `world.harvest`, and which way a tree falls): the host
+    /// tells the players about each one.
+    pub harvest_log: Vec<(u32, Vec2)>,
     pub next_id: u32,
     pub match_time: f32,
-    /// Match clock at the moment the human was eliminated (the end screen's "survived").
-    pub player_survived: f32,
-    pub player_dead_time: f32,
     /// Counts simulation steps; eliminations in the same step are simultaneous.
     pub step_no: u64,
     /// The match ended with everyone left falling in the same step: nobody wins, they share first place.
@@ -290,11 +308,18 @@ impl Game {
         let mut actors: Vec<Actor> = Vec::new();
         let mut name_pool: Vec<&str> = BOT_NAMES.to_vec();
         rng.shuffle(&mut name_pool);
-        for i in 0..=cfg.bots {
+        let humans = cfg.humans.max(1);
+        for i in 0..humans + cfg.bots {
             let random_outfit = Outfit::random(&mut rng);
-            let human = i == PLAYER;
-            let outfit = if human { Outfit::preset(cfg.player_outfit) } else { random_outfit };
-            let name = if human { cfg.player_name.clone() } else { name_pool[(i - 1) % name_pool.len()].to_string() };
+            let human = i < humans;
+            let outfit = if i == PLAYER { Outfit::preset(cfg.player_outfit) } else { random_outfit };
+            let name = if i == PLAYER {
+                cfg.player_name.clone()
+            } else if human {
+                cfg.human_names.get(i - 1).filter(|n| !n.is_empty()).cloned().unwrap_or_else(|| format!("Player {}", i + 1))
+            } else {
+                name_pool[(i - humans) % name_pool.len()].to_string()
+            };
             let mut a = Actor::new(i, &name, human, outfit);
             a.inv.mats[Mat::Wood.index()] = cfg.start_mats;
             if !human {
@@ -320,16 +345,20 @@ impl Game {
             feed: vec![],
             winner: None,
             spectating: None,
+            local: PLAYER,
+            remotes: Vec::new(),
+            history: Default::default(),
+            rewound: None,
+            lag_comp: true,
             cam_dist: 3.4,
             cam_reach: 0.62,
             fov_deg: 62.0,
             cam_shake: 0.0,
             fov_t: 0.0,
             felled: vec![],
+            harvest_log: vec![],
             next_id: 1,
             match_time: 0.0,
-            player_survived: 0.0,
-            player_dead_time: 0.0,
             step_no: 0,
             tie: false,
             last_hurt_dir: None,
@@ -342,16 +371,29 @@ impl Game {
             alive_cache: 0,
             ai_paths_left: 0,
         };
+        g.remotes = (0..g.actors.len()).map(|_| None).collect();
         g.spawn_world_loot();
         g.setup_start();
         g
     }
 
+    /// The person at this keyboard (actor 0 unless this is a client's copy of a multiplayer match).
+    /// The copy of a multiplayer match that a client plays: built exactly as the host built its game (so the island, the loot
+    /// and everyone's outfit come out the same), but nothing here thinks for the bots - the host sends what they do.
+    pub fn new_replica(world: World, cfg: GameConfig, local: usize) -> Game {
+        let mut g = Game::new(world, cfg);
+        for a in &mut g.actors {
+            a.brain = None;
+        }
+        g.local = local;
+        g
+    }
+
     pub fn player(&self) -> &Actor {
-        &self.actors[PLAYER]
+        &self.actors[self.local]
     }
     pub fn player_mut(&mut self) -> &mut Actor {
-        &mut self.actors[PLAYER]
+        &mut self.actors[self.local]
     }
 
     pub fn alive_count(&self) -> usize {
@@ -367,11 +409,22 @@ impl Game {
         self.next_id
     }
 
-    pub fn toast(&mut self, text: impl Into<String>, secs: f32, style: u8) {
+    /// Put a message on this game's own HUD right away (messages sent with [`Game::toast`] appear when the frame ends).
+    pub fn show_toast(&mut self, text: impl Into<String>, secs: f32, style: u8) {
         self.toast.push((text.into(), secs, style));
         if self.toast.len() > 4 {
             self.toast.remove(0);
         }
+    }
+
+    /// Show a message to everyone.
+    pub fn toast(&mut self, text: impl Into<String>, secs: f32, style: u8) {
+        self.events.push(Event::Toast { actor: None, text: text.into(), secs, style });
+    }
+
+    /// Show a message to one player.
+    pub fn toast_to(&mut self, actor: usize, text: impl Into<String>, secs: f32, style: u8) {
+        self.events.push(Event::Toast { actor: Some(actor), text: text.into(), secs, style });
     }
 
     /// Put everyone on the bus (or on the ground when skipping it).
@@ -455,12 +508,14 @@ impl Game {
     fn step(&mut self, dt: f32, input: &PlayerInput) {
         self.step_no += 1;
         self.time += dt;
-        if self.phase != Phase::Over || self.player().alive {
+        // the clock runs until the match is decided, and on while anyone who plays it is still on their feet (the winner dances)
+        if self.phase != Phase::Over || self.actors.iter().any(|a| a.human && a.alive) {
             self.match_time += dt;
         }
         self.ai_paths_left = 3;
         matchflow::update_bus(self, dt);
         matchflow::update_storm(self, dt);
+        self.apply_remote_cmds(dt);
 
         let n = self.actors.len();
         for i in 0..n {
@@ -468,13 +523,22 @@ impl Game {
                 self.actors[i].dead_time += dt;
                 continue;
             }
-            let intent = if i == PLAYER { self.player_intent(input) } else { self.bot_intent(i, dt) };
+            if self.remotes[i].is_some() {
+                // a person on the network: their commands were applied above; what is left is going along with the bus
+                if self.actors[i].mode == MoveMode::Bus {
+                    let a = &self.actors[i];
+                    let idle = Intent { yaw: a.yaw, pitch: a.pitch, ..Default::default() };
+                    self.apply_intent(i, &idle, dt);
+                }
+                continue;
+            }
+            let intent = if i == self.local { self.player_intent(input) } else { self.bot_intent(i, dt) };
             self.apply_intent(i, &intent, dt);
         }
-        if !self.actors[PLAYER].alive {
-            self.player_dead_time += dt;
+        if !self.actors[self.local].alive {
             self.update_spectate(input);
         }
+        self.record_history();
         combat::update_projectiles(self, dt);
         loot::update_pickups(self, dt);
         self.pieces.tick(dt);
@@ -482,12 +546,19 @@ impl Game {
         matchflow::check_victory(self);
     }
 
+    /// Everything that happens to a frame's events once the simulation (or, on a client, the network) has produced them: effects,
+    /// the kill feed, hit markers, timers and the HUD's previews.
+    pub fn finish_frame(&mut self, dt: f32) {
+        self.after_update(dt);
+    }
+
     fn after_update(&mut self, dt: f32) {
         // gather events into effects
         let evs = std::mem::take(&mut self.events);
+        self.fx.local = self.local;
         for e in &evs {
             self.fx.on_event(e, &self.actors, self.time);
-            self.handle_player_event(e);
+            self.handle_event(e);
         }
         self.events = evs;
         self.fx.update(dt);
@@ -511,7 +582,7 @@ impl Game {
     fn player_intent(&mut self, input: &PlayerInput) -> Intent {
         let (yaw, pitch);
         {
-            let a = &mut self.actors[PLAYER];
+            let a = &mut self.actors[self.local];
             let freefall = matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
             a.yaw -= input.look.x;
             a.pitch = (a.pitch + input.look.y).clamp(if freefall { -1.45 } else { -1.5 }, 1.5);
@@ -558,7 +629,7 @@ impl Game {
 
     /// Run one actor's intent through movement, items, combat and building.
     pub fn apply_intent(&mut self, i: usize, it: &Intent, dt: f32) {
-        let god = self.cfg.god_mode && i == PLAYER;
+        let god = self.cfg.god_mode && i == self.local;
         {
             let a = &mut self.actors[i];
             a.yaw = it.yaw;
@@ -623,15 +694,15 @@ impl Game {
         }
     }
 
-    fn update_felled(&mut self, dt: f32) {
+    pub(crate) fn update_felled(&mut self, dt: f32) {
         for f in &mut self.felled {
             f.t += dt;
         }
         self.felled.retain(|f| f.t < 2.6);
     }
 
-    fn update_spectate(&mut self, input: &PlayerInput) {
-        let alive: Vec<usize> = self.actors.iter().filter(|a| a.alive && a.id != PLAYER).map(|a| a.id).collect();
+    pub fn update_spectate(&mut self, input: &PlayerInput) {
+        let alive: Vec<usize> = self.actors.iter().filter(|a| a.alive && a.id != self.local).map(|a| a.id).collect();
         if alive.is_empty() {
             self.spectating = None;
             return;
@@ -642,7 +713,7 @@ impl Game {
             let n = alive.len() as i32;
             let next = if cur.is_none() {
                 // follow the killer first, otherwise the nearest survivor
-                let killer = self.actors[PLAYER].last_damage_from.filter(|k| self.actors[*k].alive);
+                let killer = self.actors[self.local].last_damage_from.filter(|k| self.actors[*k].alive);
                 killer.map(|k| alive.iter().position(|&x| x == k).unwrap_or(0) as i32).unwrap_or(0)
             } else {
                 (idx + input.spectate).rem_euclid(n)
@@ -651,17 +722,24 @@ impl Game {
         }
     }
 
-    fn handle_player_event(&mut self, e: &Event) {
+    /// What an event does to this game's own view of the match: hit markers, damage flashes, the kill feed, messages.
+    fn handle_event(&mut self, e: &Event) {
         match e {
-            Event::HitConfirm { head, shield, kill } => {
+            Event::HitConfirm { actor, head, shield, kill } if *actor == self.local => {
                 self.hit_marker = 0.22;
                 self.hit_marker_kind = if *kill { 3 } else if *head { 2 } else if *shield { 1 } else { 0 };
             }
-            Event::Hurt { from, .. } => {
+            Event::Hurt { actor, from, .. } if *actor == self.local => {
                 self.hurt_flash = 1.0;
                 self.last_hurt_dir = *from;
                 self.cam_shake = self.cam_shake.max(0.35);
             }
+            Event::Eliminated { victim, killer, weapon, storm } => {
+                let name = |i: usize| self.actors.get(i).map(|a| a.name.clone()).unwrap_or_default();
+                let entry = FeedEntry { killer: killer.map(name), victim: name(*victim), weapon: weapon.unwrap_or("").to_string(), by_player: *killer == Some(self.local), victim_is_player: *victim == self.local, storm: *storm, age: 0.0 };
+                self.feed.push(entry);
+            }
+            Event::Toast { actor, text, secs, style } if actor.is_none_or(|a| a == self.local) => self.show_toast(text.clone(), *secs, *style),
             Event::Explosion { pos, radius } => {
                 let d = self.actors[self.camera_actor()].pos.distance(*pos);
                 if d < 60.0 {
@@ -677,10 +755,10 @@ impl Game {
     // ------------------------------------------------------------------------------
 
     pub fn camera_actor(&self) -> usize {
-        if self.actors[PLAYER].alive {
-            PLAYER
+        if self.actors[self.local].alive {
+            self.local
         } else {
-            self.spectating.unwrap_or(PLAYER)
+            self.spectating.unwrap_or(self.local)
         }
     }
 

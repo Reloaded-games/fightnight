@@ -15,7 +15,7 @@ All assets are covered by this repository's MIT license.
   and the live gameplay rig. Runtime weapon IK, physics and action blends remain active.
 - `manifest.json`: generator version, triangle counts and byte budgets.
 
-The four characters share one body mesh and differ in clothing palettes. The game
+The solo menu offers four outfit palettes that share one body mesh and differ in clothing palettes. The game
 also supports three hair meshes. Each runtime mesh stays under 5,000 vertices;
 existing distant tree LODs keep the wider island affordable to render.
 

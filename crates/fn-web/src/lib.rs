@@ -2,6 +2,7 @@
 
 mod app;
 mod gpu;
+mod netapp;
 mod renderer;
 
 use app::App;
@@ -153,7 +154,7 @@ pub fn set_options(sens: f32, invert_y: bool, fov: f32, tags: bool, auto_sprint:
     with_app((), |app| {
         app.sens = sens.clamp(0.0003, 0.02);
         app.invert_y = invert_y;
-        app.game.fov_deg = fov.clamp(40.0, 100.0);
+        app.mode.game_mut().fov_deg = fov.clamp(40.0, 100.0);
         app.show_tags = tags;
         app.input.auto_sprint = auto_sprint;
     });
@@ -174,12 +175,12 @@ pub fn minimap() -> Vec<u8> {
 /// "name,x,z,kind;..." for every point of interest.
 #[wasm_bindgen]
 pub fn poi_list() -> String {
-    with_app(String::new(), |app| app.game.world.layout.pois.iter().map(|q| format!("{},{:.1},{:.1},{:?},{:.0}", q.name, q.center.x, q.center.y, q.kind, q.radius)).collect::<Vec<_>>().join(";"))
+    with_app(String::new(), |app| app.mode.game().world.layout.pois.iter().map(|q| format!("{},{:.1},{:.1},{:?},{:.0}", q.name, q.center.x, q.center.y, q.kind, q.radius)).collect::<Vec<_>>().join(";"))
 }
 
 #[wasm_bindgen]
 pub fn ground_height(x: f32, z: f32) -> f32 {
-    with_app(0.0, |app| app.game.world.height_at(x, z))
+    with_app(0.0, |app| app.mode.game().world.height_at(x, z))
 }
 
 /// Equip an inventory slot (0 = harvesting tool).
@@ -223,6 +224,91 @@ pub fn consumable_defs() -> String {
         })
         .collect();
     format!("[{}]", items.join(","))
+}
+
+// ---- multiplayer -----------------------------------------------------------------------------------------
+// The page owns the WebRTC connections; it feeds what arrives into `net_receive` and sends what `net_poll` returns.
+
+fn now_ms() -> u32 {
+    web_sys::window().and_then(|w| w.performance()).map(|p| p.now() as u32).unwrap_or(0)
+}
+
+/// Open a room for other players; `name` is the host's name.
+#[wasm_bindgen]
+pub fn net_host_open(name: &str) {
+    with_app((), |app| app.net_host_open(name));
+}
+
+/// Get ready to join a room; the hello is sent with the next `net_poll`.
+#[wasm_bindgen]
+pub fn net_guest_open(name: &str) {
+    with_app((), |app| app.net_guest_open(name));
+}
+
+/// Leave the room or the match (the goodbyes are sent with the next `net_poll`).
+#[wasm_bindgen]
+pub fn net_reset() {
+    with_app((), |app| app.net_reset());
+}
+
+/// A connection to a player opened (host side).
+#[wasm_bindgen]
+pub fn net_connected(peer: u32) {
+    with_app((), |app| app.net_connected(peer));
+}
+
+/// A connection closed.
+#[wasm_bindgen]
+pub fn net_disconnected(peer: u32) {
+    with_app((), |app| app.net_disconnected(peer));
+}
+
+/// A message arrived (peer 0 is the host, for guests).
+#[wasm_bindgen]
+pub fn net_receive(peer: u32, data: &[u8]) {
+    with_app((), |app| app.net_receive(peer, data, now_ms()));
+}
+
+/// Messages to send: repeated [peer u32 le][reliable u8][length u32 le][bytes].
+#[wasm_bindgen]
+pub fn net_poll() -> Vec<u8> {
+    with_app(vec![], |app| app.net_poll())
+}
+
+/// Advance a multiplayer match without rendering (used while the loading screen waits for the other players).
+#[wasm_bindgen]
+pub fn net_tick(dt: f32) {
+    with_app((), |app| app.net_tick(dt));
+}
+
+/// JSON about the room or the match: `{state, names, ...}`.
+#[wasm_bindgen]
+pub fn net_status() -> String {
+    with_app("{\"state\":\"none\"}".to_string(), |app| app.net_status())
+}
+
+/// The host starts the match: tells the guests. Send what `net_poll` has, then call `net_finish_host`.
+/// Options as for `start_match` (bots, difficulty, skipbus, seed, storm, mats).
+#[wasm_bindgen]
+pub fn net_begin_host(opts: &str) -> Result<(), JsValue> {
+    let (cfg, _) = parse_opts(opts);
+    with_app(Err("no game".to_string()), |app| app.net_begin_host(&cfg)).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Builds the island and starts the match the host announced. Heavy.
+#[wasm_bindgen]
+pub fn net_finish_host() -> Result<String, JsValue> {
+    let t0 = js_sys::Date::now();
+    with_app(Err("no game".to_string()), |app| app.net_finish_host()).map_err(|e| JsValue::from_str(&e))?;
+    Ok(format!("match ready in {:.0} ms", js_sys::Date::now() - t0))
+}
+
+/// A guest builds the island and its copy of the match once the host has started. Heavy.
+#[wasm_bindgen]
+pub fn net_start_guest() -> Result<String, JsValue> {
+    let t0 = js_sys::Date::now();
+    with_app(Err("no game".to_string()), |app| app.net_start_guest()).map_err(|e| JsValue::from_str(&e))?;
+    Ok(format!("match ready in {:.0} ms", js_sys::Date::now() - t0))
 }
 
 // ---- audio ---------------------------------------------------------------------------------------------

@@ -653,36 +653,82 @@ mod tests {
         assert!(shut.is_empty(), "{} of {tested} doors cannot be walked through: {shut:?}", shut.len());
     }
 
+    fn dir_vec(d: u8) -> Vec2 {
+        [Vec2::X, Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y][d as usize & 3]
+    }
+
+    /// Start, end and half length of the line up the middle of a flight, and the floor it starts from.
+    fn flight_line(st: &crate::world::buildings::Stairs) -> (Vec2, Vec2, f32) {
+        let r = dir_vec(st.dir);
+        let c = Vec2::new((st.min.x + st.max.x) / 2.0, (st.min.z + st.max.z) / 2.0);
+        let half = if r.x != 0.0 { (st.max.x - st.min.x) / 2.0 } else { (st.max.z - st.min.z) / 2.0 };
+        (c - r * half, c + r * half, st.min.y)
+    }
+
     #[test]
-    fn climbs_the_stairs_of_a_two_story_house() {
+    fn climbs_and_descends_the_stairs_of_every_two_story_house() {
         let w = world();
         let (mut a, pieces) = setup();
         let env = Env::new(w, &pieces);
-        // find a tall building (two stories)
-        let b = w.buildings.iter().find(|b| b.kind == "house" && b.aabb.max.y - b.aabb.min.y > 9.0);
-        let b = b.expect("seed 1234 must contain a two-story house to test the stairs");
-        // the stair wedge collider: find the wedge with the largest rise inside the footprint
-        let mut best: Option<(Vec3, Vec3, u8)> = None;
-        w.statics.query(&b.aabb, |_, c| {
-            if let crate::world::collision::Shape::Wedge { min, max, dir } = c.shape {
-                if max.y - min.y > 2.5 && max.y - min.y < 3.5 && (max.x - min.x) < 2.0 || (max.z - min.z) < 2.0 && max.y - min.y > 2.5 && max.y - min.y < 3.5 {
-                    best = Some((min, max, dir));
+        let houses: Vec<_> = w.buildings.iter().filter(|b| b.stairs.is_some()).collect();
+        assert!(houses.len() >= 3, "seed 1234 must contain two-story houses to test the stairs ({})", houses.len());
+        for b in houses {
+            let st = b.stairs.unwrap();
+            let (foot, head, floor) = flight_line(&st);
+            let up = dir_vec(st.dir);
+            // the way on to the upper floor is off the open side of the flight
+            let side = dir_vec(crate::world::buildings::open_side(st.dir));
+            let storey = st.max.y - floor;
+            a.pos = Vec3::new(foot.x - up.x * 0.7, floor, foot.y - up.y * 0.7);
+            a.vel = Vec3::ZERO;
+            a.on_ground = true;
+            a.mode = MoveMode::Ground;
+            // up to the head of the flight, without jumping
+            run(&mut a, &Intent { wish: up, ..Default::default() }, &env, 3.0);
+            assert!(a.pos.y > floor + storey - 0.3, "house {} should have climbed the stairs: y {} (floor {floor}, upper {})", b.id, a.pos.y, floor + storey);
+            assert!(a.on_ground);
+            // ... and off the side onto the upper floor, which is well away from the flight
+            run(&mut a, &Intent { wish: side, ..Default::default() }, &env, 1.5);
+            assert!((a.pos.y - (floor + storey)).abs() < 0.05, "house {}: standing on the upper floor, y {}", b.id, a.pos.y);
+            let off = (Vec2::new(a.pos.x, a.pos.z) - head).dot(side);
+            assert!(off > 1.0, "house {}: the opening at the head of the stairs must let you onto the floor (moved {off})", b.id);
+            // and back down
+            run(&mut a, &Intent { wish: -side, ..Default::default() }, &env, 2.5);
+            run(&mut a, &Intent { wish: -up, ..Default::default() }, &env, 3.0);
+            assert!(a.pos.y < floor + 0.1 && a.on_ground, "house {}: walked back down the stairs to the floor, y {} (floor {floor})", b.id, a.pos.y);
+        }
+    }
+
+    #[test]
+    fn stairs_are_made_of_real_steps() {
+        let w = world();
+        let mut seen = 0;
+        for b in w.buildings.iter().filter(|b| b.stairs.is_some()) {
+            let st = b.stairs.unwrap();
+            let r = dir_vec(st.dir);
+            let probe = crate::math::Aabb::new(st.min - Vec3::splat(0.01), st.max + Vec3::splat(0.01));
+            let mut treads = vec![];
+            w.statics.query(&probe, |_, c| {
+                let bb = c.shape.aabb();
+                if bb.min.x >= st.min.x - 0.01 && bb.max.x <= st.max.x + 0.01 && bb.min.z >= st.min.z - 0.01 && bb.max.z <= st.max.z + 0.01 && bb.min.y <= st.min.y + 0.01 && bb.max.y <= st.max.y + 0.01 {
+                    assert!(matches!(c.shape, crate::world::collision::Shape::Box { .. }), "the stairs are made of boxes, not a ramp");
+                    treads.push((Vec2::new(bb.max.x + bb.min.x, bb.max.z + bb.min.z).dot(r), bb.max.y));
                 }
+            });
+            // every step is a block up to its tread, and each tread is a small rise above the one below it
+            treads.sort_by(|a, b| a.0.total_cmp(&b.0));
+            treads.dedup(); // a step that spans two grid cells is visited from both
+            assert_eq!(treads.len(), 16, "house {}: {treads:?}", b.id);
+            let mut last = st.min.y;
+            for (_, top) in &treads {
+                let rise = top - last;
+                assert!(rise > 0.1 && rise < 0.25, "house {}: rise {rise}", b.id);
+                last = *top;
             }
-        });
-        let (min, max, dir) = best.expect("stairs wedge");
-        // start at the low end, walk toward the high end
-        let (low, high) = match dir {
-            0 => (Vec2::new(min.x - 0.6, (min.z + max.z) / 2.0), Vec2::new(max.x - 0.3, (min.z + max.z) / 2.0)),
-            1 => (Vec2::new((min.x + max.x) / 2.0, min.z - 0.6), Vec2::new((min.x + max.x) / 2.0, max.z - 0.3)),
-            2 => (Vec2::new(max.x + 0.6, (min.z + max.z) / 2.0), Vec2::new(min.x + 0.3, (min.z + max.z) / 2.0)),
-            _ => (Vec2::new((min.x + max.x) / 2.0, max.z + 0.6), Vec2::new((min.x + max.x) / 2.0, min.z + 0.3)),
-        };
-        a.pos = Vec3::new(low.x, min.y, low.y);
-        let to = (high - low).normalize();
-        run(&mut a, &Intent { wish: to, ..Default::default() }, &env, 2.0);
-        assert!(a.pos.y > min.y + 2.4, "should have climbed the stairs: y {} (floor {})", a.pos.y, min.y);
-        assert!(a.on_ground);
+            assert!((last - st.max.y).abs() < 0.01, "the top step is level with the upper floor");
+            seen += 1;
+        }
+        assert!(seen >= 3);
     }
 
     #[test]
