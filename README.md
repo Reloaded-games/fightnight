@@ -145,7 +145,7 @@ exactly like the keyboard does), so the same rules apply to everyone.
 ## Tests
 
 ```bash
-cargo test --release                       # ~190 unit/integration tests (simulation, bots, models, input, shaders, ...)
+cargo test --release                       # ~265 unit/integration tests (simulation, bots, models, input, shaders, ...)
 cargo test --release -- --ignored monkey   # long randomised "monkey" soak test over many seeds
 cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only match with a timeline
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
