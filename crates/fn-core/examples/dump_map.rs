@@ -76,7 +76,7 @@ fn main() {
     for chunk in &w.chunk_props {
         for p in chunk {
             let (x, y) = to_px(Vec2::new(p.pos.x, p.pos.z));
-            let (col, r) = match p.kind {
+            let (col, r) = match p.kind.base() {
                 PropKind::Pine => ([20, 80, 40], 2),
                 PropKind::Oak => ([40, 130, 30], 2),
                 PropKind::Birch => ([110, 170, 60], 2),

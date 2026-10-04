@@ -28,9 +28,17 @@ pub enum PropKind {
     HayBale,
     Barrel,
     Crate,
+    /// Tall narrow spruce.
+    PineSlim,
+    /// Wide, low oak with a short thick trunk.
+    OakBroad,
+    /// Lanky birch.
+    BirchTall,
+    /// Bush dotted with blossoms.
+    BushFlower,
 }
 
-pub const PROP_KINDS: [PropKind; 13] = [
+pub const PROP_KINDS: [PropKind; 17] = [
     PropKind::Pine,
     PropKind::Oak,
     PropKind::Birch,
@@ -44,6 +52,10 @@ pub const PROP_KINDS: [PropKind; 13] = [
     PropKind::HayBale,
     PropKind::Barrel,
     PropKind::Crate,
+    PropKind::PineSlim,
+    PropKind::OakBroad,
+    PropKind::BirchTall,
+    PropKind::BushFlower,
 ];
 
 impl PropKind {
@@ -65,17 +77,31 @@ impl PropKind {
             PropKind::HayBale => HayBale,
             PropKind::Barrel => Barrel,
             PropKind::Crate => Crate,
+            PropKind::PineSlim => [Pine2, Pine3][l],
+            PropKind::OakBroad => [Oak2, Oak3][l],
+            PropKind::BirchTall => [Birch2, Birch3][l],
+            PropKind::BushFlower => [Bush2, Bush3][l],
+        }
+    }
+    /// The species a variant belongs to (a slim spruce is a pine for sizes, LODs and shadows).
+    pub fn base(self) -> PropKind {
+        match self {
+            PropKind::PineSlim => PropKind::Pine,
+            PropKind::OakBroad => PropKind::Oak,
+            PropKind::BirchTall => PropKind::Birch,
+            PropKind::BushFlower => PropKind::Bush,
+            k => k,
         }
     }
     pub fn is_tree(self) -> bool {
-        matches!(self, PropKind::Pine | PropKind::Oak | PropKind::Birch | PropKind::Palm)
+        matches!(self.base(), PropKind::Pine | PropKind::Oak | PropKind::Birch | PropKind::Palm)
     }
     pub fn casts_shadow(self) -> bool {
-        !matches!(self, PropKind::Bush)
+        self.base() != PropKind::Bush
     }
     /// Distance beyond which this prop is not drawn at all.
     pub fn draw_distance(self) -> f32 {
-        match self {
+        match self.base() {
             PropKind::Pine | PropKind::Oak | PropKind::Birch | PropKind::Palm => 520.0,
             PropKind::Boulder => 450.0,
             PropKind::Bush => 160.0,
@@ -261,11 +287,20 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
                 kind = PropKind::Pine;
                 tint = tint_of(*rng.pick(&[0x379048, 0x3d9c52]), 1.2, 0.12, &mut rng);
             }
-            let scale = rng.range(0.78, 1.32) * if kind == PropKind::Pine { 1.1 } else { 1.0 };
+            // a second shape for most species, picked from the cell so the random stream (and so the layout) is unchanged
+            let variant = hash2f(gx, gz, seed ^ 0x7A11);
+            let kind = match kind {
+                PropKind::Pine if variant < 0.42 => PropKind::PineSlim,
+                PropKind::Oak if variant < 0.4 => PropKind::OakBroad,
+                PropKind::Birch if variant < 0.4 => PropKind::BirchTall,
+                k => k,
+            };
+            let scale = rng.range(0.78, 1.32) * if kind.base() == PropKind::Pine { 1.1 } else { 1.0 };
             let pos = Vec3::new(p.x, h - 0.1, p.y);
             let inst = PropInst { kind, pos, yaw: rng.range(0.0, std::f32::consts::TAU), scale, tint };
             let (ci, slot) = out.push(inst);
-            let (radius, height) = match kind {
+            // variants share their species' collider so the layout of everything placed after them is the same
+            let (radius, height) = match kind.base() {
                 PropKind::Pine => (0.30 * scale, 10.0 * scale),
                 PropKind::Oak => (0.36 * scale, 7.5 * scale),
                 PropKind::Birch => (0.22 * scale, 7.5 * scale),
@@ -302,7 +337,8 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
             }
             let aut = painter.autumn(p.x, p.y);
             let tint = if aut > 0.55 { tint_of(*rng.pick(&[0xd9892c, 0xb8582b, 0x8aa83a]), 1.15, 0.1, &mut rng) } else { tint_of(*rng.pick(&[0x5aa83a, 0x4a9a35, 0x6cbb42, 0x3f8f3a]), 1.2, 0.12, &mut rng) };
-            out.push(PropInst { kind: PropKind::Bush, pos: Vec3::new(p.x, h - 0.1, p.y), yaw: rng.range(0.0, std::f32::consts::TAU), scale: rng.range(0.8, 1.5), tint });
+            let kind = if hash2f(gx, gz, seed ^ 0xB7F) < 0.2 { PropKind::BushFlower } else { PropKind::Bush };
+            out.push(PropInst { kind, pos: Vec3::new(p.x, h - 0.1, p.y), yaw: rng.range(0.0, std::f32::consts::TAU), scale: rng.range(0.8, 1.5), tint });
         }
     }
 
@@ -458,5 +494,10 @@ mod tests {
             let _ = k.mesh(1);
         }
         assert!(PropKind::Pine.is_tree() && !PropKind::Bush.is_tree());
+        assert!(PropKind::PineSlim.is_tree() && PropKind::OakBroad.is_tree() && PropKind::BirchTall.is_tree() && !PropKind::BushFlower.is_tree());
+        // the table the renderer indexes by `kind as usize` lists every kind in discriminant order
+        for (i, k) in PROP_KINDS.iter().enumerate() {
+            assert_eq!(*k as usize, i);
+        }
     }
 }

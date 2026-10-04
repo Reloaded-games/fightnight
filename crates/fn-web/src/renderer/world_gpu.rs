@@ -10,6 +10,7 @@ use fn_core::meshlib::MeshId;
 use fn_core::world::props::*;
 use fn_core::world::{World, CHUNKS, CHUNK_SIZE, WORLD_HALF};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 use wgpu::*;
 
@@ -44,28 +45,33 @@ pub struct WorldGpu {
     pub chunk_centers: Vec<Vec2>,
 }
 
-fn prop_radius(kind: PropKind, scale: f32) -> f32 {
-    scale
-        * match kind {
-            PropKind::Pine => 5.0,
-            PropKind::Oak => 4.2,
-            PropKind::Birch => 3.8,
-            PropKind::Palm => 4.6,
-            PropKind::Bush => 1.6,
-            PropKind::Boulder => 3.0,
-            PropKind::Rock0 | PropKind::Rock1 | PropKind::Rock2 => 1.8,
-            _ => 1.6,
+/// Rotation-independent spheres enclosing both LODs and the brick theme. Derive these
+/// once from the rendered geometry; a species' gameplay size is not its canopy size.
+fn prop_geometry_bounds() -> &'static [(f32, f32); PROP_KINDS.len()] {
+    static BOUNDS: OnceLock<[(f32, f32); PROP_KINDS.len()]> = OnceLock::new();
+    BOUNDS.get_or_init(|| PROP_KINDS.map(|kind| {
+        let meshes = [kind.mesh(0), kind.mesh(1), fn_core::lego_models::mapped_mesh(kind.mesh(0), fn_core::game::GameMode::Lego)]
+            .map(fn_core::meshlib::build_mesh);
+        let mut bounds = Aabb::EMPTY;
+        for mesh in &meshes {
+            let b = mesh.bounds();
+            bounds.extend(b.min);
+            bounds.extend(b.max);
         }
+        let up = bounds.center().y;
+        let center = Vec3::Y * up;
+        let radius = meshes.iter().flat_map(|m| &m.verts).map(|v| Vec3::from(v.pos).distance(center)).fold(0.0f32, f32::max);
+        (up, radius)
+    }))
+}
+
+fn prop_radius(kind: PropKind, scale: f32) -> f32 {
+    // The mesh/shadow shaders apply at most 0.257m of world-space wind displacement.
+    prop_geometry_bounds()[kind as usize].1 * scale + 0.3
 }
 
 fn prop_center(p: &PropInst) -> Vec3 {
-    let up = match p.kind {
-        PropKind::Pine => 5.0,
-        PropKind::Oak => 4.0,
-        PropKind::Birch => 3.6,
-        PropKind::Palm => 3.6,
-        _ => 0.8,
-    };
+    let up = prop_geometry_bounds()[p.kind as usize].0;
     p.pos + Vec3::Y * up * p.scale
 }
 
@@ -146,7 +152,7 @@ pub fn gather_props(
             let lod = if shadow_pass {
                 1
             } else {
-                match p.kind {
+                match p.kind.base() {
                     PropKind::Pine | PropKind::Oak | PropKind::Birch | PropKind::Palm => (d > 120.0 * max_dist_scale) as usize,
                     PropKind::Bush => (d > 55.0) as usize,
                     _ => 0,

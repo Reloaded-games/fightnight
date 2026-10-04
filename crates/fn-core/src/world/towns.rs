@@ -183,6 +183,15 @@ fn plan_town(pl: &mut Planner, pi: usize, poi: &Poi) {
     let h = pl.hm.height_at(c.x, c.y);
     let fountain = gen_fountain();
     pl.decor(&fountain, Vec3::new(c.x, h, c.y), 0, Some(5.0));
+    // benches facing the fountain from the four diagonals, and a planter beside each one
+    let blooms = [0xff6f91u32, 0xffd23f, 0xfdfbf0, 0xff8a3d];
+    for k in 0..4 {
+        let a = std::f32::consts::FRAC_PI_4 + k as f32 * FRAC_PI_2;
+        let p = c + Vec2::new(a.cos(), a.sin()) * 6.6;
+        pl.decor(&gen_bench(a.cos().atan2(a.sin())), Vec3::new(p.x, pl.hm.height_at(p.x, p.y), p.y), 0, None);
+        let q = c + Vec2::new((a + 0.42).cos(), (a + 0.42).sin()) * 8.2;
+        pl.decor(&gen_planter(blooms[k]), Vec3::new(q.x, pl.hm.height_at(q.x, q.y), q.y), 0, None);
+    }
     // lots on the main street (x axis) and cross street (z axis)
     let skip = [(-14.0f32, 14.0f32)];
     pl.street_lots(pi, c, true, -ext + 8.0, ext - 18.0, &skip, 36.0, 0.35, None);

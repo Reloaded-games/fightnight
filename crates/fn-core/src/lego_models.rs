@@ -25,8 +25,10 @@ pub fn mapped_mesh(id: MeshId, mode: GameMode) -> MeshId {
         ItemShieldBig => LegoShieldBig, ItemChug => LegoChug,
         ChestBase => LegoChestBase, ChestLid => LegoChestLid,
         PieceWall => LegoWall, PieceFloor => LegoFloor, PieceRoof => LegoRoof, PieceRamp => LegoRamp,
-        Pine0 | Pine1 => LegoPine, Oak0 | Oak1 => LegoOak, Birch0 | Birch1 => LegoBirch,
-        Palm0 | Palm1 => LegoPalm, Bush0 | Bush1 => LegoBush,
+        Pine0 | Pine1 | Pine2 | Pine3 => LegoPine,
+        Oak0 | Oak1 | Oak2 | Oak3 => LegoOak,
+        Birch0 | Birch1 | Birch2 | Birch3 => LegoBirch,
+        Palm0 | Palm1 => LegoPalm, Bush0 | Bush1 | Bush2 | Bush3 => LegoBush,
         Rock0 | Rock1 | Rock2 | Boulder => LegoRock, GrassTuft => LegoGrass,
         FlowerClump => LegoFlowers, Stump => LegoStump, Crate => LegoCrate,
         Barrel => LegoBarrel, HayBale => LegoHay,
@@ -336,11 +338,16 @@ mod tests {
         assert_eq!(mapped_mesh(MeshId::CharTorso, GameMode::ZeroBuild), MeshId::CharTorso);
         assert_eq!(mapped_mesh(MeshId::CharTorso, GameMode::Lego), MeshId::LegoTorso);
         assert_eq!(original_mesh(MeshId::LegoWall), MeshId::PieceWall);
+        for id in [MeshId::Pine2, MeshId::Pine3, MeshId::Oak2, MeshId::Oak3, MeshId::Birch2, MeshId::Birch3, MeshId::Bush2, MeshId::Bush3] {
+            assert_eq!(mapped_mesh(id, GameMode::BattleRoyale), id);
+            assert_eq!(mapped_mesh(mapped_mesh(id, GameMode::Lego), GameMode::Lego), mapped_mesh(id, GameMode::Lego));
+            assert!(mesh(mapped_mesh(id, GameMode::Lego)).is_some(), "{id:?} needs brick geometry too");
+        }
     }
     #[test]
     fn brick_rig_and_weapons_keep_gameplay_pivots() {
         let sole = mesh(MeshId::LegoBoot).unwrap().bounds().min.y;
-        assert!(sole >= -0.10 && sole <= -0.075);
+        assert!((-0.10..=-0.075).contains(&sole));
         assert!(mesh(MeshId::LegoArmUp).unwrap().bounds().min.y <= -UPPER_ARM);
         assert!((mesh(MeshId::LegoHead).unwrap().bounds().max.y - 0.31).abs() < 0.001);
         for (id, length) in [(MeshId::LegoPistol, 0.24), (MeshId::LegoAr, 0.78), (MeshId::LegoSniper, 1.07)] {

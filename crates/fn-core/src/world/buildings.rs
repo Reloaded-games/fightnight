@@ -5,7 +5,7 @@
 use super::collision::*;
 use crate::math::*;
 use crate::mesh::*;
-use crate::rng::Rng;
+use crate::rng::{hash3, Rng};
 use std::f32::consts::{FRAC_PI_2, PI};
 
 pub const FLOOR_Y: f32 = 0.28;
@@ -140,6 +140,17 @@ impl Line {
     }
 }
 
+/// A stateless random number in [0, 1) from three integers.
+fn hunit(a: i32, b: i32, c: i32) -> f32 {
+    (hash3(a, b, c, 0xD00D) >> 8) as f32 / 16_777_216.0
+}
+
+/// A colour scaled by `k` (a darker or lighter shade of the same hue).
+fn shade_hex(col: u32, k: f32) -> u32 {
+    let c = |sh: u32| (((col >> sh) & 255) as f32 * k).clamp(0.0, 255.0) as u32;
+    (c(16) << 16) | (c(8) << 8) | c(0)
+}
+
 struct B {
     mb: MeshBuilder,
     cols: Vec<Collider>,
@@ -201,6 +212,12 @@ impl B {
             // window cross bars (open window with mullions) – thin so you can still shoot through
             let (a, b) = l.bx((o.u0 + o.u1) * 0.5 - 0.025, (o.u0 + o.u1) * 0.5 + 0.025, -0.03, 0.03, y0 + o.v0, y0 + o.v1);
             self.bx(a, b, trim, mat::FLAT, false);
+            // a cross bar at two thirds of the height makes six panes out of one, and a lintel with a small overhang
+            let ym = y0 + o.v0 + (o.v1 - o.v0) * 0.62;
+            let (a, b) = l.bx(o.u0, o.u1, -0.03, 0.03, ym - 0.02, ym + 0.02);
+            self.bx(a, b, trim, mat::FLAT, false);
+            let (a, b) = l.bx(o.u0 - 0.18, o.u1 + 0.18, -t - 0.05 * l.out.abs(), t + 0.05, y0 + o.v1 + 0.12, y0 + o.v1 + 0.19);
+            self.bx(a, b, trim, mat::FLAT, false);
             if let Some(sc) = shutter {
                 for (s0, s1) in [(o.u0 - 0.5, o.u0 - 0.12), (o.u1 + 0.12, o.u1 + 0.5)] {
                     let o_d = l.out * (WALL_T / 2.0 + 0.05);
@@ -209,6 +226,107 @@ impl B {
                     self.bx(a, b, sc, mat::WOOD, false);
                 }
             }
+        }
+    }
+
+    /// A round rod from `p0` to `p1` (gutters, downspouts, poles).
+    fn tube(&mut self, p0: Vec3, p1: Vec3, r: f32, col: u32, m: u8) {
+        let d = p1 - p0;
+        let len = d.length();
+        if len < 1e-4 {
+            return;
+        }
+        self.mb.mat(m).hex(col);
+        self.mb.push_xf(Mat4::from_translation(p0) * Mat4::from_quat(Quat::from_rotation_arc(Vec3::Y, d / len)));
+        self.mb.cylinder(Vec3::ZERO, r, r, len, 6, false, true);
+        self.mb.pop_xf();
+    }
+
+    /// A flat board of width `w` and thickness `t` from `p0` to `p1`, its faces looking along `normal`.
+    fn board(&mut self, p0: Vec3, p1: Vec3, normal: Vec3, w: f32, t: f32, col: u32, m: u8) {
+        let d = p1 - p0;
+        let len = d.length();
+        if len < 1e-4 {
+            return;
+        }
+        let x = d / len;
+        let n = (normal - x * normal.dot(x)).normalize_or_zero();
+        if n == Vec3::ZERO {
+            return;
+        }
+        let y = n.cross(x);
+        self.mb.mat(m).hex(col);
+        self.mb.push_xf(Mat4::from_cols(x.extend(0.0), y.extend(0.0), n.extend(0.0), p0.extend(1.0)));
+        self.mb.box_min_max(Vec3::new(0.0, -w / 2.0, -t / 2.0), Vec3::new(len, w / 2.0, t / 2.0));
+        self.mb.pop_xf();
+    }
+
+    /// A door standing ajar inside the opening `o`, hinged at its `u0` jamb: two raised panels on each face, a knob and a
+    /// lock plate. Mesh only (the opening stays clear for walking and shooting).
+    fn door_leaf(&mut self, l: Line, y0: f32, o: &Op, col: u32, knob: u32) {
+        let to_world = |u: f32, d: f32| if l.along_x { Vec3::new(l.a0 + u, 0.0, l.c + d) } else { Vec3::new(l.c + d, 0.0, l.a0 + u) };
+        let open = 1.2f32;
+        let hinge = to_world(o.u0 + 0.05, -l.out * (WALL_T / 2.0 - 0.03)) + Vec3::Y * (y0 + o.v0 + 0.02);
+        let dir = to_world(open.cos(), -l.out * open.sin()) - to_world(0.0, 0.0);
+        let yaw = (-dir.z).atan2(dir.x);
+        let (w, h) = (o.u1 - o.u0 - 0.1, o.v1 - o.v0 - 0.05);
+        let dark = shade_hex(col, 0.82);
+        self.mb.push_xf(Mat4::from_translation(hinge) * Mat4::from_rotation_y(yaw));
+        self.mb.mat(mat::WOOD).hex(col);
+        self.mb.box_min_max(Vec3::new(0.0, 0.0, -0.025), Vec3::new(w, h, 0.025));
+        self.mb.hex(dark);
+        for s in [-1.0f32, 1.0] {
+            let z = s * 0.0265;
+            for (y0p, y1p) in [(0.12, h * 0.46), (h * 0.5, h - 0.14)] {
+                let (a, b) = (Vec3::new(0.14, y0p, z.min(z * 0.2)), Vec3::new(w - 0.14, y1p, z.max(z * 0.2)));
+                self.mb.box_min_max(a, b);
+            }
+        }
+        // knob on a plate and a dark keyhole
+        self.mb.mat(mat::METAL).hex(knob).spec(0.9);
+        for s in [-1.0f32, 1.0] {
+            self.mb.sphere(Vec3::new(w - 0.14, h * 0.47, s * 0.062), 0.034, 0);
+        }
+        self.mb.hex(0x2b2e34);
+        self.mb.box_center(Vec3::new(w - 0.14, h * 0.47 + 0.09, 0.0), Vec3::new(0.012, 0.03, 0.03));
+        self.mb.pop_xf();
+    }
+
+    /// Dressing for a window opening `o`: a curtain rod with two tied-back curtains inside and, for some windows,
+    /// a flower box below the sill. Everything is chosen by hashing `key`, so houses stay the same shape.
+    fn window_dressing(&mut self, l: Line, y0: f32, o: &Op, key: i32, ground: bool) {
+        let side = |a: f32, b: f32| if a < b { (a, b) } else { (b, a) };
+        let h = hunit(key, 1, 7);
+        // curtains inside: pastel cloth against the inner face
+        let (d0, d1) = side(-l.out * (WALL_T / 2.0 + 0.0), -l.out * (WALL_T / 2.0 + 0.06));
+        let cols = [0xf4e3b8u32, 0xe9b8c4, 0xb8d6e9, 0xc9e3b8, 0xf2f0e8];
+        let cc = cols[(h * 5.0) as usize % cols.len()];
+        for (u0, u1) in [(o.u0 + 0.0, o.u0 + 0.2), (o.u1 - 0.2, o.u1 - 0.0)] {
+            let (a, b) = l.bx(u0, u1, d0, d1, y0 + o.v0 + 0.32, y0 + o.v1 + 0.02);
+            self.bx(a, b, cc, mat::CLOTH, false);
+        }
+        let (a, b) = l.bx(o.u0 - 0.04, o.u1 + 0.04, d0, d1 - l.out * 0.02, y0 + o.v1 + 0.03, y0 + o.v1 + 0.06);
+        self.bx(a, b, 0x6a4a2e, mat::WOOD, false);
+        // flower box
+        if ground && hunit(key, 2, 11) < 0.55 {
+            let (e0, e1) = side(l.out * (WALL_T / 2.0 + 0.04), l.out * (WALL_T / 2.0 + 0.24));
+            let (ylo, yhi) = (y0 + o.v0 - 0.3, y0 + o.v0 - 0.1);
+            let (a, b) = l.bx(o.u0 - 0.06, o.u1 + 0.06, e0, e1, ylo, yhi);
+            self.bx(a, b, 0x8a5a34, mat::WOOD, false);
+            let (a, b) = l.bx(o.u0 - 0.04, o.u1 + 0.04, e0 + 0.02, e1 - 0.02, yhi, yhi + 0.03);
+            self.bx(a, b, 0x4a3524, mat::FLAT, false);
+            let bloom = [0xff6f91u32, 0xffd23f, 0xfdfbf0, 0xff8a3d, 0xc27bff][(hunit(key, 3, 13) * 5.0) as usize % 5];
+            let n = 5;
+            let dm = l.out * (WALL_T / 2.0 + 0.14);
+            for k in 0..n {
+                let u = o.u0 + 0.1 + (o.u1 - o.u0 - 0.2) * k as f32 / (n - 1) as f32;
+                let pos = if l.along_x { Vec3::new(l.a0 + u, yhi + 0.07, l.c + dm) } else { Vec3::new(l.c + dm, yhi + 0.07, l.a0 + u) };
+                self.mb.mat(mat::FOLIAGE).tinted(false).hex(0x4c9a3a);
+                self.mb.sphere(pos - Vec3::Y * 0.02, 0.075, 0);
+                self.mb.mat(mat::FLAT).hex(if k % 2 == 0 { bloom } else { 0xfdfbf0 }).tinted(false);
+                self.mb.sphere(pos + Vec3::Y * 0.07, 0.05, 0);
+            }
+            self.mb.tinted(true);
         }
     }
 
@@ -350,6 +468,24 @@ fn gable_roof(b: &mut B, hx: f32, hz: f32, top_y: f32, rise: f32, ridge_x: bool,
         b.mb.cylinder(Vec3::new(0.0, -0.03, 0.0), 0.32, 0.32, 0.06, 10, true, true);
         b.mb.pop_xf();
         b.mb.mat(wall_mat).hex(wall);
+    }
+    // rake boards along the sloped edges of both gable ends
+    for s in [-1.0f32, 1.0] {
+        for t in [-1.0f32, 1.0] {
+            b.board(map(s * elen, top_y - 0.03, t * ewid), map(s * elen, top_y + rise + 0.02, 0.0), map(s, 0.0, 0.0), 0.2, 0.06, trim, mat::FLAT);
+        }
+    }
+    // gutters along both eaves, with a downspout running down the wall at one corner
+    for t in [-1.0f32, 1.0] {
+        let (p0, p1) = (map(-elen, top_y + 0.02, t * (ewid + 0.03)), map(elen, top_y + 0.02, t * (ewid + 0.03)));
+        b.tube(p0, p1, 0.06, 0x9aa0a8, mat::METAL);
+    }
+    {
+        let (x, z_eave, z_wall) = (len_half - 0.4, ewid + 0.03, wid_half + 0.09);
+        let y_out = top_y - 0.14;
+        b.tube(map(x, top_y + 0.02, z_eave), map(x, y_out, z_eave), 0.045, 0x9aa0a8, mat::METAL);
+        b.tube(map(x, y_out, z_eave), map(x, y_out, z_wall), 0.045, 0x9aa0a8, mat::METAL);
+        b.tube(map(x, y_out, z_wall), map(x, 0.05, z_wall), 0.045, 0x9aa0a8, mat::METAL);
     }
     // colliders: two wedges
     if ridge_x {
@@ -711,6 +847,8 @@ pub fn gen_house(rng: &mut Rng, w: f32, d: f32, st: &Style) -> Geom {
         b.bx(Vec3::new(px0 - 0.1, FLOOR_Y + 2.7, hz - 0.1), Vec3::new(px1 + 0.1, FLOOR_Y + 2.88, hz + 2.8), st.roof, mat::SHINGLE, true);
     }
 
+    house_details(&mut b, hx, hz, door_u, floors, st);
+
     // --- interior
     furnish(&mut b, rng, hx, hz, door_x, stairs_rect);
     if rng.chance(0.35) && floors == 1 {
@@ -831,6 +969,40 @@ pub fn gen_shop(rng: &mut Rng, w: f32, d: f32) -> Geom {
         b.bx(Vec3::new(sx - 0.05, 0.0, hz + 1.55), Vec3::new(sx + 0.05, aw_y - 0.4, hz + 1.65), 0x4a4d57, mat::METAL, false);
     }
     b.bx(Vec3::new(-hx - 0.3, 0.0, hz), Vec3::new(hx + 0.3, 0.12, hz + 1.8), 0xb5b3ad, mat::STONE, true);
+    // fruit stands under the awning, planters beside the door and a unit on the roof
+    for (k, sx) in [-1.0f32, 1.0].into_iter().enumerate() {
+        let x = sx * (hx - 1.7);
+        let (a, c) = (Vec3::new(x - 0.7, 0.12, hz + 0.45), Vec3::new(x + 0.7, 0.72, hz + 1.15));
+        b.bx(a, c, 0x9c6a3a, mat::WOOD, false);
+        b.mb.mat(mat::WOOD).hex(0x7a5232);
+        b.mb.box_min_max(Vec3::new(x - 0.74, 0.72, hz + 0.41), Vec3::new(x + 0.74, 0.78, hz + 1.19));
+        let fruit = [[0xd33a2a, 0xf0a030, 0x7ac143], [0xf0c030, 0xd33a2a, 0xa6d85a]][k];
+        b.mb.mat(mat::FLAT).tinted(false);
+        for row in 0..3 {
+            for j in 0..6 {
+                let (fx, fz) = (x - 0.55 + j as f32 * 0.22, hz + 0.58 + row as f32 * 0.22);
+                b.mb.hex(fruit[(j + row) % 3]);
+                b.mb.sphere(Vec3::new(fx, 0.86, fz), 0.1, 0);
+            }
+        }
+        b.mb.tinted(true);
+        // a little price board
+        b.bx(Vec3::new(x - 0.35, 0.78, hz + 1.2), Vec3::new(x + 0.35, 1.05, hz + 1.23), 0x2b2e34, mat::FLAT, false);
+    }
+    for sx in [-1.0f32, 1.0] {
+        let x = sx * 1.55;
+        b.bx(Vec3::new(x - 0.35, 0.12, hz + 0.3), Vec3::new(x + 0.35, 0.55, hz + 0.75), 0x8a5a34, mat::WOOD, false);
+        b.mb.mat(mat::FOLIAGE).tinted(false).hex(0x4c9a3a);
+        b.mb.blob(Vec3::new(x, 0.75, hz + 0.52), Vec3::new(0.34, 0.3, 0.3), 1, 0.15, 3, true);
+        b.mb.mat(mat::FLAT).hex(if sx < 0.0 { 0xff6f91 } else { 0xffd23f });
+        for k in 0..6 {
+            let a = k as f32 * 2.399;
+            b.mb.sphere(Vec3::new(x + a.cos() * 0.2, 0.8 + 0.12 * (k % 3) as f32, hz + 0.52 + a.sin() * 0.18), 0.06, 0);
+        }
+        b.mb.tinted(true);
+    }
+    b.bx(Vec3::new(hx * 0.3 - 0.7, top_y + par + 0.1, -hz * 0.3 - 0.6), Vec3::new(hx * 0.3 + 0.7, top_y + par + 0.75, -hz * 0.3 + 0.6), 0xb8bcc2, mat::METAL, false);
+    b.bx(Vec3::new(hx * 0.3 - 0.55, top_y + par + 0.75, -hz * 0.3 - 0.45), Vec3::new(hx * 0.3 + 0.55, top_y + par + 0.8, -hz * 0.3 + 0.45), 0x4a4d57, mat::METAL, false);
     // shop sign
     b.bx(Vec3::new(-1.6, top_y - 0.1, hz + 0.02), Vec3::new(1.6, top_y + 0.45, hz + 0.1), accent, mat::FLAT, false);
     b.bx(Vec3::new(-1.4, top_y + 0.02, hz + 0.1), Vec3::new(1.4, top_y + 0.33, hz + 0.13), 0xfff7e0, mat::FLAT, false);
@@ -904,6 +1076,26 @@ pub fn gen_barn(rng: &mut Rng) -> Geom {
     b.corner_posts(hx - 0.06, hz - 0.06, FLOOR_Y, FLOOR_Y + h, 0xf5efe0);
     b.bx(Vec3::new(-hx, top_y - 0.2, -hz), Vec3::new(hx, top_y, hz), 0x6a4a2e, mat::WOOD, true);
     gable_roof(&mut b, hx, hz, top_y, 3.2, false, 0x6c6f78, red, 0xf5efe0, mat::WOOD);
+    // hay loft door high in the front gable, with the hoist beam above it, and a cupola with a weather vane on the ridge
+    let loft_y = top_y + 0.5;
+    b.bx(Vec3::new(-0.8, loft_y, hz + 0.01), Vec3::new(0.8, loft_y + 1.5, hz + 0.06), 0x3a1f18, mat::WOOD, false);
+    for (x0, x1) in [(-0.9f32, -0.8f32), (0.8, 0.9)] {
+        b.bx(Vec3::new(x0, loft_y - 0.1, hz + 0.0), Vec3::new(x1, loft_y + 1.6, hz + 0.1), 0xf5efe0, mat::WOOD, false);
+    }
+    b.bx(Vec3::new(-0.95, loft_y + 1.5, hz + 0.0), Vec3::new(0.95, loft_y + 1.65, hz + 0.1), 0xf5efe0, mat::WOOD, false);
+    b.bx(Vec3::new(-0.8, loft_y + 0.72, hz + 0.0), Vec3::new(0.8, loft_y + 0.78, hz + 0.1), 0xf5efe0, mat::WOOD, false);
+    b.bx(Vec3::new(-0.06, top_y + 2.45, hz), Vec3::new(0.06, top_y + 2.55, hz + 0.55), 0x6a4a2e, mat::WOOD, false);
+    b.tube(Vec3::new(0.0, top_y + 2.5, hz + 0.5), Vec3::new(0.0, top_y + 1.9, hz + 0.5), 0.02, 0xc9b27a, mat::CLOTH);
+    b.bx(Vec3::new(-0.18, top_y + 1.6, hz + 0.35), Vec3::new(0.18, top_y + 1.9, hz + 0.55), 0xb5a07a, mat::WOOD, false);
+    let cu = top_y + 3.2;
+    b.bx(Vec3::new(-0.55, cu - 0.05, -0.55), Vec3::new(0.55, cu + 0.9, 0.55), 0xf5efe0, mat::WOOD, false);
+    b.bx(Vec3::new(-0.3, cu + 0.2, 0.54), Vec3::new(0.3, cu + 0.7, 0.58), 0x3a1f18, mat::WOOD, false);
+    b.mb.mat(mat::METAL).hex(0x6c6f78);
+    b.mb.cylinder(Vec3::new(0.0, cu + 0.9, 0.0), 0.85, 0.0, 0.7, 4, true, false);
+    b.tube(Vec3::new(0.0, cu + 1.55, 0.0), Vec3::new(0.0, cu + 2.5, 0.0), 0.03, 0x2b2e34, mat::METAL);
+    b.bx(Vec3::new(-0.5, cu + 2.1, -0.02), Vec3::new(0.5, cu + 2.25, 0.02), 0x2b2e34, mat::METAL, false);
+    b.mb.mat(mat::METAL).hex(0x2b2e34);
+    b.mb.sphere(Vec3::new(0.0, cu + 2.55, 0.0), 0.07, 1);
     // hay bales and crates inside
     for (x, z) in [(-3.0, -4.0), (-3.0, -2.6), (-1.6, -4.0), (3.2, -3.0), (3.2, 0.5)] {
         let (a, c) = (Vec3::new(x - 0.7, FLOOR_Y, z - 0.6), Vec3::new(x + 0.7, FLOOR_Y + 1.2, z + 0.6));
@@ -933,8 +1125,20 @@ pub fn gen_windmill() -> Geom {
     b.cols.push(Collider::cyl(0.0, 0.0, 3.0, -1.0, h, Tag::Static));
     // stone base ring
     b.cyl(Vec3::new(0.0, -1.0, 0.0), 3.75, 1.7, 0x8f8f8a, mat::STONE, false);
-    // doorway (decorative arch on the front)
+    // doorway (decorative arch on the front) with a frame, a lintel, a step and a lantern
     b.bx(Vec3::new(-0.7, 0.0, 2.6), Vec3::new(0.7, 2.3, 3.2), 0x6a4a2e, mat::WOOD, false);
+    for sx in [-1.0f32, 1.0] {
+        b.bx(Vec3::new(sx * 0.82 - 0.1, 0.0, 2.55), Vec3::new(sx * 0.82 + 0.1, 2.5, 3.3), 0xf1e9d6, mat::STONE, false);
+    }
+    b.bx(Vec3::new(-0.95, 2.3, 2.55), Vec3::new(0.95, 2.55, 3.3), 0xf1e9d6, mat::STONE, false);
+    b.bx(Vec3::new(-1.1, -0.1, 3.0), Vec3::new(1.1, 0.14, 3.7), 0xa8a7a2, mat::STONE, false);
+    b.bx(Vec3::new(0.95, 1.7, 3.1), Vec3::new(1.15, 2.0, 3.3), 0xffe29a, mat::EMISSIVE, false);
+    // brick bands round the tower
+    b.mb.mat(mat::STONE).hex(0xc9b9a0);
+    for y in [3.2f32, 8.0] {
+        let r = 3.5 - (y + 1.0) / (h + 1.0) * 1.1 + 0.05;
+        b.mb.cylinder(Vec3::new(0.0, y, 0.0), r, r, 0.22, 8, false, false);
+    }
     // wooden band + cap
     b.mb.mat(mat::SHINGLE).hex(0x8a4b3a).ao(0.7, 1.0);
     b.mb.cylinder(Vec3::new(0.0, h, 0.0), 2.9, 0.0, 3.4, 8, true, false);
@@ -976,9 +1180,27 @@ pub fn gen_lighthouse() -> Geom {
     b.mb.cylinder(Vec3::new(0.0, total + 0.35, 0.0), 1.5, 1.5, 2.2, 10, false, false);
     b.mb.mat(mat::METAL).hex(0xc43b32);
     b.mb.cylinder(Vec3::new(0.0, total + 2.55, 0.0), 1.9, 0.0, 1.8, 10, true, false);
-    // door
+    // door with a stone frame and a step, round windows up the tower, a finial on the lantern roof
     b.bx(Vec3::new(-0.7, 0.0, 3.1), Vec3::new(0.7, 2.2, 3.5), 0x5a3c28, mat::WOOD, false);
-    b.finish(Vec2::new(3.5, 3.5), total + 4.4, Vec3::new(0.0, 0.0, 6.0), Vec3::new(0.0, 0.0, 4.0))
+    for sx in [-1.0f32, 1.0] {
+        b.bx(Vec3::new(sx * 0.85 - 0.12, 0.0, 3.0), Vec3::new(sx * 0.85 + 0.12, 2.45, 3.55), 0xe6e1d6, mat::STONE, false);
+    }
+    b.bx(Vec3::new(-1.0, 2.2, 3.0), Vec3::new(1.0, 2.5, 3.55), 0xe6e1d6, mat::STONE, false);
+    b.bx(Vec3::new(-1.3, -0.1, 3.4), Vec3::new(1.3, 0.16, 4.2), 0xa8a7a2, mat::STONE, false);
+    for (k, y) in [5.5f32, 9.5, 13.5, 17.0].into_iter().enumerate() {
+        let t = (y / total).clamp(0.0, 1.0);
+        let r = 3.4 - 1.4 * t;
+        let a = k as f32 * 1.9;
+        b.mb.mat(mat::GLASS).hex(0x2a3b4a);
+        b.mb.push_xf(Mat4::from_translation(Vec3::new(a.sin() * r, y, a.cos() * r)) * Mat4::from_rotation_y(a));
+        b.mb.push_xf(Mat4::from_rotation_x(FRAC_PI_2));
+        b.mb.cylinder(Vec3::new(0.0, -0.1, 0.0), 0.34, 0.34, 0.12, 10, true, true);
+        b.mb.pop_xf();
+        b.mb.pop_xf();
+    }
+    b.mb.mat(mat::METAL).hex(0x3d3f46);
+    b.mb.sphere(Vec3::new(0.0, total + 4.5, 0.0), 0.22, 1);
+    b.finish(Vec2::new(3.5, 3.5), total + 4.6, Vec3::new(0.0, 0.0, 6.0), Vec3::new(0.0, 0.0, 4.0))
 }
 
 const TAU_F: f32 = std::f32::consts::TAU;
@@ -997,8 +1219,38 @@ pub fn gen_water_tower() -> Geom {
         b.bx(Vec3::new(-2.5, y, -2.5), Vec3::new(-2.3, y + 0.1, 2.5), 0x6e7078, mat::METAL, false);
         b.bx(Vec3::new(2.3, y, -2.5), Vec3::new(2.5, y + 0.1, 2.5), 0x6e7078, mat::METAL, false);
     }
+    // X braces between the legs on all four faces
+    for k in 0..4 {
+        let (c, sn) = ((k as f32 * FRAC_PI_2).cos(), (k as f32 * FRAC_PI_2).sin());
+        let rot = |x: f32, z: f32| Vec3::new(x * c - z * sn, 0.0, x * sn + z * c);
+        for (y0, y1) in [(0.4f32, 5.0f32), (5.0, 8.8)] {
+            let (a, d) = (rot(-2.4, 2.4), rot(2.4, 2.4));
+            b.tube(a + Vec3::Y * y0, d + Vec3::Y * y1, 0.05, 0x6e7078, mat::METAL);
+            b.tube(d + Vec3::Y * y0, a + Vec3::Y * y1, 0.05, 0x6e7078, mat::METAL);
+        }
+    }
+    // a ladder up the front, and the legs sit on concrete footings
+    for sx in [-0.28f32, 0.28] {
+        b.tube(Vec3::new(sx, 0.0, 2.75), Vec3::new(sx, leg_h + 1.1, 2.75), 0.035, 0x6e7078, mat::METAL);
+    }
+    for k in 0..24 {
+        let y = 0.4 + k as f32 * 0.4;
+        b.bx(Vec3::new(-0.3, y, 2.72), Vec3::new(0.3, y + 0.04, 2.78), 0x6e7078, mat::METAL, false);
+    }
+    for (sx, sz) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        b.bx(Vec3::new(sx * 2.4 - 0.4, -0.5, sz * 2.4 - 0.4), Vec3::new(sx * 2.4 + 0.4, 0.15, sz * 2.4 + 0.4), 0xa8a7a2, mat::STONE, false);
+    }
     // platform + tank
     b.bx(Vec3::new(-3.0, leg_h, -3.0), Vec3::new(3.0, leg_h + 0.3, 3.0), 0x575961, mat::METAL, true);
+    // railing round the platform
+    for (sx, sz) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        b.tube(Vec3::new(sx * 2.92, leg_h + 0.3, sz * 2.92), Vec3::new(sx * 2.92, leg_h + 1.3, sz * 2.92), 0.04, 0x6e7078, mat::METAL);
+    }
+    for (a, d) in [((-2.92f32, -2.92f32), (2.92f32, -2.92f32)), ((2.92, -2.92), (2.92, 2.92)), ((2.92, 2.92), (-2.92, 2.92)), ((-2.92, 2.92), (-2.92, -2.92))] {
+        for y in [leg_h + 0.75, leg_h + 1.3] {
+            b.tube(Vec3::new(a.0, y, a.1), Vec3::new(d.0, y, d.1), 0.03, 0x6e7078, mat::METAL);
+        }
+    }
     b.cyl(Vec3::new(0.0, leg_h + 0.3, 0.0), 2.7, 4.2, 0x4f86c6, mat::METAL, true);
     b.mb.mat(mat::METAL).hex(0x3d4f6b);
     for y in [1.0f32, 2.2, 3.4] {
@@ -1018,7 +1270,18 @@ pub fn gen_silo() -> Geom {
     }
     b.mb.hex(0x7c8087);
     b.mb.cylinder(Vec3::new(0.0, 12.0, 0.0), 2.62, 0.0, 1.9, 14, true, false);
-    b.finish(Vec2::new(2.7, 2.7), 14.0, Vec3::new(0.0, 0.0, 4.5), Vec3::new(0.0, 0.0, 3.0))
+    // a ladder with a safety cage up the front, a small door and a roof vent
+    for sx in [-0.3f32, 0.3] {
+        b.tube(Vec3::new(sx, 0.0, 2.72), Vec3::new(sx, 12.4, 2.72), 0.035, 0x6e7078, mat::METAL);
+    }
+    for k in 0..30 {
+        b.bx(Vec3::new(-0.32, 0.4 + k as f32 * 0.4, 2.68), Vec3::new(0.32, 0.44 + k as f32 * 0.4, 2.74), 0x6e7078, mat::METAL, false);
+    }
+    b.bx(Vec3::new(-0.45, 0.0, 2.56), Vec3::new(0.45, 1.5, 2.66), 0x5a3c28, mat::METAL, false);
+    b.mb.mat(mat::METAL).hex(0x3d3f46);
+    b.mb.cylinder(Vec3::new(0.0, 13.8, 0.0), 0.35, 0.35, 0.5, 8, false, true);
+    b.mb.sphere(Vec3::new(0.0, 14.4, 0.0), 0.2, 1);
+    b.finish(Vec2::new(2.7, 2.7), 14.8, Vec3::new(0.0, 0.0, 4.5), Vec3::new(0.0, 0.0, 3.0))
 }
 
 /// Gas station: a canopy on pillars with two pumps and a small shop.
@@ -1040,19 +1303,59 @@ pub fn gen_gas_canopy() -> Geom {
         b.bx(Vec3::new(px - 0.3, 0.8, 0.35), Vec3::new(px + 0.3, 1.2, 0.4), 0x2c3a4a, mat::EMISSIVE, false);
         b.bx(Vec3::new(px - 0.7, 0.1, -0.7), Vec3::new(px + 0.7, 0.3, 0.7), 0xb8b8b4, mat::STONE, false);
         b.loot.push(Vec3::new(px, 0.1, 1.4));
+        // hose and nozzle holster on the side of each pump
+        b.tube(Vec3::new(px - 0.45, 1.2, 0.0), Vec3::new(px - 0.65, 0.7, 0.0), 0.03, 0x2b2e34, mat::CLOTH);
+        b.bx(Vec3::new(px - 0.7, 0.55, -0.08), Vec3::new(px - 0.6, 0.85, 0.08), 0x2b2e34, mat::METAL, false);
+    }
+    // canopy underside lights and a tall price sign at the corner of the pad
+    for lx in [-4.5f32, 0.0, 4.5] {
+        b.bx(Vec3::new(lx - 0.5, top - 0.06, -0.15), Vec3::new(lx + 0.5, top, 0.15), 0xfff3c4, mat::EMISSIVE, false);
+    }
+    b.tube(Vec3::new(hx + 0.45, 0.0, hz + 0.6), Vec3::new(hx + 0.45, 4.6, hz + 0.6), 0.1, 0x575961, mat::METAL);
+    b.bx(Vec3::new(hx - 0.05, 4.6, hz + 0.45), Vec3::new(hx + 0.95, 6.0, hz + 0.75), 0xf2f0ea, mat::FLAT, false);
+    b.bx(Vec3::new(hx - 0.05, 5.6, hz + 0.75), Vec3::new(hx + 0.95, 6.0, hz + 0.78), 0xc43b32, mat::FLAT, false);
+    for k in 0..3 {
+        b.bx(Vec3::new(hx + 0.05, 4.7 + k as f32 * 0.3, hz + 0.75), Vec3::new(hx + 0.85, 4.9 + k as f32 * 0.3, hz + 0.78), 0x2c3a4a, mat::EMISSIVE, false);
     }
     b.finish(Vec2::new(hx, hz), top + 0.7, Vec3::new(0.0, 0.0, 6.0), Vec3::new(0.0, 0.0, 3.0))
 }
 
 pub fn gen_fountain() -> Geom {
     let mut b = B::new();
+    // basin: a stone drum with a rolled rim and eight finials, filled with glowing water
     b.cyl(Vec3::new(0.0, -0.5, 0.0), 3.2, 1.0, 0xbfc3c8, mat::STONE, true);
-    b.cyl(Vec3::new(0.0, 0.5, 0.0), 2.6, 0.05, 0x3db4e8, mat::EMISSIVE, false);
+    b.mb.mat(mat::STONE).hex(0xd4d7dc).ao(0.8, 1.0);
+    b.mb.cylinder(Vec3::new(0.0, 0.38, 0.0), 3.3, 3.3, 0.16, 20, false, true);
+    for k in 0..8 {
+        let a = k as f32 / 8.0 * TAU_F;
+        b.mb.sphere(Vec3::new(a.cos() * 3.2, 0.62, a.sin() * 3.2), 0.17, 1);
+        b.mb.cylinder(Vec3::new(a.cos() * 3.2, 0.5, a.sin() * 3.2), 0.12, 0.12, 0.08, 6, false, false);
+    }
+    b.cyl(Vec3::new(0.0, 0.54, 0.0), 2.6, 0.04, 0x3db4e8, mat::EMISSIVE, false);
+    // pedestal with collars, an upper bowl, a spire and a crown
     b.cyl(Vec3::new(0.0, 0.5, 0.0), 0.5, 1.8, 0xd5d8dc, mat::STONE, false);
+    b.mb.mat(mat::STONE).hex(0xc2c6cc);
+    for y in [0.9f32, 1.9] {
+        b.mb.cylinder(Vec3::new(0.0, y, 0.0), 0.62, 0.62, 0.14, 12, false, true);
+    }
     b.cyl(Vec3::new(0.0, 2.2, 0.0), 1.3, 0.2, 0xd5d8dc, mat::STONE, false);
+    b.mb.mat(mat::STONE).hex(0xe2e4e8);
+    b.mb.cylinder(Vec3::new(0.0, 2.3, 0.0), 1.38, 1.38, 0.1, 16, false, true);
     b.cyl(Vec3::new(0.0, 2.4, 0.0), 1.1, 0.05, 0x3db4e8, mat::EMISSIVE, false);
     b.cyl(Vec3::new(0.0, 2.4, 0.0), 0.2, 1.0, 0xd5d8dc, mat::STONE, false);
-    b.finish(Vec2::new(3.3, 3.3), 3.6, Vec3::new(0.0, 0.0, 5.0), Vec3::new(0.0, 0.0, 4.0))
+    b.mb.mat(mat::STONE).hex(0xe2e4e8);
+    b.mb.sphere(Vec3::new(0.0, 3.45, 0.0), 0.26, 2);
+    // jets: arcs of bright droplets from the crown down into the bowl
+    b.mb.mat(mat::EMISSIVE).hex(0xcff0ff);
+    for k in 0..6 {
+        let a = k as f32 / 6.0 * TAU_F + 0.3;
+        for j in 1..=5 {
+            let t = j as f32 / 5.0;
+            let (d, y) = (0.15 + 0.85 * t, 3.5 - 1.0 * t * t);
+            b.mb.sphere(Vec3::new(a.cos() * d, y, a.sin() * d), 0.07 - 0.008 * t, 0);
+        }
+    }
+    b.finish(Vec2::new(3.3, 3.3), 3.8, Vec3::new(0.0, 0.0, 5.0), Vec3::new(0.0, 0.0, 4.0))
 }
 
 pub fn gen_well() -> Geom {
@@ -1060,26 +1363,105 @@ pub fn gen_well() -> Geom {
     b.mb.mat(mat::STONE).hex(0x9a9a96);
     b.mb.cylinder(Vec3::new(0.0, -0.5, 0.0), 1.1, 1.1, 1.5, 12, true, false);
     b.cols.push(Collider::cyl(0.0, 0.0, 1.1, -0.5, 1.0, Tag::Static));
+    // a darker stone course and a coping ring
+    b.mb.hex(0x858580);
+    b.mb.cylinder(Vec3::new(0.0, 0.3, 0.0), 1.12, 1.12, 0.12, 12, false, false);
+    b.mb.hex(0xb5b5b0);
+    b.mb.cylinder(Vec3::new(0.0, 0.96, 0.0), 1.2, 1.2, 0.1, 12, false, true);
     b.cyl(Vec3::new(0.0, 0.95, 0.0), 0.9, 0.05, 0x1d5f8a, mat::EMISSIVE, false);
     for sx in [-1.0f32, 1.0] {
         b.bx(Vec3::new(sx * 1.0 - 0.08, 0.5, -0.08), Vec3::new(sx * 1.0 + 0.08, 2.6, 0.08), 0x6a4a2e, mat::WOOD, false);
     }
+    // windlass: a roller between the posts, a crank handle, rope and bucket over the water
+    b.tube(Vec3::new(-1.05, 2.0, 0.0), Vec3::new(1.05, 2.0, 0.0), 0.1, 0x8a5a34, mat::WOOD);
+    b.tube(Vec3::new(1.2, 2.0, 0.0), Vec3::new(1.2, 1.55, 0.0), 0.035, 0x4a4e57, mat::METAL);
+    b.bx(Vec3::new(1.12, 1.5, -0.16), Vec3::new(1.28, 1.58, 0.16), 0x8a5a34, mat::WOOD, false);
+    b.tube(Vec3::new(0.0, 2.0, 0.1), Vec3::new(0.0, 1.3, 0.1), 0.02, 0xc9b27a, mat::CLOTH);
+    b.mb.mat(mat::WOOD).hex(0x8a5a34);
+    b.mb.cylinder(Vec3::new(0.0, 1.02, 0.1), 0.2, 0.17, 0.3, 8, false, false);
+    b.mb.hex(0x4a4e57).mat(mat::METAL);
+    b.mb.cylinder(Vec3::new(0.0, 1.12, 0.1), 0.205, 0.205, 0.03, 8, false, false);
     b.mb.mat(mat::SHINGLE).hex(0x8a4b3a);
     b.mb.wedge(Vec3::new(-1.3, 2.6, -1.0), Vec3::new(0.0, 3.3, 1.0), 0);
     b.mb.wedge(Vec3::new(0.0, 2.6, -1.0), Vec3::new(1.3, 3.3, 1.0), 2);
+    // ridge board
+    b.bx(Vec3::new(-1.35, 3.28, -0.06), Vec3::new(1.35, 3.38, 0.06), 0x6a4a2e, mat::WOOD, false);
     b.finish(Vec2::new(1.3, 1.3), 3.3, Vec3::new(0.0, 0.0, 3.0), Vec3::new(0.0, 0.0, 2.0))
 }
 
 pub fn gen_lamp_post(col: u32) -> Geom {
     let mut b = B::new();
-    b.mb.mat(mat::METAL).hex(0x33363d);
-    b.mb.cylinder(Vec3::ZERO, 0.14, 0.09, 4.2, 6, true, false);
-    b.mb.cylinder(Vec3::new(0.0, 0.0, 0.0), 0.22, 0.22, 0.25, 6, true, false);
-    b.bx(Vec3::new(-0.04, 4.1, -0.04), Vec3::new(0.7, 4.2, 0.04), 0x33363d, mat::METAL, false);
+    // stepped base, a tapering pole with collars, a curved arm and a hexagonal lantern
+    b.mb.mat(mat::METAL).hex(0x2e3138).ao(0.7, 1.0);
+    b.mb.cylinder(Vec3::ZERO, 0.26, 0.2, 0.28, 8, true, false);
+    b.mb.cylinder(Vec3::new(0.0, 0.28, 0.0), 0.16, 0.16, 0.1, 8, false, true);
+    b.mb.hex(0x33363d);
+    b.mb.cylinder(Vec3::new(0.0, 0.38, 0.0), 0.11, 0.075, 3.8, 8, false, false);
+    b.mb.hex(0x4a4e57);
+    for y in [1.4f32, 3.7] {
+        b.mb.cylinder(Vec3::new(0.0, y, 0.0), 0.095, 0.095, 0.08, 8, false, true);
+    }
+    let arm = [(0.0f32, 4.12f32), (0.12, 4.3), (0.36, 4.36), (0.56, 4.28)];
+    for w in arm.windows(2) {
+        b.tube(Vec3::new(w[0].0, w[0].1, 0.0), Vec3::new(w[1].0, w[1].1, 0.0), 0.04, 0x33363d, mat::METAL);
+    }
+    let lx = 0.6;
+    b.mb.mat(mat::METAL).hex(0x2e3138);
+    b.mb.cylinder(Vec3::new(lx, 4.06, 0.0), 0.2, 0.04, 0.2, 6, true, false);
+    b.mb.cylinder(Vec3::new(lx, 3.72, 0.0), 0.1, 0.12, 0.05, 6, true, false);
     b.mb.mat(mat::EMISSIVE).hex(col);
-    b.mb.box_min_max(Vec3::new(0.45, 3.82, -0.14), Vec3::new(0.85, 4.1, 0.14));
+    b.mb.cylinder(Vec3::new(lx, 3.77, 0.0), 0.12, 0.17, 0.29, 6, false, false);
     b.cols.push(Collider::cyl(0.0, 0.0, 0.18, 0.0, 4.2, Tag::Static));
-    b.finish(Vec2::new(0.3, 0.3), 4.3, Vec3::ZERO, Vec3::ZERO)
+    b.finish(Vec2::new(0.3, 0.3), 4.4, Vec3::ZERO, Vec3::ZERO)
+}
+
+/// A park bench with a slatted back, turned by `yaw` (so it can face the fountain from a diagonal). The collider is a
+/// plain cylinder so that a turned bench does not leave an invisible box around it.
+pub fn gen_bench(yaw: f32) -> Geom {
+    let mut b = B::new();
+    b.mb.push_xf(Mat4::from_rotation_y(yaw));
+    // iron ends, wooden slats for the seat and the back, armrests
+    for sx in [-1.0f32, 1.0] {
+        let x = sx * 0.78;
+        b.bx(Vec3::new(x - 0.04, 0.0, -0.22), Vec3::new(x + 0.04, 0.46, -0.16), 0x2e3138, mat::METAL, false);
+        b.bx(Vec3::new(x - 0.04, 0.0, 0.16), Vec3::new(x + 0.04, 0.46, 0.22), 0x2e3138, mat::METAL, false);
+        b.bx(Vec3::new(x - 0.04, 0.46, -0.24), Vec3::new(x + 0.04, 0.52, 0.24), 0x2e3138, mat::METAL, false);
+        b.bx(Vec3::new(x - 0.04, 0.46, 0.2), Vec3::new(x + 0.04, 0.98, 0.26), 0x2e3138, mat::METAL, false);
+        b.bx(Vec3::new(x - 0.05, 0.66, -0.2), Vec3::new(x + 0.05, 0.7, 0.2), 0x2e3138, mat::METAL, false);
+    }
+    for k in 0..4 {
+        let z = -0.2 + k as f32 * 0.13;
+        b.bx(Vec3::new(-0.85, 0.5, z), Vec3::new(0.85, 0.55, z + 0.1), 0x9c6a3a, mat::WOOD, false);
+    }
+    for k in 0..3 {
+        let y = 0.62 + k as f32 * 0.15;
+        b.bx(Vec3::new(-0.85, y, 0.2), Vec3::new(0.85, y + 0.1, 0.25), 0x9c6a3a, mat::WOOD, false);
+    }
+    b.mb.pop_xf();
+    b.cols.push(Collider::cyl(0.0, 0.0, 0.62, 0.0, 0.6, Tag::Static));
+    b.finish(Vec2::new(0.9, 0.9), 1.0, Vec3::ZERO, Vec3::ZERO)
+}
+
+/// A stone planter with a shrub and flowers.
+pub fn gen_planter(bloom: u32) -> Geom {
+    let mut b = B::new();
+    b.cyl(Vec3::ZERO, 0.62, 0.55, 0xc9c6bd, mat::STONE, true);
+    b.mb.mat(mat::STONE).hex(0xdedbd2);
+    b.mb.cylinder(Vec3::new(0.0, 0.52, 0.0), 0.68, 0.68, 0.1, 10, false, true);
+    b.mb.mat(mat::FLAT).hex(0x4a3524);
+    b.mb.cylinder(Vec3::new(0.0, 0.62, 0.0), 0.56, 0.56, 0.02, 10, false, true);
+    b.mb.mat(mat::FOLIAGE).tinted(false).hex(0x4c9a3a).ao(0.6, 1.0);
+    b.mb.blob(Vec3::new(0.0, 0.95, 0.0), Vec3::new(0.55, 0.42, 0.55), 1, 0.15, 5, true);
+    b.mb.hex(0x5db04a);
+    b.mb.blob(Vec3::new(0.2, 1.1, 0.1), Vec3::new(0.32, 0.28, 0.32), 1, 0.15, 9, true);
+    b.mb.mat(mat::FLAT).hex(bloom).ao(1.0, 1.0);
+    for k in 0..9 {
+        let a = k as f32 * 2.399;
+        let v = 0.2 + 0.6 * ((k * 5 % 9) as f32 / 9.0);
+        let r = (1.0 - v * v).sqrt();
+        b.mb.sphere(Vec3::new(a.cos() * r * 0.5, 0.95 + v * 0.42, a.sin() * r * 0.5), 0.07, 0);
+    }
+    b.finish(Vec2::new(0.7, 0.7), 1.4, Vec3::ZERO, Vec3::ZERO)
 }
 
 pub fn gen_dock(len: f32) -> Geom {
@@ -1107,6 +1489,119 @@ pub fn gen_fence(len: f32, col: u32) -> Geom {
     b.bx(Vec3::new(0.0, 0.65, -0.05), Vec3::new(len, 0.75, 0.05), col, mat::WOOD, false);
     b.cols.push(Collider { shape: Shape::Box { min: Vec3::new(0.0, 0.0, -0.06), max: Vec3::new(len, 0.95, 0.06) }, tag: Tag::Static, blocks_bullets: false });
     b.finish(Vec2::new(len * 0.5, 0.1), 1.0, Vec3::ZERO, Vec3::ZERO)
+}
+
+// ---------------------------------------------------------------------------------
+// Details
+// ---------------------------------------------------------------------------------
+
+/// A porch rail between two points at the same height: a top and a bottom rail with balusters.
+fn porch_rail(b: &mut B, p0: Vec3, p1: Vec3, col: u32) {
+    let (lo, hi) = (p0.min(p1), p0.max(p1));
+    let len = (hi - lo).length();
+    if len < 0.3 {
+        return;
+    }
+    let along_x = (hi.x - lo.x) > (hi.z - lo.z);
+    let (t, y) = (0.035, p0.y);
+    let bx = |b: &mut B, a0: f32, a1: f32, y0: f32, y1: f32, half: f32| {
+        if along_x {
+            b.bx(Vec3::new(a0, y0, lo.z - half), Vec3::new(a1, y1, lo.z + half), col, mat::WOOD, false);
+        } else {
+            b.bx(Vec3::new(lo.x - half, y0, a0), Vec3::new(lo.x + half, y1, a1), col, mat::WOOD, false);
+        }
+    };
+    let (a0, a1) = if along_x { (lo.x, hi.x) } else { (lo.z, hi.z) };
+    bx(b, a0, a1, y + 0.9, y + 0.97, t + 0.015);
+    bx(b, a0, a1, y + 0.2, y + 0.25, t);
+    let n = (len / 0.27).floor() as i32;
+    for k in 0..=n {
+        let a = a0 + (a1 - a0) * k as f32 / n.max(1) as f32;
+        bx(b, a - 0.02, a + 0.02, y + 0.25, y + 0.9, 0.02);
+    }
+}
+
+/// Everything that dresses a house from outside without touching its walls or colliders: the front door standing ajar,
+/// a porch lantern and rails, curtains and flower boxes in the windows.
+fn house_details(b: &mut B, hx: f32, hz: f32, door_u: f32, floors: u32, st: &Style) {
+    let front = Line { along_x: true, a0: -hx, a1: hx, c: hz - WALL_T / 2.0, out: 1.0 };
+    let back = Line { along_x: true, a0: -hx, a1: hx, c: -hz + WALL_T / 2.0, out: -1.0 };
+    let left = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: -hx + WALL_T / 2.0, out: -1.0 };
+    let right = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: hx - WALL_T / 2.0, out: 1.0 };
+    let door_x = -hx + door_u;
+    let seed = (hx * 10.0) as i32 * 131 + (hz * 10.0) as i32;
+    // the door and a lantern beside it
+    let door_cols = [0x8a5a34u32, 0xb5463a, 0x3a7d8c, 0x2f4f7f, 0x3e6e42, 0xd9a23b];
+    let door_col = if st.logs { 0x5d3f27 } else { door_cols[(hunit(seed, 5, 17) * 6.0) as usize % 6] };
+    let door = Op { u0: door_u - DOOR_W / 2.0, u1: door_u + DOOR_W / 2.0, v0: 0.0, v1: DOOR_H };
+    b.door_leaf(front, FLOOR_Y, &door, door_col, 0xe3c15a);
+    let lu = if door_u + 1.2 < front.len() - 0.5 { door_u + 1.25 } else { door_u - 1.25 };
+    let (a, c) = front.bx(lu - 0.07, lu + 0.07, WALL_T / 2.0, WALL_T / 2.0 + 0.1, FLOOR_Y + 1.95, FLOOR_Y + 2.25);
+    b.bx(a, c, 0x2b2e34, mat::METAL, false);
+    let (a, c) = front.bx(lu - 0.055, lu + 0.055, WALL_T / 2.0 + 0.01, WALL_T / 2.0 + 0.09, FLOOR_Y + 2.0, FLOOR_Y + 2.2);
+    b.bx(a, c, 0xffe29a, mat::EMISSIVE, false);
+    // a mailbox on a post at the edge of the lot, on whichever side of the door has more room
+    let mx = if door_x > 0.0 { door_x - 3.1 } else { door_x + 3.1 };
+    let mx = mx.clamp(-hx - 1.5, hx + 1.5);
+    // (the bots' notion of "inside the building" is the mesh bounds minus the eaves, so nothing may stick out past the stoop)
+    let mz = hz + if st.porch { 1.75 } else { 0.78 };
+    let post_col = 0x6a4a2e;
+    b.bx(Vec3::new(mx - 0.04, 0.0, mz - 0.04), Vec3::new(mx + 0.04, 1.05, mz + 0.04), post_col, mat::WOOD, false);
+    let box_col = [0x2f4f7f, 0xb5463a, 0x3e6e42, 0x4a4e57][(hunit(seed, 9, 19) * 4.0) as usize % 4];
+    b.mb.mat(mat::METAL).hex(box_col).spec(0.5);
+    b.mb.push_xf(Mat4::from_translation(Vec3::new(mx, 1.2, mz)) * Mat4::from_rotation_z(FRAC_PI_2) * Mat4::from_rotation_x(FRAC_PI_2));
+    b.mb.cylinder(Vec3::new(0.0, -0.22, 0.0), 0.11, 0.11, 0.44, 8, true, true);
+    b.mb.pop_xf();
+    b.bx(Vec3::new(mx + 0.11, 1.18, mz - 0.03), Vec3::new(mx + 0.13, 1.34, mz + 0.0), 0xd33a2a, mat::FLAT, false);
+    // potted shrubs either side of the door when there is no porch
+    if !st.porch {
+        for sx in [-1.0f32, 1.0] {
+            let x = door_x + sx * 1.45;
+            if x.abs() < hx - 0.6 {
+                b.mb.mat(mat::STONE).hex(0xc2663a);
+                b.mb.cylinder(Vec3::new(x, 0.14, hz + 0.55), 0.22, 0.17, 0.34, 8, true, true);
+                b.mb.mat(mat::FOLIAGE).tinted(false).hex(0x4c9a3a);
+                b.mb.blob(Vec3::new(x, 0.7, hz + 0.55), Vec3::new(0.3, 0.3, 0.3), 1, 0.15, 3, true);
+                b.mb.mat(mat::FLAT).hex(if sx < 0.0 { 0xff6f91 } else { 0xfdfbf0 });
+                for k in 0..4 {
+                    let a = k as f32 * 2.399 + 0.5;
+                    b.mb.sphere(Vec3::new(x + a.cos() * 0.2, 0.78 + 0.1 * (k % 2) as f32, hz + 0.55 + a.sin() * 0.2), 0.055, 0);
+                }
+                b.mb.tinted(true);
+            }
+        }
+    }
+    // porch rails: along the front with a gap for the steps, and down both sides
+    if st.porch {
+        let (px0, px1) = ((door_x - 1.9).max(-hx + 0.2), (door_x + 1.9).min(hx - 0.2));
+        let (y, zf) = (FLOOR_Y, hz + 2.5);
+        porch_rail(b, Vec3::new(px0 + 0.22, y, zf), Vec3::new(door_x - 1.1, y, zf), st.trim);
+        porch_rail(b, Vec3::new(door_x + 1.1, y, zf), Vec3::new(px1 - 0.22, y, zf), st.trim);
+        porch_rail(b, Vec3::new(px0 + 0.12, y, hz + 1.05), Vec3::new(px0 + 0.12, y, zf - 0.12), st.trim);
+        porch_rail(b, Vec3::new(px1 - 0.12, y, hz + 1.05), Vec3::new(px1 - 0.12, y, zf - 0.12), st.trim);
+    }
+    // a pendant lamp over the table's spot on each floor: a glowing shade you can see through the windows
+    let tx = if door_x > 0.0 { -hx * 0.45 } else { hx * 0.45 };
+    for fl in 0..floors {
+        let ceil = FLOOR_Y + (fl + 1) as f32 * STORY_H - if fl + 1 == floors { 0.2 } else { 0.3 };
+        let z = hz * 0.1;
+        b.tube(Vec3::new(tx, ceil, z), Vec3::new(tx, ceil - 0.5, z), 0.012, 0x2b2e34, mat::METAL);
+        b.mb.mat(mat::FLAT).hex(0xf3e6c4).ao(1.0, 1.0);
+        b.mb.cylinder(Vec3::new(tx, ceil - 0.78, z), 0.26, 0.07, 0.28, 8, false, false);
+        b.mb.mat(mat::EMISSIVE).hex(0xffe9b0);
+        b.mb.cylinder(Vec3::new(tx, ceil - 0.79, z), 0.2, 0.2, 0.02, 8, true, true);
+    }
+    // curtains and flower boxes: same slots as the walls
+    for fl in 0..floors {
+        let y0 = FLOOR_Y + fl as f32 * STORY_H;
+        let avoid: Vec<(f32, f32)> = if fl == 0 { vec![(door_u - DOOR_W / 2.0 - 0.3, door_u + DOOR_W / 2.0 + 0.3)] } else { vec![] };
+        for (li, (line, spacing, av)) in [(front, 3.4f32, avoid.as_slice()), (back, 3.6, &[][..]), (left, 3.8, &[][..]), (right, 3.8, &[][..])].into_iter().enumerate() {
+            for (k, c) in B::window_slots(line.len(), av, spacing).into_iter().enumerate() {
+                let o = Op { u0: c - 0.65, u1: c + 0.65, v0: 0.95, v1: 2.15 };
+                b.window_dressing(line, y0, &o, seed * 7 + li as i32 * 31 + k as i32 * 3 + fl as i32 * 101, fl == 0 && li == 0);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -1290,9 +1785,26 @@ mod tests {
             assert!(!g.mesh.is_empty(), "{name} has no mesh");
             assert!(g.mesh.verts.iter().all(|v| v.pos.iter().all(|c| c.is_finite())), "{name} NaN");
             assert!(g.mesh.verts.len() < 20_000, "{name}: {} verts", g.mesh.verts.len());
+            if name.starts_with("house") || name == "cabin" || name == "shop" || name == "barn" {
+                assert!(g.mesh.verts.len() < 13_000, "{name}: {} verts: keep a building cheap, hundreds are drawn from one chunk mesh", g.mesh.verts.len());
+            }
             assert!(!g.cols.is_empty() || name == "fence", "{name} has no colliders");
             let bb = g.mesh.bounds();
             assert!(bb.max.y > if name == "dock" || name == "fence" { 0.15 } else { 1.0 }, "{name} too short");
+        }
+    }
+
+    #[test]
+    fn dressing_stays_close_to_the_walls() {
+        // the bots decide whether a point is "inside" a building from its mesh bounds minus the eaves, so gutters,
+        // mailboxes and stands must not reach far past the roof, the porch or the awning
+        for (name, g) in all_geoms() {
+            if !(name.starts_with("house") || name == "cabin" || name == "shop" || name == "barn") {
+                continue;
+            }
+            let bb = g.mesh.bounds();
+            assert!(bb.min.x >= -g.half.x - 0.9 && bb.max.x <= g.half.x + 0.9, "{name}: x {:?}", (bb.min.x, bb.max.x));
+            assert!(bb.min.z >= -g.half.y - 0.9 && bb.max.z <= g.half.y + 2.85, "{name}: z {:?}", (bb.min.z, bb.max.z));
         }
     }
 

@@ -269,7 +269,7 @@ mod tests {
             assert!(distance < 170.0, "bus should pass near the centre of the island");
             assert!((40.0..45.0).contains(&bus.total), "larger map should retain a short bus journey");
         }
-        assert!(R0 > WORLD_HALF);
+        const { assert!(R0 > WORLD_HALF) };
         assert!(PHASES[0].2 > 450.0, "first circle should suit the expanded land area");
     }
 
