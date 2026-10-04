@@ -64,7 +64,8 @@ impl Game {
         let mut best: Option<(f32, Target)> = None;
         for p in &self.pickups {
             let d = p.pos.distance(c);
-            if d < INTERACT_RANGE && best.is_none_or(|b| d < b.0) {
+            // an item that cannot be taken (ammo at the cap, nothing to swap) must not shadow the ones beside it
+            if d < INTERACT_RANGE && best.is_none_or(|b| d < b.0) && can_take(&a.inv, &p.kind) {
                 best = Some((d, Target::Pickup(p.id)));
             }
         }
@@ -132,11 +133,9 @@ impl Game {
                 match r {
                     AddResult::Added(slot) => {
                         self.pickups.remove(idx);
-                        if was_empty_handed || self.actors[who].human {
-                            // pick it up and (for a free slot) grab it
-                            if was_empty_handed {
-                                self.select_slot(who, slot);
-                            }
+                        // take it in hand when empty-handed, but never drop out of build mode just for picking something up
+                        if was_empty_handed && !self.actors[who].build_mode {
+                            self.select_slot(who, slot);
                         }
                     }
                     AddResult::Swapped { slot, dropped } => {
@@ -146,7 +145,17 @@ impl Game {
                             _ => return true,
                         };
                         self.spawn_pickup(apos + Vec3::Y * 0.4, pk, true);
-                        self.select_slot(who, slot);
+                        let a = &mut self.actors[who];
+                        if a.build_mode {
+                            // keep building; the new weapon waits in its slot
+                        } else if a.inv.selected == slot {
+                            // the weapon in hand was replaced: equip the new one from scratch (no reload or heal carries over)
+                            a.action = Action::Swap { t: wk.def().equip_time };
+                            a.ads = false;
+                            self.events.push(Event::WeaponSwitch { actor: who, pos: apos });
+                        } else {
+                            self.select_slot(who, slot);
+                        }
                     }
                     AddResult::Full => return false,
                 }
@@ -248,6 +257,16 @@ impl Game {
     }
 }
 
+/// Whether the inventory has room for (some of) a pickup: a weapon needs a free slot or a weapon to swap with,
+/// ammo needs headroom under the cap, a consumable needs a free slot or a part-filled stack of its kind.
+pub fn can_take(inv: &Inventory, kind: &PickupKind) -> bool {
+    match *kind {
+        PickupKind::Weapon { .. } => inv.free_slot().is_some() || (1..6).any(|i| matches!(inv.slots[i], Some(Item::Weapon { .. }))),
+        PickupKind::Ammo { kind, .. } => inv.ammo[kind.index()] < kind.cap(),
+        PickupKind::Consumable { kind, .. } => inv.free_slot().is_some() || (1..6).any(|i| matches!(inv.slots[i], Some(Item::Consumable { kind: k, count }) if k == kind && count < kind.def().stack)),
+    }
+}
+
 /// Physics for loose items; auto-pickup of ammo; chest animation.
 pub fn update_pickups(g: &mut Game, dt: f32) {
     {
@@ -259,10 +278,13 @@ pub fn update_pickups(g: &mut Game, dt: f32) {
                 continue;
             }
             p.vel.y -= 20.0 * dt;
+            let prev_y = p.pos.y;
             p.pos += p.vel * dt;
             p.vel.x *= (1.0 - 1.2 * dt).max(0.0);
             p.vel.z *= (1.0 - 1.2 * dt).max(0.0);
-            let gr = env.ground(p.pos.x, p.pos.z, p.pos.y + 0.6, 0.9);
+            // only surfaces the item was above a moment ago count as ground (a fast faller still cannot tunnel through a floor);
+            // an item popped up under a ceiling must not land on top of the slab
+            let gr = env.ground(p.pos.x, p.pos.z, prev_y, 0.1);
             if p.pos.y <= gr.y {
                 p.pos.y = gr.y;
                 if p.vel.y < -3.0 {
@@ -289,14 +311,9 @@ pub fn update_pickups(g: &mut Game, dt: f32) {
             continue;
         }
         let c = a.pos + Vec3::Y * 0.5;
-        let mut hit = None;
-        for (k, p) in g.pickups.iter().enumerate() {
-            if p.grounded && matches!(p.kind, PickupKind::Ammo { .. }) && p.pos.distance(c) < 1.35 {
-                hit = Some(k);
-                break;
-            }
-        }
-        if let Some(k) = hit {
+        // a box that cannot be taken (ammo type at the cap) must not hide the ones lying on top of it
+        let in_reach: Vec<usize> = g.pickups.iter().enumerate().filter(|(_, p)| p.grounded && matches!(p.kind, PickupKind::Ammo { .. }) && p.pos.distance(c) < 1.35 && can_take(&a.inv, &p.kind)).map(|(k, _)| k).collect();
+        if let Some(&k) = in_reach.first() {
             g.pickup_item(i, k);
         }
     }
@@ -304,7 +321,7 @@ pub fn update_pickups(g: &mut Game, dt: f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::testutil::game;
+    use super::super::testutil::{game, game_cfg};
     use super::*;
 
     #[test]
@@ -367,6 +384,141 @@ mod tests {
         }
         assert!(g.pickups.iter().all(|p| p.grounded), "items must come to rest");
         assert!(g.events.iter().any(|e| matches!(e, Event::ChestOpen { .. })) || true);
+    }
+
+    #[test]
+    fn replacing_the_weapon_in_hand_mid_reload_cancels_the_reload_and_equips_the_new_weapon() {
+        let mut g = game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 7, god_mode: true, ..Default::default() });
+        let pos = g.actors[PLAYER].pos;
+        for _ in 0..5 {
+            g.actors[PLAYER].inv.add_weapon(WeaponKind::Pistol, Rarity::Common, 4);
+        }
+        g.actors[PLAYER].inv.ammo[AmmoKind::Light.index()] = 60;
+        g.actors[PLAYER].inv.ammo[AmmoKind::Shells.index()] = 20;
+        g.select_slot(PLAYER, 2);
+        for _ in 0..30 {
+            g.update(0.02, &PlayerInput::default());
+        }
+        g.update(0.02, &PlayerInput { reload: true, ..Default::default() });
+        assert!(matches!(g.actors[PLAYER].action, Action::Reload { .. }), "reloading: {:?}", g.actors[PLAYER].action);
+        for _ in 0..40 {
+            g.update(0.02, &PlayerInput::default());
+        }
+        // the inventory is full, so an empty shotgun replaces the pistol in hand
+        let id = g.spawn_pickup(pos, PickupKind::Weapon { kind: WeaponKind::Shotgun, rarity: Rarity::Common, ammo: 0 }, false);
+        let idx = g.pickup_index(id).unwrap();
+        assert!(g.pickup_item(PLAYER, idx));
+        let a = &g.actors[PLAYER];
+        assert_eq!(a.inv.selected, 2);
+        assert!(matches!(a.action, Action::Swap { .. }), "the new weapon is equipped from scratch, not mid-reload: {:?}", a.action);
+        // the old reload must not finish onto the new weapon
+        for _ in 0..15 {
+            g.update(0.02, &PlayerInput::default());
+        }
+        assert!(matches!(g.actors[PLAYER].inv.slots[2], Some(Item::Weapon { kind: WeaponKind::Shotgun, ammo: 0, .. })), "{:?}", g.actors[PLAYER].inv.slots[2]);
+    }
+
+    #[test]
+    fn an_item_that_cannot_be_taken_does_not_shadow_the_ones_beside_it() {
+        let mut g = game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 7, god_mode: true, ..Default::default() });
+        g.pickups.clear();
+        let pos = g.actors[PLAYER].pos;
+        let heavy_cap = AmmoKind::Heavy.cap();
+        g.actors[PLAYER].inv.ammo[AmmoKind::Heavy.index()] = heavy_cap;
+        // ammo auto-pickup: a capped box lies exactly where a useful one does
+        g.spawn_pickup(pos, PickupKind::Ammo { kind: AmmoKind::Heavy, amount: 6 }, false);
+        g.spawn_pickup(pos, PickupKind::Ammo { kind: AmmoKind::Light, amount: 30 }, false);
+        for _ in 0..20 {
+            g.update(0.05, &PlayerInput::default());
+        }
+        assert!(g.actors[PLAYER].inv.ammo[AmmoKind::Light.index()] >= 30, "light ammo {}", g.actors[PLAYER].inv.ammo[AmmoKind::Light.index()]);
+        assert_eq!(g.actors[PLAYER].inv.ammo[AmmoKind::Heavy.index()], heavy_cap);
+        // E: the nearest thing is the capped box, the thing worth taking is the gun a little further away
+        g.pickups.clear();
+        let fwd = yaw_forward(g.actors[PLAYER].yaw);
+        g.spawn_pickup(pos + fwd * 0.3, PickupKind::Ammo { kind: AmmoKind::Heavy, amount: 6 }, false);
+        let gun = g.spawn_pickup(pos + fwd * 1.3, PickupKind::Weapon { kind: WeaponKind::Smg, rarity: Rarity::Rare, ammo: 30 }, false);
+        assert_eq!(g.find_target(PLAYER), Some(Target::Pickup(gun)));
+        assert!(g.interact(PLAYER));
+        assert!(g.actors[PLAYER].inv.slots.iter().flatten().any(|i| matches!(i, Item::Weapon { kind: WeaponKind::Smg, .. })));
+    }
+
+    #[test]
+    fn picking_up_a_weapon_does_not_leave_build_mode() {
+        let mut g = game(2, true);
+        let pos = g.actors[PLAYER].pos;
+        g.actors[PLAYER].build_mode = true;
+        let id = g.spawn_pickup(pos, PickupKind::Weapon { kind: WeaponKind::Smg, rarity: Rarity::Rare, ammo: 30 }, false);
+        let idx = g.pickup_index(id).unwrap();
+        assert!(g.pickup_item(PLAYER, idx));
+        assert!(g.actors[PLAYER].build_mode, "picking something up must not end building");
+        assert!(matches!(g.actors[PLAYER].inv.slots[1], Some(Item::Weapon { kind: WeaponKind::Smg, .. })));
+        assert_eq!(g.actors[PLAYER].inv.selected, 0, "nothing is equipped behind the player's back");
+        // a full inventory swaps without leaving build mode as well
+        for _ in 0..4 {
+            g.actors[PLAYER].inv.add_weapon(WeaponKind::Pistol, Rarity::Common, 4);
+        }
+        let id = g.spawn_pickup(pos, PickupKind::Weapon { kind: WeaponKind::Shotgun, rarity: Rarity::Epic, ammo: 5 }, false);
+        let idx = g.pickup_index(id).unwrap();
+        assert!(g.pickup_item(PLAYER, idx));
+        assert!(g.actors[PLAYER].build_mode);
+    }
+
+    #[test]
+    fn chest_loot_stays_on_the_chests_floor_instead_of_snapping_onto_the_ceiling() {
+        // items pop up ~1.5 m; the ground probe used to reach 1.5 m above them, so under a low ceiling the slab's top
+        // (the attic, unreachable from inside) counted as ground
+        let mut g = game(1, true);
+        g.actors[1].brain = None;
+        g.actors[1].pos = Vec3::new(0.0, 100.0, 0.0);
+        let (mut total, mut high) = (0, vec![]);
+        for ci in 0..g.chests.len() {
+            let c = g.chests[ci].clone();
+            let before: Vec<u32> = g.pickups.iter().map(|p| p.id).collect();
+            g.open_chest(ci, PLAYER);
+            for _ in 0..240 {
+                g.update(1.0 / 60.0, &PlayerInput::default());
+            }
+            for p in g.pickups.iter().filter(|p| !before.contains(&p.id)) {
+                total += 1;
+                if p.pos.y - c.pos.y > 1.2 {
+                    high.push((ci, p.pos.y - c.pos.y));
+                }
+            }
+        }
+        assert!(total >= 3 * g.chests.len(), "{total} items from {} chests", g.chests.len());
+        assert!(high.is_empty(), "{} of {total} chest items came to rest more than 1.2 m above their chest: {high:?}", high.len());
+    }
+
+    #[test]
+    fn items_dropped_by_an_eliminated_actor_land_on_the_floor_under_a_low_ceiling() {
+        let mut g = game(1, true);
+        let b = g.world.buildings.iter().find(|b| b.kind == "house").expect("a house").clone();
+        let floor = b.door_in.y;
+        g.actors[1].brain = None;
+        g.actors[1].pos = Vec3::new(0.0, 100.0, 0.0);
+        let (mut total, mut high) = (0, vec![]);
+        for k in 0..40 {
+            g.pickups.clear();
+            // spread over the room interior around the door
+            let off = Vec3::new((k % 5) as f32 * 0.35 - 0.7, 0.0, (k / 5) as f32 * 0.25 - 0.5);
+            g.actors[PLAYER].pos = Vec3::new(b.door_in.x, floor, b.door_in.z) + off;
+            g.actors[PLAYER].inv.add_weapon(WeaponKind::Smg, Rarity::Rare, 12);
+            g.actors[PLAYER].inv.add_consumable(ConsumableKind::Bandage, 5);
+            g.actors[PLAYER].inv.ammo[0] = 120;
+            g.drop_inventory(PLAYER);
+            for _ in 0..240 {
+                g.update(1.0 / 60.0, &PlayerInput::default());
+            }
+            for p in &g.pickups {
+                total += 1;
+                if p.pos.y - floor > 1.0 {
+                    high.push((k, p.pos.y - floor));
+                }
+            }
+        }
+        assert!(total > 40, "{total} drops");
+        assert!(high.is_empty(), "{} of {total} dropped items came to rest on the ceiling slab: {high:?}", high.len());
     }
 
     #[test]
