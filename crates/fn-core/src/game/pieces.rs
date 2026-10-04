@@ -37,6 +37,8 @@ pub struct Piece {
     pub owner: usize,
     pub collider: u32,
     pub age: f32,
+    /// How far a level-0 wall or floor reaches below its nominal base so that it meets sloping ground (see [`footing_for`]).
+    pub footing: f32,
 }
 
 pub struct Pieces {
@@ -73,14 +75,19 @@ impl Pieces {
     }
 
     pub fn insert(&mut self, key: PieceKey, mat: Mat, base_y: f32, owner: usize) -> u32 {
+        self.insert_footed(key, mat, base_y, owner, 0.0)
+    }
+
+    /// Insert a piece whose body reaches `footing` metres below its nominal base.
+    pub fn insert_footed(&mut self, key: PieceKey, mat: Mat, base_y: f32, owner: usize, footing: f32) -> u32 {
         let id = if let Some(i) = self.free.pop() { i } else {
             self.list.push(None);
             (self.list.len() - 1) as u32
         };
-        let shape = shape_of(&key, base_y);
+        let shape = shape_of_footed(&key, base_y, footing);
         let collider = self.grid.insert(Collider::new(shape, Tag::Piece(id)));
         let hp = mat.piece_hp();
-        self.list[id as usize] = Some(Piece { id, key, mat, hp, max_hp: hp, base_y, owner, collider, age: 0.0 });
+        self.list[id as usize] = Some(Piece { id, key, mat, hp, max_hp: hp, base_y, owner, collider, age: 0.0, footing });
         self.index.insert(key, id);
         self.changed = true;
         id
@@ -138,6 +145,46 @@ pub fn shape_of(k: &PieceKey, base_y: f32) -> Shape {
         PieceKind::Floor => Shape::Box { min: Vec3::new(cx, y0 - THICK, cz), max: Vec3::new(cx + TILE, y0, cz + TILE) },
         PieceKind::Roof => Shape::Box { min: Vec3::new(cx, y0 + LEVEL_H - THICK, cz), max: Vec3::new(cx + TILE, y0 + LEVEL_H, cz + TILE) },
         PieceKind::Ramp => Shape::Wedge { min: Vec3::new(cx, y0, cz), max: Vec3::new(cx + TILE, y0 + LEVEL_H, cz + TILE), dir: k.dir & 3 },
+    }
+}
+
+/// [`shape_of`] for a piece that reaches `footing` metres further down (level-0 walls and floors on a slope).
+pub fn shape_of_footed(k: &PieceKey, base_y: f32, footing: f32) -> Shape {
+    match (shape_of(k, base_y), k.kind) {
+        (Shape::Box { min, max }, PieceKind::Wall | PieceKind::Floor) if footing > 0.0 => Shape::Box { min: Vec3::new(min.x, min.y - footing, min.z), max },
+        (shape, _) => shape,
+    }
+}
+
+/// A structure sits on the highest terrain point of its footprint, so on a slope the pieces on the downhill side stand
+/// clear of the ground, and a wall there leaves a gap under it big enough to walk or shoot through. Level-0 walls and
+/// floors therefore get a footing that reaches down to the lowest ground under them (ramps are meant to climb out of the
+/// slope, roofs only exist above other pieces).
+pub fn footing_for(key: &PieceKey, base_y: f32, env: &Env) -> f32 {
+    if key.level != 0 || !matches!(key.kind, PieceKind::Wall | PieceKind::Floor) {
+        return 0.0;
+    }
+    let (cx, cz) = (key.x as f32 * TILE, key.z as f32 * TILE);
+    let mut lowest = f32::MAX;
+    for a in 0..=4 {
+        let u = a as f32 / 4.0 * TILE;
+        match key.kind {
+            PieceKind::Wall => {
+                let (x, z) = if key.dir == 0 { (cx + u, cz) } else { (cx, cz + u) };
+                lowest = lowest.min(env.terrain(x, z));
+            }
+            _ => {
+                for b in 0..=4 {
+                    lowest = lowest.min(env.terrain(cx + u, cz + b as f32 / 4.0 * TILE));
+                }
+            }
+        }
+    }
+    let drop = base_y - lowest;
+    if drop > 0.05 {
+        (drop + 0.15).min(10.0)
+    } else {
+        0.0
     }
 }
 

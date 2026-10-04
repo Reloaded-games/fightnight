@@ -581,7 +581,8 @@ impl App {
                 let f = yaw_forward(yaw);
                 let base = p + f * 9.0;
                 let (cx, cz) = cell_of(base);
-                let y0 = g.world.hm.height_at(cx as f32 * TILE + TILE * 0.5, cz as f32 * TILE + TILE * 0.5);
+                // the same rule as placing the first piece by hand: sit on the highest ground under the footprint
+                let y0 = structure_base(&g.pieces, &g.env(), cx, cz);
                 let mats = [Mat::Wood, Mat::Stone, Mat::Metal];
                 // a little fort: floor, 3 walls, ramp up the side, a roof
                 let mut n = 0;
@@ -590,7 +591,8 @@ impl App {
                     for (kind, dx, dz, dir, level) in [(PieceKind::Floor, 0, 0, 0u8, 0i32), (PieceKind::Wall, 0, 0, 0, 0), (PieceKind::Wall, 0, 0, 1, 0), (PieceKind::Wall, 1, 0, 1, 0), (PieceKind::Roof, 0, 0, 0, 0)] {
                         let key = PieceKey { kind, x: x + dx, z: cz + dz, level, dir };
                         if g.pieces.at(&key).is_none() {
-                            g.pieces.insert(key, *m, y0, PLAYER);
+                            let foot = footing_for(&key, y0, &g.env());
+                            g.pieces.insert_footed(key, *m, y0, PLAYER, foot);
                             n += 1;
                         }
                     }

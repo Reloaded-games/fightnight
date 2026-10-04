@@ -322,6 +322,15 @@ impl Scene {
             let mut inst = Instance::from_mat4(m, col);
             inst.params = [flash, 1.0, p.mat.index() as f32, 0.0];
             self.push_i(rig::piece_mesh(p.key.kind), inst);
+            // on a slope the piece's footing: a plain block from the ground up to the piece
+            if p.footing > 0.0 {
+                let body = super::pieces::shape_of(&p.key, p.base_y).aabb();
+                let (min, max) = (Vec3::new(body.min.x, body.min.y - p.footing, body.min.z), Vec3::new(body.max.x, body.min.y, body.max.z));
+                let block = Mat4::from_translation((min + max) * 0.5) * Mat4::from_scale(max - min);
+                let mut foot = Instance::from_mat4(block, lin(t * dim * 0.62));
+                foot.params = [flash, 1.0, p.mat.index() as f32, 0.0];
+                self.push_i(MeshId::UnitBox, foot);
+            }
         }
     }
 
