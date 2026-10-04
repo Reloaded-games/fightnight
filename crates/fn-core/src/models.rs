@@ -625,8 +625,35 @@ pub fn glider() -> MeshData {
             b.quad_out(q, -(mid - ctr + Vec3::Y * 0.6).normalize());
         }
     }
+    // stitched seams between the gores (light, whatever the canopy colour) and a patch at the crown
+    let pt = |a: f32, t: f32| {
+        let rr = rad * (1.0 - t * 0.92);
+        let y = rise * (1.0 - (1.0 - t).powi(2));
+        ctr + Vec3::new(a.cos() * rr, y - rise * 0.2 * (1.0 - t), a.sin() * rr)
+    };
+    b.tinted(false).mat(mat::FLAT).hex(0xf3efe4);
+    for g in 0..segs {
+        let a = g as f32 / segs as f32 * TAU_F;
+        let w = Vec3::new(-a.sin(), 0.0, a.cos()) * 0.02;
+        for r in 0..rings {
+            let (t0, t1) = (r as f32 / rings as f32, (r + 1) as f32 / rings as f32);
+            let (p0, p1) = (pt(a, t0), pt(a, t1));
+            let n = ((p0 + p1) * 0.5 - ctr + Vec3::Y * 0.6).normalize();
+            let o = n * 0.012;
+            b.quad_out([p0 - w + o, p0 + w + o, p1 + w + o, p1 - w + o], n);
+        }
+    }
+    b.mat(mat::CLOTH).tinted(true).color(grey(0.6));
+    {
+        let top = pt(0.0, 1.0);
+        for k in 0..8 {
+            let (a0, a1) = (k as f32 / 8.0 * TAU_F, (k + 1) as f32 / 8.0 * TAU_F);
+            let up = Vec3::Y * 0.014;
+            b.tri_out(top + up, pt(a0, 0.93) + up, pt(a1, 0.93) + up, Vec3::Y);
+        }
+    }
     // rim ring
-    b.color(grey(0.5));
+    b.tinted(true).mat(mat::CLOTH).color(grey(0.5));
     for g in 0..segs {
         let a0 = g as f32 / segs as f32 * TAU_F;
         let a1 = (g + 1) as f32 / segs as f32 * TAU_F;
@@ -1107,6 +1134,23 @@ pub fn ammo_box() -> MeshData {
     for k in 0..3 {
         barrel(&mut b, -0.04 + k as f32 * 0.04, 0.075, -0.0775, -0.082, 0.011, 0.011, 8);
     }
+    // darker corner guards and ribs in the box colour, steel latches on the front and a handle post at each end
+    b.mat(mat::FLAT).tinted(true).color(grey(0.55)).ao(0.8, 1.0);
+    for (sx, sz) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        b.box_center(Vec3::new(sx * 0.1175, 0.07, sz * 0.0725), Vec3::new(0.0065, 0.0715, 0.0065));
+    }
+    b.color(grey(0.78));
+    for z in [-0.0775f32, 0.0775] {
+        for y in [0.03f32, 0.112] {
+            b.box_center(Vec3::new(0.0, y, z), Vec3::new(0.1, 0.007, 0.0025));
+        }
+    }
+    b.mat(mat::METAL).tinted(false).hex(0xb9bec8).spec(0.9);
+    for s in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(s * 0.085, 0.13, -0.0815), Vec3::new(0.014, 0.022, 0.003));
+        b.box_center(Vec3::new(s * 0.085, 0.108, -0.0805), Vec3::new(0.008, 0.005, 0.005));
+        b.box_center(Vec3::new(s * 0.05, 0.164, 0.0), Vec3::new(0.005, 0.014, 0.012));
+    }
     b.finish()
 }
 
@@ -1137,11 +1181,24 @@ pub fn item_medkit() -> MeshData {
     b.box_center(Vec3::new(0.0, 0.205, 0.0), Vec3::new(0.05, 0.012, 0.012));
     b.box_center(Vec3::new(-0.05, 0.195, 0.0), Vec3::new(0.01, 0.012, 0.012));
     b.box_center(Vec3::new(0.05, 0.195, 0.0), Vec3::new(0.01, 0.012, 0.012));
-    // red cross on both faces
+    // red cross on both faces, and a smaller one on the lid
     b.mat(mat::EMISSIVE).color(Vec3::new(0.95, 0.12, 0.12));
     for z in [-0.0565f32, 0.0565] {
         b.box_center(Vec3::new(0.0, 0.09, z), Vec3::new(0.065, 0.017, 0.002));
         b.box_center(Vec3::new(0.0, 0.09, z), Vec3::new(0.017, 0.065, 0.002));
+    }
+    b.box_center(Vec3::new(0.0, 0.1935, 0.0), Vec3::new(0.04, 0.0015, 0.011));
+    b.box_center(Vec3::new(0.0, 0.1935, 0.0), Vec3::new(0.011, 0.0015, 0.04));
+    // red edge band under the lid, metal clasps, and bumpers on the corners
+    b.mat(mat::FLAT).color(Vec3::new(0.86, 0.16, 0.16));
+    b.box_center(Vec3::new(0.0, 0.176, 0.0), Vec3::new(0.1375, 0.007, 0.0575));
+    b.mat(mat::METAL).color(Vec3::new(0.7, 0.72, 0.76)).spec(0.9);
+    for s in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(s * 0.09, 0.15, -0.0575), Vec3::new(0.016, 0.022, 0.003));
+    }
+    b.mat(mat::FLAT).color(Vec3::new(0.78, 0.8, 0.82));
+    for (sx, sz) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        b.box_center(Vec3::new(sx * 0.1325, 0.09, sz * 0.0525), Vec3::new(0.0055, 0.091, 0.0055));
     }
     b.finish()
 }
@@ -1159,6 +1216,13 @@ fn potion(radius: f32, neck: f32, liquid: Vec3, glass: Vec3, cork: Vec3) -> Mesh
     // cork
     b.mat(mat::WOOD).color(cork);
     b.cylinder(Vec3::new(0.0, radius * 1.8 + neck, 0.0), radius * 0.26, radius * 0.3, radius * 0.45, 8, false, true);
+    // a ribbon round the neck and a bright glint on the glass
+    b.mat(mat::FLAT).color(Vec3::new(0.95, 0.85, 0.35));
+    b.cylinder(Vec3::new(0.0, radius * 1.8 + neck * 0.35, 0.0), radius * 0.4, radius * 0.4, radius * 0.16, 10, false, false);
+    b.mat(mat::EMISSIVE).color(Vec3::new(1.0, 1.0, 1.0));
+    b.push_xf(Mat4::from_translation(Vec3::new(-radius * 0.5, radius * 1.45, -radius * 0.72)));
+    b.blob(Vec3::ZERO, Vec3::new(radius * 0.16, radius * 0.3, radius * 0.07), 1, 0.0, 0, true);
+    b.pop_xf();
     b.finish()
 }
 
@@ -1213,6 +1277,27 @@ pub fn chest_base() -> MeshData {
     for sx in [-0.22f32, 0.22] {
         b.box_min_max(Vec3::new(sx - 0.03, 0.0, -0.31), Vec3::new(sx + 0.03, 0.46, 0.31));
     }
+    // rivets along the bands, corner caps, a lock plate on the front and handles on the ends
+    b.mat(mat::METAL).hex(0xffd75a).spec(0.9);
+    for sx in [-0.22f32, 0.22] {
+        for k in 0..4 {
+            b.sphere(Vec3::new(sx, 0.09 + k as f32 * 0.1, -0.312), 0.017, 1);
+        }
+    }
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            b.sphere(Vec3::new(sx * 0.45, 0.46, sz * 0.29), 0.04, 1);
+            b.sphere(Vec3::new(sx * 0.45, 0.02, sz * 0.29), 0.035, 1);
+        }
+        // end handle: a plate and a bar
+        b.box_center(Vec3::new(sx * 0.472, 0.26, 0.0), Vec3::new(0.008, 0.05, 0.08));
+        b.box_center(Vec3::new(sx * 0.492, 0.3, 0.0), Vec3::new(0.012, 0.012, 0.075));
+        b.box_center(Vec3::new(sx * 0.492, 0.22, 0.0), Vec3::new(0.012, 0.012, 0.075));
+    }
+    b.hex(0xd9ac3a);
+    b.box_center(Vec3::new(0.0, 0.33, -0.316), Vec3::new(0.07, 0.07, 0.008));
+    b.mat(mat::FLAT).tinted(false).color(Vec3::new(0.2, 0.15, 0.1));
+    b.box_center(Vec3::new(0.0, 0.34, -0.3245), Vec3::new(0.012, 0.024, 0.003));
     // glowing treasure inside (visible when the lid opens)
     b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(1.0, 0.8, 0.3));
     b.box_min_max(Vec3::new(-0.4, 0.43, -0.25), Vec3::new(0.4, 0.45, 0.25));
@@ -1273,6 +1358,22 @@ pub fn chest_lid() -> MeshData {
         }
     }
     b.box_center(Vec3::new(0.0, 0.015, -0.3), Vec3::new(0.05, 0.05, 0.02));
+    // a golden edge along the front, rivets on the bands and two barrel hinges at the back
+    b.box_center(Vec3::new(0.0, 0.0, -0.302), Vec3::new(0.466, 0.022, 0.012));
+    b.hex(0xffd75a);
+    for sx in [-0.22f32, 0.22] {
+        for k in 0..5 {
+            let a = 0.2 + k as f32 * 0.65;
+            let (z, y) = (-a.cos() * 0.3 + 0.3, a.sin() * 0.17);
+            b.sphere(Vec3::new(sx - 0.025, y + 0.012, z), 0.014, 1);
+            b.sphere(Vec3::new(sx + 0.025, y + 0.012, z), 0.014, 1);
+        }
+    }
+    for sx in [-0.3f32, 0.3] {
+        b.push_xf(Mat4::from_translation(Vec3::new(sx, 0.0, 0.3)) * Mat4::from_rotation_z(FRAC_PI_2));
+        b.cylinder(Vec3::new(0.0, -0.06, 0.0), 0.03, 0.03, 0.12, 8, true, true);
+        b.pop_xf();
+    }
     b.mat(mat::FLAT).tinted(false).color(Vec3::new(0.2, 0.15, 0.1));
     b.box_center(Vec3::new(0.0, 0.01, -0.322), Vec3::new(0.012, 0.022, 0.004));
     b.finish()
@@ -1328,6 +1429,31 @@ pub fn bus() -> MeshData {
     // bumper
     b.mat(mat::METAL).color(Vec3::new(0.8, 0.82, 0.86));
     b.box_center(Vec3::new(0.0, -0.95, -l / 2.0 - 1.45), Vec3::new(1.4, 0.12, 0.08));
+    // grille bars and a number plate on the front, mirrors, tail lights, a rear bumper and roof gear
+    b.mat(mat::METAL).tinted(false).color(Vec3::new(0.16, 0.17, 0.2));
+    for k in 0..5 {
+        b.box_center(Vec3::new(-0.5 + 0.25 * k as f32, -0.55, -l / 2.0 - 1.41), Vec3::new(0.04, 0.2, 0.016));
+    }
+    b.color(Vec3::new(0.95, 0.94, 0.9)).mat(mat::FLAT);
+    b.box_center(Vec3::new(0.0, -0.95, -l / 2.0 - 1.535), Vec3::new(0.35, 0.09, 0.01));
+    b.mat(mat::METAL).color(Vec3::new(0.2, 0.22, 0.26));
+    for s in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(s * (w / 2.0 + 0.18), 0.4, -l / 2.0 + 0.35), Vec3::new(0.2, 0.025, 0.025));
+        b.box_center(Vec3::new(s * (w / 2.0 + 0.4), 0.45, -l / 2.0 + 0.35), Vec3::new(0.05, 0.2, 0.13));
+    }
+    b.mat(mat::EMISSIVE).color(Vec3::new(1.0, 0.18, 0.12));
+    for s in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(s * 1.15, -0.25, l / 2.0 + 0.012), Vec3::new(0.2, 0.12, 0.02));
+    }
+    b.mat(mat::METAL).color(Vec3::new(0.8, 0.82, 0.86));
+    b.box_center(Vec3::new(0.0, -0.95, l / 2.0 + 0.08), Vec3::new(1.4, 0.12, 0.08));
+    b.color(Vec3::new(0.62, 0.66, 0.72));
+    for (x, z) in [(-0.7f32, -1.6f32), (0.7, 1.2)] {
+        b.box_center(Vec3::new(x, 1.27, z), Vec3::new(0.5, 0.12, 0.4));
+    }
+    for s in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(s * 1.3, 1.2, 0.0), Vec3::new(0.025, 0.05, 3.6));
+    }
     // balloon: ring of gores
     let bc = Vec3::new(0.0, 12.0, 0.0);
     let rad = 6.2f32;
@@ -1352,6 +1478,14 @@ pub fn bus() -> MeshData {
             let mid = (p[0] + p[1] + p[2] + p[3]) * 0.25;
             b.quad_out(p, mid - bc);
         }
+    }
+    // close the opening at the crown of the balloon
+    {
+        let t = PI * 0.88;
+        let rr = rad * t.sin() * (1.0 + 0.05 * t.cos());
+        let y = bc.y - t.cos() * rad * 1.15;
+        b.mat(mat::CLOTH).tinted(false).ao(0.9, 1.0).color(Vec3::new(0.95, 0.3, 0.25));
+        b.cylinder(Vec3::new(0.0, y - 0.05, 0.0), rr, 0.0, 0.9, 14, false, false);
     }
     // ropes to the roof
     b.mat(mat::FLAT).color(Vec3::new(0.35, 0.28, 0.2));
