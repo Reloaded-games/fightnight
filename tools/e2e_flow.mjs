@@ -128,6 +128,9 @@ await p2.close();
 
 // ---- the whole drop: bus -> free fall -> glider -> landing --------------------------------------------------------------------------
 const p3 = await context.newPage();
+const logs3 = [];
+p3.on('console', (m) => logs3.push(`[${m.type()}] ${m.text()}`));
+p3.on('pageerror', (e) => logs3.push(`[pageerror] ${e.message}`));
 await p3.setViewportSize({ width: 640, height: 360 });
 await p3.goto(url + 'index.html?nolock=1&autostart=1&opts=' + encodeURIComponent('bots=10;god=1'));
 await until(p3, () => window.__game && window.__game.state === 'playing');
@@ -144,6 +147,14 @@ await ev(p3, () => window.__game.fn.debug('ff 90'));
 await frames(p3, 3);
 const landed = await mode();
 check('the glider brings the player down to land', landed === 'Ground' || landed === 'Swim', landed);
+
+// ---- the renderer survives wild window resizing ------------------------------------------------------------------------------------
+for (const [w, h] of [[320, 200], [1280, 720], [100, 100], [900, 300], [2000, 1200], [333, 777], [640, 360]]) {
+  await p3.setViewportSize({ width: w, height: h });
+  await frames(p3, 2);
+}
+const gpuSize = await ev(p3, () => [document.getElementById('gpu').width, document.getElementById('gpu').height]);
+check('the renderer survives rapid window resizing', (await state(p3)) === 'playing' && gpuSize[0] === 640 && gpuSize[1] === 360 && !logs3.some((l) => /error|warn/i.test(l) && !/WebGPU is experimental/.test(l)), `${gpuSize.join('x')} ${logs3.filter((l) => /error|warn/i.test(l)).slice(0, 2).join(' | ')}`);
 await p3.close();
 
 const bad = logs.filter((l) => /error|panick|unreachable/i.test(l) && !/WebGPU is experimental|denied/.test(l));
