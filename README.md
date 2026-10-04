@@ -91,7 +91,7 @@ crates/
     src/models.rs, meshlib.rs   every mesh in the game (characters, weapons, items, trees, building pieces...)
     src/audio_synth.rs          all sound effects synthesised from oscillators and noise
   fn-shaders/  WGSL shaders (+ a naga validation test so a shader typo fails `cargo test`)
-  fn-web/      the wasm module: wgpu WebGPU renderer, input, app loop, and the exports used by the page
+  fn-web/      the wasm module: wgpu WebGPU renderer, app loop, and the exports used by the page
 web/           index.html, CSS and the JS for menus, HUD drawing (Canvas2D), icons and WebAudio playback
 scripts/       build script (cargo → wasm-bindgen → dist/)
 tools/         headless-Chromium helpers: screenshots and the end-to-end tests
@@ -123,4 +123,4 @@ the harnesses use.
 
 ## Licence
 
-MIT.
+MIT, see [LICENSE](LICENSE).
