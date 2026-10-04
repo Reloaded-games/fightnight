@@ -667,188 +667,388 @@ fn chunky(mut m: MeshData, k: f32) -> MeshData {
 
 // =======================================================================================
 // Weapons (origin at the grip, barrel along -Z)
+//
+// Metal parts keep their own colour; the furniture (stock, handguard, grip, magazine) is built in a
+// light neutral and takes the instance tint, so a weapon's rarity shows as a colour on the gun
+// instead of turning the whole thing into one dark silhouette.
 // =======================================================================================
 
-const GUNMETAL: u32 = 0x4a4f58;
+const GUNMETAL: u32 = 0x555b66;
 const DARK: u32 = 0x2b2e34;
-const LIGHT_METAL: u32 = 0x9aa2ae;
+const LIGHT_METAL: u32 = 0xaab2be;
 const WOOD: u32 = 0x8a5630;
-const POLYMER: u32 = 0x5c616b;
+const ACCENT: u32 = 0xe6e9ee;
 
+/// Following parts are metal in a fixed colour.
+fn metal(b: &mut MeshBuilder, col: u32) {
+    b.mat(mat::METAL).tinted(false).hex(col).spec(0.7).ao(0.75, 1.0);
+}
+
+/// Following parts are furniture in the rarity colour.
+fn accent(b: &mut MeshBuilder) {
+    b.mat(mat::FLAT).tinted(true).hex(ACCENT).spec(0.12).ao(0.7, 1.0);
+}
+
+fn bxc(b: &mut MeshBuilder, x: f32, y: f32, z: f32, hx: f32, hy: f32, hz: f32) {
+    b.box_center(Vec3::new(x, y, z), Vec3::new(hx, hy, hz));
+}
+
+/// A grip or magazine: a box tilted about X so its top leans toward -Z for a positive angle.
 fn grip_box(b: &mut MeshBuilder, c: Vec3, half: Vec3, tilt: f32) {
     b.push_xf(Mat4::from_translation(c) * rot_x(tilt));
     b.box_center(Vec3::ZERO, half);
     b.pop_xf();
 }
 
+/// Ribbed side panels on a grip (drawn in the grip's own tilted frame).
+fn grip_ribs(b: &mut MeshBuilder, c: Vec3, half: Vec3, tilt: f32, n: i32) {
+    b.push_xf(Mat4::from_translation(c) * rot_x(tilt));
+    for k in 0..n {
+        let y = -half.y * 0.75 + k as f32 * (half.y * 1.5 / (n - 1).max(1) as f32);
+        for s in [-1.0f32, 1.0] {
+            b.box_center(Vec3::new(s * (half.x + 0.0005), y, 0.0), Vec3::new(0.0022, 0.0035, half.z * 0.8));
+        }
+    }
+    b.pop_xf();
+}
+
+/// Picatinny teeth along the top of a rail.
+fn rail_teeth(b: &mut MeshBuilder, y: f32, z0: f32, z1: f32, n: i32, hx: f32) {
+    for k in 0..n {
+        let z = z0 + (z1 - z0) * k as f32 / (n - 1).max(1) as f32;
+        bxc(b, 0.0, y, z, hx, 0.004, 0.007);
+    }
+}
+
+/// A curved magazine: stacked boxes that lean further forward as they go down.
+fn curved_mag(b: &mut MeshBuilder, top: Vec3, hx: f32, hz: f32, seg_h: f32, segs: u32, tilt0: f32, dtilt: f32) {
+    let mut p = top;
+    let mut a = tilt0;
+    for _ in 0..segs {
+        let down = Vec3::new(0.0, -a.cos(), -a.sin());
+        grip_box(b, p + down * seg_h * 0.5, Vec3::new(hx, seg_h * 0.5 + 0.002, hz), a);
+        p += down * seg_h;
+        a += dtilt;
+    }
+}
+
+/// A trigger guard and trigger below the receiver around `z`.
+fn trigger(b: &mut MeshBuilder, y: f32, z: f32, len: f32) {
+    bxc(b, 0.0, y - 0.016, z - len * 0.5, 0.005, 0.0035, len * 0.5);
+    bxc(b, 0.0, y - 0.004, z - len, 0.005, 0.0125, 0.0035);
+    b.hex(LIGHT_METAL);
+    bxc(b, 0.0, y - 0.005, z - 0.012, 0.0035, 0.011, 0.0035);
+}
+
 pub fn weapon_pistol() -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::METAL).hex(GUNMETAL).ao(0.7, 1.0).spec(0.7);
-    // slide and barrel
-    b.box_center(Vec3::new(0.0, 0.045, -0.085), Vec3::new(0.017, 0.022, 0.125));
+    metal(&mut b, GUNMETAL);
+    // slide with a lighter top rib, serrations and an ejection port
+    bxc(&mut b, 0.0, 0.045, -0.085, 0.017, 0.022, 0.125);
     b.hex(LIGHT_METAL);
-    b.box_center(Vec3::new(0.0, 0.069, -0.08), Vec3::new(0.012, 0.004, 0.11));
+    bxc(&mut b, 0.0, 0.069, -0.08, 0.011, 0.004, 0.11);
     b.hex(DARK);
+    for k in 0..5 {
+        for s in [-1.0f32, 1.0] {
+            bxc(&mut b, s * 0.0175, 0.045, 0.012 + k as f32 * 0.0095 - 0.03, 0.0022, 0.017, 0.0026);
+        }
+    }
+    bxc(&mut b, 0.0178, 0.056, -0.075, 0.0018, 0.009, 0.026);
     barrel(&mut b, 0.0, 0.043, -0.2, -0.235, 0.009, 0.009, 8);
-    // frame and grip
-    b.mat(mat::FLAT).hex(POLYMER).spec(0.1);
-    b.box_center(Vec3::new(0.0, 0.01, -0.07), Vec3::new(0.016, 0.014, 0.1));
-    grip_box(&mut b, Vec3::new(0.0, -0.045, 0.012), Vec3::new(0.018, 0.058, 0.026), 0.2);
-    // trigger guard
+    b.hex(LIGHT_METAL);
+    barrel(&mut b, 0.0, 0.043, -0.2, -0.205, 0.0125, 0.0125, 8);
+    // frame, grip, magazine floor plate
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.01, -0.07, 0.016, 0.014, 0.1);
+    grip_box(&mut b, Vec3::new(0.0, -0.045, 0.012), Vec3::new(0.018, 0.058, 0.026), -0.2);
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    grip_ribs(&mut b, Vec3::new(0.0, -0.045, 0.012), Vec3::new(0.018, 0.058, 0.026), -0.2, 6);
+    metal(&mut b, DARK);
+    grip_box(&mut b, Vec3::new(0.0, -0.1, 0.0235), Vec3::new(0.02, 0.006, 0.029), -0.2);
+    // trigger guard and trigger
+    trigger(&mut b, 0.0, -0.03, 0.04);
+    // sights
     b.hex(DARK);
-    b.box_center(Vec3::new(0.0, -0.012, -0.045), Vec3::new(0.006, 0.012, 0.022));
-    // front and rear sights
-    b.box_center(Vec3::new(0.0, 0.08, -0.19), Vec3::new(0.004, 0.007, 0.004));
-    b.box_center(Vec3::new(0.0, 0.078, 0.03), Vec3::new(0.01, 0.006, 0.006));
+    bxc(&mut b, 0.0, 0.08, -0.192, 0.004, 0.007, 0.005);
+    bxc(&mut b, -0.009, 0.078, 0.03, 0.0035, 0.006, 0.005);
+    bxc(&mut b, 0.009, 0.078, 0.03, 0.0035, 0.006, 0.005);
     chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_smg() -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::METAL).hex(GUNMETAL).ao(0.7, 1.0).spec(0.6);
-    b.box_center(Vec3::new(0.0, 0.025, -0.14), Vec3::new(0.025, 0.04, 0.2));
+    metal(&mut b, GUNMETAL);
+    // receiver with a top rail
+    bxc(&mut b, 0.0, 0.025, -0.14, 0.025, 0.04, 0.2);
     b.hex(LIGHT_METAL);
-    b.box_center(Vec3::new(0.0, 0.069, -0.13), Vec3::new(0.014, 0.006, 0.18));
+    bxc(&mut b, 0.0, 0.069, -0.13, 0.014, 0.006, 0.18);
+    rail_teeth(&mut b, 0.078, -0.28, 0.03, 9, 0.011);
+    // vents along the shroud and an ejection port
     b.hex(DARK);
-    barrel(&mut b, 0.0, 0.03, -0.32, -0.46, 0.011, 0.011, 8);
-    barrel(&mut b, 0.0, 0.03, -0.46, -0.5, 0.017, 0.017, 8);
-    // magazine
-    b.mat(mat::FLAT).hex(POLYMER).spec(0.05);
-    grip_box(&mut b, Vec3::new(0.0, -0.09, -0.1), Vec3::new(0.017, 0.085, 0.024), 0.06);
-    // grip
-    grip_box(&mut b, Vec3::new(0.0, -0.06, 0.04), Vec3::new(0.02, 0.06, 0.025), 0.25);
-    // stub stock
-    b.hex(POLYMER);
-    b.box_center(Vec3::new(0.0, 0.02, 0.17), Vec3::new(0.017, 0.03, 0.07));
+    for k in 0..5 {
+        for s in [-1.0f32, 1.0] {
+            bxc(&mut b, s * 0.0255, 0.03, -0.2 - k as f32 * 0.028, 0.002, 0.012, 0.009);
+        }
+    }
+    bxc(&mut b, 0.0258, 0.04, -0.02, 0.002, 0.012, 0.03);
+    // barrel and a fat suppressor
+    barrel(&mut b, 0.0, 0.03, -0.32, -0.36, 0.012, 0.012, 8);
+    b.hex(0x3a3d45);
+    barrel(&mut b, 0.0, 0.03, -0.36, -0.49, 0.022, 0.022, 10);
+    b.hex(LIGHT_METAL);
+    barrel(&mut b, 0.0, 0.03, -0.49, -0.5, 0.0235, 0.0235, 10);
+    barrel(&mut b, 0.0, 0.03, -0.36, -0.37, 0.0235, 0.0235, 10);
+    // extended magazine, grip and a vertical foregrip
+    accent(&mut b);
+    curved_mag(&mut b, Vec3::new(0.0, -0.015, -0.1), 0.017, 0.024, 0.06, 2, 0.04, 0.1);
+    b.hex(DARK);
+    bxc(&mut b, 0.0, -0.138, -0.108, 0.019, 0.006, 0.027);
+    accent(&mut b);
+    grip_box(&mut b, Vec3::new(0.0, -0.06, 0.04), Vec3::new(0.02, 0.06, 0.025), -0.25);
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    grip_ribs(&mut b, Vec3::new(0.0, -0.06, 0.04), Vec3::new(0.02, 0.06, 0.025), -0.25, 6);
+    accent(&mut b);
+    bxc(&mut b, 0.0, -0.062, -0.2, 0.012, 0.042, 0.014);
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    bxc(&mut b, 0.0, -0.1, -0.2, 0.0135, 0.004, 0.0155);
+    metal(&mut b, DARK);
+    trigger(&mut b, 0.0, 0.02, 0.05);
+    // folding wire stock with a butt pad
+    metal(&mut b, GUNMETAL);
+    for y in [0.045f32, 0.005] {
+        bxc(&mut b, 0.0, y, 0.15, 0.005, 0.005, 0.09);
+    }
+    bxc(&mut b, 0.0, 0.025, 0.235, 0.005, 0.025, 0.006);
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.025, 0.248, 0.018, 0.04, 0.0095);
     // red dot sight
-    b.hex(DARK);
-    b.box_center(Vec3::new(0.0, 0.092, -0.1), Vec3::new(0.016, 0.018, 0.03));
+    metal(&mut b, DARK);
+    bxc(&mut b, 0.0, 0.092, -0.1, 0.016, 0.018, 0.03);
+    bxc(&mut b, 0.0, 0.112, -0.1, 0.019, 0.004, 0.034);
+    b.mat(mat::GLASS).tinted(false).color(Vec3::new(0.35, 0.65, 0.9));
+    bxc(&mut b, 0.0, 0.098, -0.131, 0.012, 0.011, 0.002);
     b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(1.0, 0.15, 0.1));
-    b.box_center(Vec3::new(0.0, 0.098, -0.13), Vec3::new(0.003, 0.003, 0.003));
+    bxc(&mut b, 0.0, 0.098, -0.133, 0.0028, 0.0028, 0.002);
     chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_ar() -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::METAL).hex(GUNMETAL).ao(0.7, 1.0).spec(0.6);
-    // receiver
-    b.box_center(Vec3::new(0.0, 0.03, -0.1), Vec3::new(0.027, 0.045, 0.2));
-    // upper rail
-    b.hex(LIGHT_METAL);
-    b.box_center(Vec3::new(0.0, 0.082, -0.18), Vec3::new(0.015, 0.007, 0.27));
-    // handguard + barrel + muzzle brake
-    b.mat(mat::FLAT).hex(POLYMER).spec(0.1);
-    b.box_center(Vec3::new(0.0, 0.025, -0.45), Vec3::new(0.028, 0.034, 0.13));
-    b.mat(mat::METAL).hex(DARK).spec(0.8);
-    barrel(&mut b, 0.0, 0.028, -0.55, -0.72, 0.012, 0.012, 8);
-    barrel(&mut b, 0.0, 0.028, -0.72, -0.77, 0.019, 0.017, 8);
-    // stock
-    b.mat(mat::FLAT).hex(POLYMER).spec(0.05);
-    b.box_center(Vec3::new(0.0, 0.025, 0.27), Vec3::new(0.022, 0.05, 0.09));
+    metal(&mut b, GUNMETAL);
+    // receiver, a darker upper receiver and a charging handle
+    bxc(&mut b, 0.0, 0.03, -0.1, 0.027, 0.045, 0.2);
     b.hex(DARK);
-    b.box_center(Vec3::new(0.0, 0.025, 0.365), Vec3::new(0.024, 0.056, 0.012));
-    // pistol grip + magazine
-    grip_box(&mut b, Vec3::new(0.0, -0.05, 0.02), Vec3::new(0.02, 0.06, 0.025), 0.28);
-    b.hex(GUNMETAL);
-    grip_box(&mut b, Vec3::new(0.0, -0.1, -0.14), Vec3::new(0.02, 0.085, 0.032), -0.14);
-    // sight: carry handle with a front post
-    b.mat(mat::METAL).hex(DARK).spec(0.7);
-    b.box_center(Vec3::new(0.0, 0.11, -0.04), Vec3::new(0.012, 0.022, 0.04));
-    b.box_center(Vec3::new(0.0, 0.1, -0.6), Vec3::new(0.005, 0.02, 0.006));
-    // rarity stripe along the receiver (accent colour from the instance tint)
+    bxc(&mut b, 0.0, 0.064, -0.1, 0.024, 0.018, 0.17);
+    b.hex(LIGHT_METAL);
+    bxc(&mut b, 0.0, 0.1, 0.07, 0.008, 0.008, 0.016);
+    // ejection port and magazine release on the right
+    b.hex(DARK);
+    bxc(&mut b, 0.0275, 0.052, -0.05, 0.002, 0.014, 0.04);
+    bxc(&mut b, 0.0275, 0.0, -0.1, 0.002, 0.008, 0.012);
+    // long top rail with teeth
+    b.hex(LIGHT_METAL);
+    bxc(&mut b, 0.0, 0.082, -0.24, 0.015, 0.007, 0.33);
+    rail_teeth(&mut b, 0.093, -0.54, 0.08, 18, 0.012);
+    // handguard in the rarity colour with vent slots and a rail under it
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.025, -0.45, 0.028, 0.034, 0.13);
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    for k in 0..5 {
+        for s in [-1.0f32, 1.0] {
+            bxc(&mut b, s * 0.0285, 0.028, -0.36 - k as f32 * 0.04, 0.002, 0.014, 0.011);
+        }
+    }
+    metal(&mut b, LIGHT_METAL);
+    bxc(&mut b, 0.0, -0.012, -0.45, 0.012, 0.004, 0.12);
+    // barrel, gas block, flash hider
+    metal(&mut b, DARK);
+    barrel(&mut b, 0.0, 0.028, -0.55, -0.72, 0.012, 0.012, 8);
+    bxc(&mut b, 0.0, 0.036, -0.6, 0.013, 0.02, 0.016);
+    b.hex(LIGHT_METAL);
+    barrel(&mut b, 0.0, 0.028, -0.72, -0.77, 0.019, 0.017, 8);
+    b.hex(DARK);
+    for k in 0..3 {
+        barrel(&mut b, 0.0, 0.028, -0.725 - k as f32 * 0.014, -0.73 - k as f32 * 0.014, 0.0205, 0.0205, 8);
+    }
+    // front sight post and a rear flip sight
+    bxc(&mut b, 0.0, 0.1, -0.6, 0.005, 0.02, 0.006);
+    bxc(&mut b, 0.0, 0.112, -0.6, 0.012, 0.003, 0.006);
+    bxc(&mut b, 0.0, 0.108, 0.0, 0.01, 0.012, 0.01);
+    // stock: an adjustable tube, the cheek riser and the butt pad
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.025, 0.27, 0.022, 0.05, 0.09);
+    bxc(&mut b, 0.0, 0.07, 0.26, 0.014, 0.012, 0.075);
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    bxc(&mut b, 0.0, 0.025, 0.365, 0.024, 0.056, 0.012);
+    for k in 0..4 {
+        bxc(&mut b, 0.0, 0.0 + k as f32 * 0.02 - 0.012, 0.3, 0.0225, 0.004, 0.06);
+    }
+    // pistol grip and a curved magazine
+    accent(&mut b);
+    grip_box(&mut b, Vec3::new(0.0, -0.05, 0.02), Vec3::new(0.02, 0.06, 0.025), -0.28);
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    grip_ribs(&mut b, Vec3::new(0.0, -0.05, 0.02), Vec3::new(0.02, 0.06, 0.025), -0.28, 6);
+    metal(&mut b, 0x3c4048);
+    curved_mag(&mut b, Vec3::new(0.0, -0.012, -0.14), 0.02, 0.031, 0.05, 3, 0.04, 0.09);
+    b.hex(DARK);
+    bxc(&mut b, 0.0, -0.17, -0.168, 0.0215, 0.006, 0.034);
+    trigger(&mut b, 0.0, 0.0, 0.055);
+    // red dot sight on the rail
+    metal(&mut b, DARK);
+    bxc(&mut b, 0.0, 0.113, -0.2, 0.014, 0.016, 0.028);
+    bxc(&mut b, 0.0, 0.132, -0.2, 0.017, 0.0035, 0.032);
+    b.mat(mat::GLASS).tinted(false).color(Vec3::new(0.35, 0.65, 0.9));
+    bxc(&mut b, 0.0, 0.117, -0.229, 0.011, 0.012, 0.002);
+    b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(1.0, 0.15, 0.1));
+    bxc(&mut b, 0.0, 0.117, -0.2315, 0.0028, 0.0028, 0.002);
+    // rarity stripe along the receiver (glows in the rarity colour)
     b.mat(mat::EMISSIVE).tinted(true).color(Vec3::new(0.9, 0.9, 0.9));
-    b.box_center(Vec3::new(0.0, 0.0, -0.1), Vec3::new(0.0285, 0.007, 0.15));
+    bxc(&mut b, 0.0, 0.0, -0.1, 0.0285, 0.007, 0.15);
     chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_shotgun() -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::METAL).hex(GUNMETAL).ao(0.7, 1.0).spec(0.7);
-    // receiver
-    b.box_center(Vec3::new(0.0, 0.025, -0.06), Vec3::new(0.026, 0.04, 0.12));
-    // barrel and magazine tube
+    metal(&mut b, GUNMETAL);
+    // receiver with a loading port and an ejection port
+    bxc(&mut b, 0.0, 0.025, -0.06, 0.026, 0.04, 0.12);
     b.hex(DARK);
+    bxc(&mut b, 0.0, -0.014, -0.08, 0.015, 0.002, 0.03);
+    bxc(&mut b, 0.0268, 0.035, -0.06, 0.002, 0.013, 0.035);
+    // barrel with a rib, magazine tube and its cap
     barrel(&mut b, 0.0, 0.04, -0.15, -0.78, 0.016, 0.016, 8);
     barrel(&mut b, 0.0, 0.0, -0.17, -0.7, 0.014, 0.014, 8);
     b.hex(LIGHT_METAL);
+    bxc(&mut b, 0.0, 0.0605, -0.46, 0.004, 0.003, 0.31);
     barrel(&mut b, 0.0, 0.04, -0.78, -0.8, 0.02, 0.02, 8);
-    // wooden pump
-    b.mat(mat::WOOD).hex(WOOD).spec(0.1);
-    b.box_center(Vec3::new(0.0, 0.0, -0.33), Vec3::new(0.026, 0.026, 0.09));
-    // wooden stock
-    b.box_center(Vec3::new(0.0, 0.015, 0.24), Vec3::new(0.022, 0.05, 0.13));
-    b.mat(mat::FLAT).hex(DARK);
-    b.box_center(Vec3::new(0.0, 0.015, 0.375), Vec3::new(0.024, 0.056, 0.01));
-    // grip
-    b.mat(mat::WOOD).hex(WOOD);
-    grip_box(&mut b, Vec3::new(0.0, -0.05, 0.04), Vec3::new(0.019, 0.055, 0.024), 0.3);
-    // shell holder on the side
-    b.mat(mat::FLAT).hex(0xd33a2a);
+    barrel(&mut b, 0.0, 0.0, -0.7, -0.715, 0.017, 0.017, 8);
+    b.sphere(Vec3::new(0.0, 0.066, -0.77), 0.007, 1);
+    // pump forearm in wood with grooves and rarity end caps
+    b.mat(mat::WOOD).tinted(false).hex(WOOD).spec(0.1);
+    bxc(&mut b, 0.0, 0.0, -0.33, 0.026, 0.026, 0.09);
+    b.hex(0x6a4024);
+    for k in 0..5 {
+        bxc(&mut b, 0.0, -0.0265, -0.28 - k as f32 * 0.025, 0.02, 0.0015, 0.005);
+    }
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.0, -0.4175, 0.0275, 0.0275, 0.0095);
+    bxc(&mut b, 0.0, 0.0, -0.2425, 0.0275, 0.0275, 0.0055);
+    // wooden stock with a rarity butt pad
+    b.mat(mat::WOOD).tinted(false).hex(WOOD).spec(0.1);
+    bxc(&mut b, 0.0, 0.015, 0.24, 0.022, 0.05, 0.13);
+    bxc(&mut b, 0.0, 0.058, 0.2, 0.015, 0.012, 0.09);
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.015, 0.378, 0.024, 0.056, 0.012);
+    // wooden grip
+    b.mat(mat::WOOD).tinted(false).hex(WOOD).spec(0.1);
+    grip_box(&mut b, Vec3::new(0.0, -0.05, 0.04), Vec3::new(0.019, 0.055, 0.024), -0.3);
+    b.mat(mat::FLAT).hex(0x6a4024);
+    grip_ribs(&mut b, Vec3::new(0.0, -0.05, 0.04), Vec3::new(0.019, 0.055, 0.024), -0.3, 5);
+    metal(&mut b, DARK);
+    trigger(&mut b, 0.0, 0.0, 0.05);
+    // red shells in a side holder
+    b.mat(mat::FLAT).tinted(false).hex(0xd33a2a);
     for k in 0..3 {
-        b.box_center(Vec3::new(0.0285, 0.035, -0.02 - k as f32 * 0.03), Vec3::new(0.006, 0.014, 0.011));
+        bxc(&mut b, 0.0285, 0.035, -0.02 - k as f32 * 0.03, 0.006, 0.014, 0.011);
+    }
+    b.hex(0xd9b44a);
+    for k in 0..3 {
+        bxc(&mut b, 0.0285, 0.02, -0.02 - k as f32 * 0.03, 0.0062, 0.004, 0.0112);
     }
     chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_sniper() -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::METAL).hex(GUNMETAL).ao(0.7, 1.0).spec(0.7);
-    // receiver
-    b.box_center(Vec3::new(0.0, 0.03, -0.1), Vec3::new(0.024, 0.04, 0.17));
-    // long barrel + muzzle brake
+    metal(&mut b, GUNMETAL);
+    // receiver and ejection port
+    bxc(&mut b, 0.0, 0.03, -0.1, 0.024, 0.04, 0.17);
     b.hex(DARK);
+    bxc(&mut b, 0.0245, 0.04, -0.12, 0.002, 0.012, 0.045);
+    // long barrel with a ported muzzle brake
     barrel(&mut b, 0.0, 0.035, -0.26, -1.0, 0.012, 0.01, 8);
     b.hex(LIGHT_METAL);
     barrel(&mut b, 0.0, 0.035, -1.0, -1.06, 0.018, 0.018, 8);
-    // stock (green-ish polymer)
-    b.mat(mat::FLAT).hex(0x4d5a45).spec(0.05);
-    b.box_center(Vec3::new(0.0, 0.0, 0.2), Vec3::new(0.022, 0.05, 0.14));
-    b.box_center(Vec3::new(0.0, 0.03, -0.2), Vec3::new(0.02, 0.025, 0.12));
-    grip_box(&mut b, Vec3::new(0.0, -0.05, 0.035), Vec3::new(0.019, 0.055, 0.024), 0.3);
-    // scope
-    b.mat(mat::METAL).hex(DARK).spec(0.8);
+    b.hex(DARK);
+    for k in 0..3 {
+        bxc(&mut b, 0.0, 0.035, -1.015 - k as f32 * 0.016, 0.0195, 0.0035, 0.004);
+        bxc(&mut b, 0.0, 0.035, -1.015 - k as f32 * 0.016, 0.0035, 0.0195, 0.004);
+    }
+    // stock in the rarity colour: a forend, the main stock with a cheek riser, the butt pad
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.0, 0.2, 0.022, 0.05, 0.14);
+    bxc(&mut b, 0.0, 0.07, 0.24, 0.015, 0.015, 0.09);
+    bxc(&mut b, 0.0, 0.03, -0.2, 0.02, 0.025, 0.12);
+    grip_box(&mut b, Vec3::new(0.0, -0.05, 0.035), Vec3::new(0.019, 0.055, 0.024), -0.3);
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    grip_ribs(&mut b, Vec3::new(0.0, -0.05, 0.035), Vec3::new(0.019, 0.055, 0.024), -0.3, 5);
+    bxc(&mut b, 0.0, 0.0, 0.337, 0.0235, 0.052, 0.009);
+    // scope: tube, objective bell, eyepiece, rings, turrets
+    metal(&mut b, DARK);
     barrel(&mut b, 0.0, 0.1, 0.0, -0.36, 0.03, 0.03, 12);
     barrel(&mut b, 0.0, 0.1, 0.03, 0.0, 0.036, 0.03, 12);
     barrel(&mut b, 0.0, 0.1, -0.36, -0.4, 0.03, 0.04, 12);
-    b.box_center(Vec3::new(0.0, 0.068, -0.05), Vec3::new(0.008, 0.016, 0.01));
-    b.box_center(Vec3::new(0.0, 0.068, -0.27), Vec3::new(0.008, 0.016, 0.01));
+    b.hex(LIGHT_METAL);
+    for z in [-0.05f32, -0.27] {
+        bxc(&mut b, 0.0, 0.066, z, 0.009, 0.018, 0.012);
+        barrel(&mut b, 0.0, 0.1, z + 0.011, z - 0.011, 0.0325, 0.0325, 12);
+    }
+    b.hex(DARK);
+    bxc(&mut b, 0.0, 0.14, -0.16, 0.008, 0.01, 0.008);
+    bxc(&mut b, 0.034, 0.1, -0.16, 0.01, 0.008, 0.008);
     // lenses
     b.mat(mat::GLASS).tinted(false).color(Vec3::new(0.25, 0.55, 0.85));
     barrel(&mut b, 0.0, 0.1, 0.034, 0.03, 0.026, 0.026, 12);
     barrel(&mut b, 0.0, 0.1, -0.402, -0.406, 0.034, 0.034, 12);
-    // bolt handle
-    b.mat(mat::METAL).tinted(true).hex(LIGHT_METAL);
-    b.box_center(Vec3::new(0.04, 0.035, -0.02), Vec3::new(0.02, 0.006, 0.006));
+    // bolt handle and magazine
+    metal(&mut b, LIGHT_METAL);
+    bxc(&mut b, 0.04, 0.035, -0.02, 0.02, 0.006, 0.006);
     b.sphere(Vec3::new(0.065, 0.035, -0.02), 0.011, 1);
-    // magazine
-    b.mat(mat::FLAT).hex(POLYMER);
-    b.box_center(Vec3::new(0.0, -0.025, -0.09), Vec3::new(0.014, 0.025, 0.03));
+    metal(&mut b, 0x3c4048);
+    bxc(&mut b, 0.0, -0.025, -0.09, 0.014, 0.025, 0.03);
+    // a folded bipod under the forend
+    metal(&mut b, DARK);
+    bxc(&mut b, 0.0, -0.003, -0.5, 0.012, 0.01, 0.014);
+    for s in [-1.0f32, 1.0] {
+        bxc(&mut b, s * 0.012, -0.03, -0.46, 0.004, 0.004, 0.06);
+    }
     chunky(b.finish(), 1.4)
 }
 
 pub fn weapon_rocket() -> MeshData {
     let mut b = MeshBuilder::new();
-    b.mat(mat::METAL).hex(0x586b4d).ao(0.7, 1.0).spec(0.4);
+    b.mat(mat::METAL).tinted(false).hex(0x586b4d).ao(0.7, 1.0).spec(0.4);
     // main tube resting over the shoulder; the grip hangs below the middle
     barrel(&mut b, 0.0, 0.09, 0.45, -0.55, 0.085, 0.085, 14);
     // flared rear and front rings
     b.hex(DARK);
     barrel(&mut b, 0.0, 0.09, 0.62, 0.45, 0.115, 0.085, 14);
     barrel(&mut b, 0.0, 0.09, -0.55, -0.62, 0.095, 0.095, 14);
+    b.hex(0x44553b);
+    for z in [0.32f32, -0.05, -0.38] {
+        barrel(&mut b, 0.0, 0.09, z + 0.015, z - 0.015, 0.0885, 0.0885, 14);
+    }
     // warhead
-    b.mat(mat::FLAT).hex(0xd6492f).spec(0.1);
+    b.mat(mat::FLAT).tinted(false).hex(0xd6492f).spec(0.1);
     barrel(&mut b, 0.0, 0.09, -0.62, -0.7, 0.07, 0.055, 12);
     b.hex(0xe9e4d8);
     barrel(&mut b, 0.0, 0.09, -0.7, -0.78, 0.055, 0.0, 12);
-    // grips and sight
-    b.mat(mat::FLAT).hex(POLYMER);
-    grip_box(&mut b, Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.02, 0.06, 0.025), 0.25);
+    // shoulder pad in the rarity colour, grips and the sights
+    accent(&mut b);
+    bxc(&mut b, 0.0, 0.18, 0.47, 0.06, 0.032, 0.1);
+    grip_box(&mut b, Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.02, 0.06, 0.025), -0.25);
     grip_box(&mut b, Vec3::new(0.0, 0.0, -0.3), Vec3::new(0.018, 0.045, 0.022), 0.0);
-    b.hex(DARK);
-    b.box_center(Vec3::new(0.0, 0.2, -0.1), Vec3::new(0.012, 0.03, 0.04));
+    b.hex(DARK).tinted(false).mat(mat::FLAT);
+    grip_ribs(&mut b, Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.02, 0.06, 0.025), -0.25, 5);
+    metal(&mut b, DARK);
+    bxc(&mut b, 0.0, 0.2, -0.1, 0.012, 0.03, 0.04);
+    bxc(&mut b, 0.0, 0.2, -0.1, 0.0035, 0.0035, 0.045);
+    bxc(&mut b, 0.0, 0.176, -0.52, 0.004, 0.02, 0.005);
+    trigger(&mut b, 0.0, 0.0, 0.05);
     // accent band
     b.mat(mat::EMISSIVE).tinted(true).color(Vec3::new(0.9, 0.9, 0.9));
     barrel(&mut b, 0.0, 0.09, 0.2, 0.15, 0.0865, 0.0865, 14);
+    barrel(&mut b, 0.0, 0.09, -0.46, -0.48, 0.0865, 0.0865, 14);
     chunky(b.finish(), 1.4)
 }
 
@@ -1408,6 +1608,26 @@ mod tests {
         let untinted = head.verts.iter().filter(|v| v.col[3] == 0).count();
         let tinted = head.verts.iter().filter(|v| v.col[3] == 255).count();
         assert!(untinted >= 16 && tinted > 100, "eyes untinted {untinted}, skin tinted {tinted}");
+    }
+
+    #[test]
+    fn weapon_muzzles_match_what_the_rig_expects() {
+        use crate::game::items::WeaponKind;
+        use crate::game::rig::weapon_model;
+        for kind in WeaponKind::ALL {
+            let (id, muzzle) = weapon_model(kind);
+            let bb = crate::meshlib::build_mesh(id).bounds();
+            assert!((bb.min.z - muzzle.z).abs() < 0.05, "{kind:?}: model tip at z {} but the muzzle is at {}", bb.min.z, muzzle.z);
+            assert!(muzzle.y > bb.min.y && muzzle.y < bb.max.y, "{kind:?}: muzzle height {} outside the model", muzzle.y);
+        }
+    }
+
+    #[test]
+    fn weapons_take_the_rarity_tint_on_their_furniture_only() {
+        for (name, m) in [("pistol", weapon_pistol()), ("smg", weapon_smg()), ("ar", weapon_ar()), ("shotgun", weapon_shotgun()), ("sniper", weapon_sniper()), ("rocket", weapon_rocket())] {
+            let tinted = m.verts.iter().filter(|v| v.col[3] == 255).count() as f32 / m.verts.len() as f32;
+            assert!((0.04..0.7).contains(&tinted), "{name}: {:.0}% of the vertices follow the rarity tint", tinted * 100.0);
+        }
     }
 
     #[test]
