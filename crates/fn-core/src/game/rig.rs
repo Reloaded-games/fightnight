@@ -111,6 +111,24 @@ pub fn consumable_model(kind: ConsumableKind) -> MeshId {
         ConsumableKind::ShieldSmall => MeshId::ItemShieldMini,
         ConsumableKind::ShieldBig => MeshId::ItemShieldBig,
         ConsumableKind::ChugJug => MeshId::ItemChug,
+        ConsumableKind::Slurp => MeshId::ItemSlurp,
+    }
+}
+
+pub fn utility_model(kind: UtilityKind) -> MeshId {
+    match kind {
+        UtilityKind::FragGrenade => MeshId::Grenade,
+        UtilityKind::ImpulseGrenade => MeshId::ImpulseGrenade,
+        UtilityKind::BoogieBomb => MeshId::BoogieBomb,
+        UtilityKind::LaunchPad => MeshId::LaunchPadBase,
+    }
+}
+
+pub fn mat_model(m: Mat) -> MeshId {
+    match m {
+        Mat::Wood => MeshId::MatWood,
+        Mat::Stone => MeshId::MatStone,
+        Mat::Metal => MeshId::MatMetal,
     }
 }
 
@@ -119,6 +137,8 @@ pub fn pickup_model(kind: &super::PickupKind) -> MeshId {
         super::PickupKind::Weapon { kind, .. } => weapon_model(*kind).0,
         super::PickupKind::Ammo { .. } => MeshId::AmmoBox,
         super::PickupKind::Consumable { kind, .. } => consumable_model(*kind),
+        super::PickupKind::Utility { kind, .. } => utility_model(*kind),
+        super::PickupKind::Mats { mat, .. } => mat_model(*mat),
     }
 }
 
@@ -395,9 +415,28 @@ pub fn pose(a: &Actor) -> Pose {
             held = Some((MeshId::Pickaxe, w * rx(-0.15)));
             right_target = Some(w.transform_point3(Vec3::ZERO));
         }
+        Some(Item::Utility { kind, .. }) if grounded => {
+            if kind.def().thrown {
+                // held up by the shoulder, ready to throw; a throw swings the arm over and forward
+                let s = an.swing;
+                let u = 1.0 - s;
+                let arc = if s <= 0.001 { 0.0 } else if u < 0.35 { -1.2 * ease(u / 0.35) } else { lerp(-1.2, 0.0, ease((u - 0.35) / 0.65)) };
+                let g = Vec3::new(0.2, -0.02 + 0.06 * ra, -0.12);
+                let w = tr(shoulder_c) * r_yaw * rx(0.5 + arc) * tr(g);
+                held = Some((utility_model(kind), w));
+                right_target = Some(w.transform_point3(Vec3::new(0.0, 0.03, 0.0)));
+            } else {
+                // a Launch Pad is carried flat in front, in both hands
+                let g = Vec3::new(0.0, -0.32, -0.36);
+                let w = tr(shoulder_c) * r_yaw * tr(g);
+                held = Some((utility_model(kind), w));
+                right_target = Some(w.transform_point3(Vec3::new(0.12, 0.02, 0.0)));
+                left_target = Some(w.transform_point3(Vec3::new(-0.12, 0.02, 0.0)));
+            }
+        }
         Some(Item::Consumable { kind, .. }) if grounded => {
             let h = an.heal;
-            let drink = matches!(kind, ConsumableKind::ShieldSmall | ConsumableKind::ShieldBig | ConsumableKind::ChugJug);
+            let drink = matches!(kind, ConsumableKind::ShieldSmall | ConsumableKind::ShieldBig | ConsumableKind::ChugJug | ConsumableKind::Slurp);
             let raise = if drink { ease((h * 4.0).min(1.0)) * ease(((1.0 - h) * 8.0).min(1.0)) } else { 0.0 };
             let wob = if h > 0.0 { (time * 14.0).sin() * 0.012 } else { 0.0 };
             let g = Vec3::new(0.06, -0.26 + 0.34 * raise + wob, -0.3 + 0.1 * raise);

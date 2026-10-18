@@ -39,6 +39,17 @@ pub const NAV_CELL: f32 = CELL * 2.0;
 pub const OUTDOOR_CHESTS: usize = 56;
 pub const OUTDOOR_CHEST_SPACING: f32 = 70.0;
 const OUTDOOR_CHEST_TRIES: usize = 8000;
+/// Supply Llamas hidden out in the wild, away from the towns.
+pub const LLAMAS: usize = 4;
+
+/// Whether anything solid (a wall, a table, a bed) takes up the space a box `margin` metres around `p` and `height` tall would need.
+fn crowded(statics: &SpatialGrid, p: Vec3, margin: f32, height: f32) -> bool {
+    let q = Aabb::new(Vec3::new(p.x - margin, p.y + 0.05, p.z - margin), Vec3::new(p.x + margin, p.y + height, p.z + margin));
+    let mut hit = false;
+    // (the grid hands over everything in the cells the box touches)
+    statics.query(&q, |_, c| hit |= c.shape.aabb().intersects(&q));
+    hit
+}
 
 #[derive(Clone, Debug)]
 pub struct BuildingInfo {
@@ -61,11 +72,25 @@ pub struct LootSpot {
     pub building: Option<u32>,
 }
 
+/// What sort of container stands somewhere. Supply drops are never part of the island: they come down during a match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChestKind {
+    /// The golden chest: a weapon, ammo for it and healing.
+    Treasure,
+    /// A small green box of ammunition.
+    AmmoBox,
+    /// A Supply Llama: materials, ammo, healing and utility items.
+    Llama,
+    /// A supply drop (see `game::supply`).
+    Supply,
+}
+
 #[derive(Clone, Debug)]
 pub struct ChestSpot {
     pub pos: Vec3,
     pub yaw: f32,
     pub building: Option<u32>,
+    pub kind: ChestKind,
 }
 
 /// Merged static geometry (buildings, decor) belonging to one terrain chunk.
@@ -130,11 +155,19 @@ impl World {
             let ci = props::chunk_index_of(center.x, center.z);
             chunk_meshes.entry(ci).or_default().append(&p.mesh, Mat4::IDENTITY);
             buildings.push(BuildingInfo { id: b.id, poi: b.poi, kind: b.kind, aabb: p.aabb, door_out: p.door_out, door_in: p.door_in, center, rot: p.rot, stairs: p.stairs });
-            for l in &p.loot {
-                loot_spots.push(LootSpot { pos: *l, building: Some(b.id) });
-            }
             for (pos, yaw) in &p.chests {
-                chest_spots.push(ChestSpot { pos: *pos, yaw: *yaw, building: Some(b.id) });
+                chest_spots.push(ChestSpot { pos: *pos, yaw: *yaw, building: Some(b.id), kind: ChestKind::Treasure });
+            }
+            // one of the loot spots of a building with a few becomes an ammo box, where there is room for one
+            let mut brng = Rng::new(seed as u64 ^ 0xA770 ^ ((b.id as u64) << 20));
+            let boxed = if p.loot.len() >= 2 { Some(brng.below(p.loot.len())) } else { None };
+            for (k, l) in p.loot.iter().enumerate() {
+                if Some(k) == boxed && !crowded(&statics, *l, 0.4, 0.8) {
+                    let yaw = brng.below(4) as f32 * std::f32::consts::FRAC_PI_2;
+                    chest_spots.push(ChestSpot { pos: *l, yaw, building: Some(b.id), kind: ChestKind::AmmoBox });
+                } else {
+                    loot_spots.push(LootSpot { pos: *l, building: Some(b.id) });
+                }
             }
             if let Some(h) = p.hub {
                 windmills.push(Windmill { hub: h, rot: p.rot });
@@ -194,7 +227,13 @@ impl World {
                 let mut blocked = false;
                 statics.query(&Aabb::new(Vec3::new(p.x - 1.5, -10.0, p.y - 1.5), Vec3::new(p.x + 1.5, 100.0, p.y + 1.5)), |_, _| blocked = true);
                 if !blocked {
-                    loot_spots.push(LootSpot { pos: Vec3::new(p.x, h, p.y), building: None });
+                    // now and then an ammo box instead of something lying on the grass
+                    if rng.chance(0.12) {
+                        let yaw = rng.range(0.0, std::f32::consts::TAU);
+                        chest_spots.push(ChestSpot { pos: Vec3::new(p.x, h, p.y), yaw, building: None, kind: ChestKind::AmmoBox });
+                    } else {
+                        loot_spots.push(LootSpot { pos: Vec3::new(p.x, h, p.y), building: None });
+                    }
                 }
             }
         }
@@ -217,7 +256,7 @@ impl World {
             if ground[splat::CH_ASPHALT] > 0.05 || ground[splat::CH_DIRT] > 0.35 {
                 continue;
             }
-            if chest_spots.iter().any(|c| Vec2::new(c.pos.x, c.pos.z).distance(p) < OUTDOOR_CHEST_SPACING) {
+            if chest_spots.iter().any(|c| c.kind == ChestKind::Treasure && Vec2::new(c.pos.x, c.pos.z).distance(p) < OUTDOOR_CHEST_SPACING) {
                 continue;
             }
             let mut blocked = false;
@@ -225,8 +264,36 @@ impl World {
             if blocked {
                 continue;
             }
-            chest_spots.push(ChestSpot { pos: Vec3::new(p.x, h, p.y), yaw, building: None });
+            chest_spots.push(ChestSpot { pos: Vec3::new(p.x, h, p.y), yaw, building: None, kind: ChestKind::Treasure });
             outdoor += 1;
+        }
+
+        // Supply Llamas: a few, hidden out in the wild well away from the towns and from each other.
+        let mut lrng = Rng::new(seed as u64 ^ 0x11A3A);
+        let mut llamas: Vec<Vec2> = vec![];
+        for _ in 0..OUTDOOR_CHEST_TRIES {
+            if llamas.len() >= LLAMAS {
+                break;
+            }
+            let p = lrng.in_disc(WORLD_HALF * 0.82);
+            let h = hm.height_at(p.x, p.y);
+            let yaw = lrng.range(0.0, std::f32::consts::TAU);
+            if h < 3.0 || hm.slope_at(p.x, p.y) > 0.2 || layout.lakes.iter().any(|l| l.center.distance(p) < l.radius * 1.4) {
+                continue;
+            }
+            if layout.pois.iter().any(|poi| poi.center.distance(p) < poi.radius + 40.0) || splat.sample(p)[splat::CH_ASPHALT] > 0.05 {
+                continue;
+            }
+            if llamas.iter().any(|q| q.distance(p) < WORLD_HALF * 0.45) || chest_spots.iter().any(|c| Vec2::new(c.pos.x, c.pos.z).distance(p) < 25.0) {
+                continue;
+            }
+            let mut blocked = false;
+            statics.query(&Aabb::new(Vec3::new(p.x - 2.0, -10.0, p.y - 2.0), Vec3::new(p.x + 2.0, 100.0, p.y + 2.0)), |_, _| blocked = true);
+            if blocked {
+                continue;
+            }
+            chest_spots.push(ChestSpot { pos: Vec3::new(p.x, h, p.y), yaw, building: None, kind: ChestKind::Llama });
+            llamas.push(p);
         }
 
         let mut world = World { seed, base, layout, hm, painter, terrain, splat, statics, buildings, chunk_props: nature.chunk_props, harvest: nature.harvest, chunk_meshes: cm, windmills, loot_spots, chest_spots, nav: NavGrid::new(WORLD_HALF, NAV_CELL), no_cover };
@@ -326,9 +393,10 @@ mod tests {
     #[test]
     fn chests_are_scattered_across_the_whole_island() {
         let w = crate::game::env::testutil::world();
-        let outdoor: Vec<Vec2> = w.chest_spots.iter().filter(|c| c.building.is_none()).map(|c| Vec2::new(c.pos.x, c.pos.z)).collect();
+        let in_the_open = |c: &&ChestSpot| c.building.is_none() && c.kind == ChestKind::Treasure;
+        let outdoor: Vec<Vec2> = w.chest_spots.iter().filter(in_the_open).map(|c| Vec2::new(c.pos.x, c.pos.z)).collect();
         assert!(outdoor.len() >= OUTDOOR_CHESTS * 4 / 5, "{} chests in the open", outdoor.len());
-        for c in w.chest_spots.iter().filter(|c| c.building.is_none()) {
+        for c in w.chest_spots.iter().filter(in_the_open) {
             assert!(c.pos.y > 2.5 && w.on_land(c.pos.x, c.pos.z), "chest in the water at {:?}", c.pos);
         }
         // apart from each other
@@ -349,7 +417,34 @@ mod tests {
         // every client builds the same island, so the same chests
         let again = World::generate(1234);
         assert_eq!(again.chest_spots.len(), w.chest_spots.len());
-        assert!(again.chest_spots.iter().zip(&w.chest_spots).all(|(a, b)| a.pos == b.pos && a.yaw == b.yaw));
+        assert!(again.chest_spots.iter().zip(&w.chest_spots).all(|(a, b)| a.pos == b.pos && a.yaw == b.yaw && a.kind == b.kind));
+    }
+
+    #[test]
+    fn ammo_boxes_stand_in_houses_and_by_the_towns_and_llamas_hide_in_the_wild() {
+        let w = crate::game::env::testutil::world();
+        let boxes: Vec<&ChestSpot> = w.chest_spots.iter().filter(|c| c.kind == ChestKind::AmmoBox).collect();
+        let indoors = boxes.iter().filter(|c| c.building.is_some()).count();
+        assert!(indoors >= 30, "{indoors} ammo boxes inside buildings");
+        assert!(boxes.len() > indoors, "and some outside, by the towns");
+        for b in &boxes {
+            assert!(!crowded(&w.statics, b.pos, 0.3, 0.6) || b.building.is_none(), "an ammo box inside the furniture at {:?}", b.pos);
+        }
+        let llamas: Vec<&ChestSpot> = w.chest_spots.iter().filter(|c| c.kind == ChestKind::Llama).collect();
+        assert_eq!(llamas.len(), LLAMAS, "every llama found a hiding place");
+        for l in &llamas {
+            let p = Vec2::new(l.pos.x, l.pos.z);
+            assert!(w.on_land(p.x, p.y) && l.pos.y > 3.0);
+            assert!(w.layout.pois.iter().all(|poi| poi.center.distance(p) >= poi.radius + 40.0), "a llama in town at {p:?}");
+            for o in &llamas {
+                let q = Vec2::new(o.pos.x, o.pos.z);
+                assert!(q == p || q.distance(p) >= WORLD_HALF * 0.45, "two llamas {:.0} m apart", q.distance(p));
+            }
+        }
+        // every floor loot spot that became an ammo box is no longer a loot spot as well
+        for b in boxes.iter().filter(|c| c.building.is_some()) {
+            assert!(w.loot_spots.iter().all(|l| l.pos.distance(b.pos) > 0.01));
+        }
     }
 
     #[test]

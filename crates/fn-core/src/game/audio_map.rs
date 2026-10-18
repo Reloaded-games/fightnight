@@ -238,6 +238,31 @@ impl Mixer {
                 }
                 Event::PieceDestroyed { pos, .. } => self.at(out, listener, cam, Sfx::PieceDestroy, *pos, 8.0, 110.0, 0.9),
                 Event::Explosion { pos, .. } => self.at(out, listener, cam, Sfx::Explosion, *pos, 25.0, 750.0, 1.0),
+                // an impulse is a deep thump and a rush of air, a Boogie Bomb a sparkle (and then the music is the dance)
+                Event::Impulse { pos } => {
+                    self.at(out, listener, cam, Sfx::Explosion, *pos, 12.0, 300.0, 0.45);
+                    self.at(out, listener, cam, Sfx::GliderDeploy, *pos, 8.0, 120.0, 0.9);
+                }
+                Event::Boogie { pos } => {
+                    self.at(out, listener, cam, Sfx::ChestOpen, *pos, 8.0, 140.0, 1.0);
+                    self.at(out, listener, cam, Sfx::PickupHeal, *pos, 6.0, 80.0, 0.8);
+                }
+                Event::Launch { actor, pos } => {
+                    if *actor == me {
+                        self.two_d(out, Sfx::Jump, 1.0);
+                        self.two_d(out, Sfx::GliderDeploy, 0.8);
+                    } else {
+                        self.at(out, listener, cam, Sfx::Jump, *pos, 6.0, 90.0, 0.9);
+                        self.at(out, listener, cam, Sfx::GliderDeploy, *pos, 6.0, 90.0, 0.6);
+                    }
+                }
+                Event::TrapPlaced { actor, pos } => {
+                    if *actor == me {
+                        self.two_d(out, Sfx::BuildMetal, 0.8);
+                    } else {
+                        self.at(out, listener, cam, Sfx::BuildMetal, *pos, 6.0, 75.0, 0.7);
+                    }
+                }
                 Event::GliderDeploy { actor, pos } => {
                     if *actor == me {
                         self.two_d(out, Sfx::GliderDeploy, 0.8);
@@ -250,7 +275,7 @@ impl Mixer {
                         Some(Item::Consumable { kind, .. }) => match kind {
                             ConsumableKind::Bandage | ConsumableKind::MedKit => Sfx::HealBandage,
                             ConsumableKind::ShieldSmall | ConsumableKind::ShieldBig => Sfx::ShieldUse,
-                            ConsumableKind::ChugJug => Sfx::HealPotion,
+                            ConsumableKind::ChugJug | ConsumableKind::Slurp => Sfx::HealPotion,
                         },
                         _ => Sfx::HealBandage,
                     };
@@ -299,7 +324,8 @@ impl Mixer {
         // unopened chests hum
         let mut best: Option<(f32, Vec3)> = None;
         for c in &g.chests {
-            if !c.opened && !c.falling() {
+            // the golden chests hum; ammo boxes and llamas are quiet, a crate still in the air too
+            if !c.opened && !c.falling() && matches!(c.kind, crate::world::ChestKind::Treasure | crate::world::ChestKind::Supply) {
                 let d = c.pos.distance(listener);
                 if d < 40.0 && best.is_none_or(|b| d < b.0) {
                     best = Some((d, c.pos));
@@ -384,9 +410,10 @@ mod tests {
         g.actors[PLAYER].vel = Vec3::new(0.0, -50.0, 0.0);
         let l = m.process(&g, &cam, &mut out);
         assert!(l.wind > 0.7);
-        // standing beside a closed chest the hum is audible
+        // standing beside a closed golden chest the hum is audible
         g.actors[PLAYER].mode = MoveMode::Ground;
-        g.actors[PLAYER].pos = g.chests[0].pos + Vec3::new(1.5, 0.0, 0.0);
+        let chest = g.chests.iter().find(|c| c.kind == crate::world::ChestKind::Treasure).expect("a golden chest");
+        g.actors[PLAYER].pos = chest.pos + Vec3::new(1.5, 0.0, 0.0);
         let l = m.process(&g, &cam, &mut out);
         assert!(l.hum > 0.3, "chest hum {}", l.hum);
     }

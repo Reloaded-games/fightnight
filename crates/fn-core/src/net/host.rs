@@ -223,14 +223,7 @@ struct Shadow {
     pickups: HashMap<u32, (bool, u32)>,
     chests: Vec<bool>,
     pieces: HashMap<u32, (PieceKey, f32)>,
-}
-
-fn pickup_amount(k: &crate::game::PickupKind) -> u32 {
-    match k {
-        crate::game::PickupKind::Weapon { .. } => 1,
-        crate::game::PickupKind::Ammo { amount, .. } => *amount,
-        crate::game::PickupKind::Consumable { count, .. } => *count,
-    }
+    traps: HashSet<u32>,
 }
 
 fn pickup_net(p: &crate::game::Pickup) -> PickupNet {
@@ -248,7 +241,7 @@ impl Shadow {
         let mut seen: HashSet<u32> = HashSet::with_capacity(g.pickups.len());
         for p in &g.pickups {
             seen.insert(p.id);
-            let amount = pickup_amount(&p.kind);
+            let amount = p.kind.count();
             match self.pickups.get(&p.id).copied() {
                 None => ops.push(SyncOp::PickupAdd(pickup_net(p))),
                 Some((was_grounded, was_amount)) => {
@@ -276,7 +269,7 @@ impl Shadow {
         }
         while self.chests.len() < g.chests.len() {
             let c = &g.chests[self.chests.len()];
-            if c.supply {
+            if c.is_supply() {
                 ops.push(SyncOp::ChestAdd(ChestNet { id: c.id, pos: c.pos, yaw: c.yaw, land_y: c.land_y }));
             }
             self.chests.push(false);
@@ -287,6 +280,15 @@ impl Shadow {
             }
             self.chests[i] = c.opened;
         }
+        // Launch Pads
+        let now: HashSet<u32> = g.traps.iter().map(|t| t.id).collect();
+        for t in g.traps.iter().filter(|t| !self.traps.contains(&t.id)) {
+            ops.push(SyncOp::TrapAdd(TrapNet { id: t.id, kind: t.kind, pos: t.pos, yaw: t.yaw }));
+        }
+        for id in self.traps.difference(&now) {
+            ops.push(SyncOp::TrapRemove(*id));
+        }
+        self.traps = now;
         // buildings
         let mut seen: HashSet<u32> = HashSet::new();
         for p in g.pieces.iter() {
@@ -513,6 +515,7 @@ impl Host {
         let g = &self.game;
         let storm = storm_net(&g.storm);
         let projectiles: Vec<ProjNet> = g.projectiles.iter().take(60).map(|p| ProjNet { pos: p.pos, vel: p.vel, owner: p.owner.min(255) as u8, kind: p.kind, rarity: p.rarity }).collect();
+        let thrown: Vec<ThrownNet> = g.thrown.iter().take(60).map(|t| ThrownNet { id: t.id, kind: t.kind, pos: t.pos, vel: t.vel, resting: t.resting }).collect();
         let mut msgs = vec![];
         for p in &self.peers {
             if !p.connected {
@@ -558,6 +561,7 @@ impl Host {
                 actors,
                 projectiles: projectiles.clone(),
                 vehicles: g.vehicles.clone(),
+                thrown: thrown.clone(),
             };
             msgs.push((p.id, ServerMsg::Snapshot(Box::new(snap))));
         }
@@ -578,7 +582,8 @@ pub(crate) fn audience(g: &Game, e: &Event, who: usize) -> bool {
         // their own steps are predicted on their machine
         Event::Footstep { actor, pos, .. } | Event::Jump { actor, pos } | Event::Land { actor, pos, .. } => *actor != who && me.alive && near(*pos, 45.0),
         Event::Eliminated { .. } | Event::Victory { .. } | Event::StormPhase { .. } | Event::TreeFelled { .. } => true,
-        Event::Explosion { pos, .. } => near(*pos, 300.0),
+        Event::Explosion { pos, .. } | Event::Impulse { pos } | Event::Boogie { pos } => near(*pos, 300.0),
+        Event::Launch { pos, .. } | Event::TrapPlaced { pos, .. } => near(*pos, 160.0),
         Event::Shot { pos, .. } => near(*pos, 220.0),
         Event::Tracer { from, .. } => near(*from, 220.0),
         Event::Damage { attacker, pos, .. } => *attacker == Some(who) || near(*pos, 160.0),
@@ -624,6 +629,8 @@ pub fn move_state(a: &Actor) -> MoveState {
         peak_y: a.peak_y,
         steps: a.steps,
         anim_time: a.anim.time,
+        launched: a.launched,
+        boogie: a.boogie,
     }
 }
 
@@ -645,6 +652,7 @@ pub fn own_of(a: &Actor) -> Own {
         build_piece: a.build_piece,
         build_mat: a.build_mat,
         mv: move_state(a),
+        regen: a.regen,
     }
 }
 
@@ -653,6 +661,7 @@ pub fn actor_net(a: &Actor) -> ActorNet {
         Some(Item::Pickaxe) => Held::Pickaxe,
         Some(Item::Weapon { kind, rarity, .. }) => Held::Weapon { kind: *kind, rarity: *rarity },
         Some(Item::Consumable { kind, .. }) => Held::Consumable { kind: *kind },
+        Some(Item::Utility { kind, .. }) => Held::Utility { kind: *kind },
         None => Held::Nothing,
     };
     let (action, progress) = match a.action {

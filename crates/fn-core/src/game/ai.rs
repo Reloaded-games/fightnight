@@ -12,6 +12,7 @@ use super::intent::Intent;
 use super::items::*;
 use super::loot::INTERACT_RANGE;
 use super::{Difficulty, Game, PickupKind};
+use crate::world::ChestKind;
 use crate::math::*;
 use crate::rng::Rng;
 use crate::world::collision::Tag;
@@ -152,6 +153,9 @@ pub struct Brain {
     job: Job,
     cover_cd: f32,
     ramp_cd: f32,
+    /// Seconds before the next grenade, and the slot of one being got ready to throw with the aim that lands it on the enemy.
+    nade_cd: f32,
+    nade: Option<(usize, f32)>,
     // misc
     interact_cd: f32,
     swim_to: Vec2,
@@ -211,6 +215,8 @@ impl Brain {
             job: Job::None,
             cover_cd: 0.0,
             ramp_cd: 0.0,
+            nade_cd: 0.0,
+            nade: None,
             interact_cd: 0.0,
             swim_to: Vec2::ZERO,
             swim_t: 0.0,
@@ -349,6 +355,7 @@ fn best_heal_slot(a: &Actor) -> Option<usize> {
                 ConsumableKind::MedKit => 45.0,
                 ConsumableKind::ShieldBig => 30.0,
                 ConsumableKind::ChugJug => 100.0,
+                ConsumableKind::Slurp => 25.0,
             };
             if b < min {
                 continue;
@@ -446,6 +453,7 @@ impl Brain {
         self.since_think += dt;
         self.cover_cd = (self.cover_cd - dt).max(0.0);
         self.ramp_cd = (self.ramp_cd - dt).max(0.0);
+        self.nade_cd = (self.nade_cd - dt).max(0.0);
         self.interact_cd = (self.interact_cd - dt).max(0.0);
         self.jump_cd = (self.jump_cd - dt).max(0.0);
         self.roam_cd = (self.roam_cd - dt).max(0.0);
@@ -934,6 +942,7 @@ impl Brain {
                     ConsumableKind::ShieldSmall => 4,
                     ConsumableKind::ShieldBig => 2,
                     ConsumableKind::ChugJug => 1,
+                    ConsumableKind::Slurp => 2,
                 };
                 if have >= want {
                     return 0.0;
@@ -948,6 +957,26 @@ impl Brain {
                     ConsumableKind::ShieldSmall => 32.0,
                     ConsumableKind::ShieldBig => 42.0,
                     ConsumableKind::ChugJug => 58.0,
+                    ConsumableKind::Slurp => 46.0,
+                }
+            }
+            // bots throw frag grenades; the other utility items are not worth a slot to them
+            PickupKind::Utility { kind: UtilityKind::FragGrenade, .. } => {
+                let have: u32 = a.inv.slots.iter().flatten().map(|it| if let Item::Utility { kind: UtilityKind::FragGrenade, count } = it { *count } else { 0 }).sum();
+                let room = a.inv.free_slot().is_some() || (have > 0 && have < UtilityKind::FragGrenade.def().stack);
+                if have < 6 && room && is_armed(a) {
+                    22.0
+                } else {
+                    0.0
+                }
+            }
+            PickupKind::Utility { .. } => 0.0,
+            // materials are picked up by walking over them; worth a short detour when running low
+            PickupKind::Mats { mat, .. } => {
+                if a.inv.mats[mat.index()] < 300 {
+                    12.0
+                } else {
+                    0.0
                 }
             }
         }
@@ -992,8 +1021,14 @@ impl Brain {
                 continue;
             }
             let d = c.pos.distance(pos);
-            // a supply drop is worth a long walk, and the fight at the end of it
-            if d > if c.supply { reach * 4.0 } else { reach * 1.6 } {
+            // a supply drop is worth a long walk (and the fight at the end of it), a llama too; an ammo box only when it is close
+            let range = match c.kind {
+                ChestKind::Supply => reach * 4.0,
+                ChestKind::Llama => reach * 3.0,
+                ChestKind::AmmoBox => reach * 0.8,
+                ChestKind::Treasure => reach * 1.6,
+            };
+            if d > range {
                 continue;
             }
             if let Some(b) = building_of(g, c.pos) {
@@ -1001,7 +1036,15 @@ impl Brain {
                     continue;
                 }
             }
-            let mut v = if c.supply { 150.0 } else if unarmed { 90.0 } else { 62.0 };
+            let low_ammo = weapon_slots(a).all(|(_, k, _, _)| a.inv.ammo[k.def().ammo.index()] < k.def().mag * 2);
+            let mut v = match c.kind {
+                ChestKind::Supply => 150.0,
+                ChestKind::Llama => 110.0,
+                ChestKind::AmmoBox if low_ammo && !unarmed => 40.0,
+                ChestKind::AmmoBox => 12.0,
+                ChestKind::Treasure if unarmed => 90.0,
+                ChestKind::Treasure => 62.0,
+            };
             if current == Some(LootRef::Chest(c.id)) {
                 v *= 1.35;
             }
@@ -1563,6 +1606,42 @@ impl Brain {
             return;
         }
 
+        // ---- grenades: a frag lobbed at an enemy at middle distance, now and then ---------------------------
+        let frag = (1..6).find(|&s| matches!(a.inv.slots[s], Some(Item::Utility { kind: UtilityKind::FragGrenade, .. })));
+        if self.nade.is_none() && self.nade_cd <= 0.0 && visible && (10.0..26.0).contains(&dist_xz) && !matches!(a.action, Action::Reload { .. } | Action::Heal { .. }) {
+            if let Some(slot) = frag {
+                if self.rng.chance(0.02 + 0.03 * self.skill.aggression) {
+                    // a lob that comes down on them, if there is one (not through a wall)
+                    match super::utility::lob_pitch(&g.env(), a, yaw_to(eye, e.pos), e.pos) {
+                        Some(pitch) => self.nade = Some((slot, pitch)),
+                        None => self.nade_cd = self.rng.range(2.0, 4.0),
+                    }
+                }
+            }
+        }
+        if let Some((slot, pitch)) = self.nade {
+            if frag != Some(slot) || !visible || self.hurt_t < 0.3 {
+                // gone, out of sight, or being shot at: maybe another time
+                self.nade = None;
+                self.nade_cd = self.rng.range(3.0, 6.0);
+            } else if a.inv.selected != slot {
+                it.select = Some(slot);
+                return;
+            } else {
+                let want_yaw = yaw_to(eye, e.pos);
+                it.yaw = turn_toward(a.yaw, want_yaw, self.skill.turn, dt);
+                it.pitch = turn_toward(a.pitch, pitch, self.skill.turn, dt);
+                it.wish = Vec2::ZERO;
+                if angle_diff(a.yaw, want_yaw).abs() < 0.06 && (a.pitch - pitch).abs() < 0.03 && a.fire_cd <= 0.0 && !matches!(a.action, Action::Swap { .. }) {
+                    it.fire = true;
+                    it.fire_pressed = true;
+                    self.nade = None;
+                    self.nade_cd = self.rng.range(7.0, 14.0);
+                }
+                return;
+            }
+        }
+
         // ---- weapon selection --------------------------------------------------------------
         let busy = matches!(a.action, Action::Swap { .. } | Action::Reload { .. });
         if let Some(best) = self.pick_weapon(a, dist) {
@@ -1996,6 +2075,42 @@ mod tests {
         let dealt = g.actors[1].damage_dealt + g.actors[2].damage_dealt;
         assert!(dealt > 0.0, "two unarmed bots in plain sight never touched each other in 120 s (phase {:?})", g.phase);
         assert!(g.phase == Phase::Over, "and the fight finishes: bot 1 hp {} bot 2 hp {}", g.actors[1].hp, g.actors[2].hp);
+    }
+
+    #[test]
+    fn bots_lob_frag_grenades_that_come_down_on_their_enemy() {
+        let mut g = game_cfg(GameConfig { bots: 2, skip_bus: true, seed: 5, storm_speed: 1.0, ..Default::default() });
+        g.actors[PLAYER].alive = false;
+        g.actors[PLAYER].mode = MoveMode::Dead;
+        g.pickups.clear();
+        g.chests.clear();
+        g.storm.active = false;
+        let spot = super::super::testutil::free_spot(&g);
+        for (k, dx) in [(1, -8.0), (2, 8.0)] {
+            let (x, z) = (spot.x + dx, spot.z);
+            let h = g.world.hm.height_at(x, z);
+            let a = &mut g.actors[k];
+            a.pos = Vec3::new(x, h, z);
+            a.mode = MoveMode::Ground;
+            a.on_ground = true;
+            a.hp = 5000.0;
+            a.inv.add_weapon(WeaponKind::Pistol, Rarity::Common, 12);
+            a.inv.ammo = [500; 5];
+            a.inv.selected = 1;
+        }
+        g.actors[1].inv.add_utility(UtilityKind::FragGrenade, 6);
+        let mut aimed = None;
+        for _ in 0..(30 * 30) {
+            g.update(1.0 / 30.0, &PlayerInput::default());
+            if let Some(t) = g.thrown.iter().find(|t| t.owner == 1) {
+                // where it is going to come down, against where the enemy stands
+                let end = *super::super::utility::predict_arc(&g.env(), t.pos, t.vel, 4.0).last().unwrap();
+                aimed = Some(Vec2::new(end.x - g.actors[2].pos.x, end.z - g.actors[2].pos.z).length());
+                break;
+            }
+        }
+        let miss = aimed.expect("the bot never threw its grenades in a 30 s fight");
+        assert!(miss < 4.0, "the grenade comes down {miss:.1} m from the enemy");
     }
 
     #[test]

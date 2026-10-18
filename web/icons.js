@@ -5,7 +5,8 @@ export const RARITY = ['#b4b8c2', '#5bd13a', '#3d9eff', '#b65dff', '#ffae1a'];
 export const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 export const RARITY_DARK = ['#3b3f4a', '#1d5b13', '#123f8f', '#4b1a85', '#8a5a00'];
 export const WEAPON_NAMES = ['Pistol', 'Submachine Gun', 'AK-47', 'Pump Shotgun', 'Bolt-Action Sniper', 'Rocket Launcher'];
-export const CONSUMABLE_NAMES = ['Bandage', 'Medkit', 'Mini Shield', 'Shield Potion', 'Chug Jug'];
+export const CONSUMABLE_NAMES = ['Bandage', 'Medkit', 'Mini Shield', 'Shield Potion', 'Chug Jug', 'Slurp Juice'];
+export const UTILITY_NAMES = ['Frag Grenade', 'Impulse Grenade', 'Boogie Bomb', 'Launch Pad'];
 export const AMMO_NAMES = ['Light', 'Medium', 'Heavy', 'Shells', 'Rockets'];
 export const AMMO_COLORS = ['#f2bf40', '#66bf59', '#5980f2', '#e65940', '#f28c26'];
 export const MAT_NAMES = ['Wood', 'Stone', 'Metal'];
@@ -92,6 +93,15 @@ export function drawConsumable(ctx, kind, x, y, w, h) {
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy + s * 0.1, r, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#c9ecff'; ctx.fillRect(cx - r * 0.3, cy + s * 0.1 - r * 1.5, r * 0.6, r * 0.8);
     ctx.fillStyle = '#b07a43'; ctx.fillRect(cx - r * 0.34, cy + s * 0.1 - r * 1.75, r * 0.68, r * 0.3);
+  } else if (kind === 5) { // slurp juice: a round glass jug of swirling blue-purple, red cap
+    const g = ctx.createLinearGradient(cx - s * 0.3, cy, cx + s * 0.3, cy);
+    g.addColorStop(0, '#36d6ff'); g.addColorStop(0.55, '#5a7dff'); g.addColorStop(1, '#a24dff');
+    ctx.fillStyle = 'rgba(220,240,255,.55)'; ctx.beginPath(); ctx.ellipse(cx, cy + s * 0.08, s * 0.31, s * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, cy + s * 0.11, s * 0.27, s * 0.27, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = s * 0.045;
+    ctx.beginPath(); ctx.arc(cx, cy + s * 0.11, s * 0.14, Math.PI * 0.1, Math.PI * 1.25); ctx.stroke();
+    ctx.fillStyle = '#d9f2ff'; ctx.fillRect(cx - s * 0.08, cy - s * 0.33, s * 0.16, s * 0.14);
+    ctx.fillStyle = '#e8413c'; ctx.fillRect(cx - s * 0.11, cy - s * 0.42, s * 0.22, s * 0.1);
   } else { // chug jug
     const g = ctx.createLinearGradient(cx, cy - s * 0.3, cx, cy + s * 0.4);
     g.addColorStop(0, '#b27dff'); g.addColorStop(1, '#6a2fe0');
@@ -176,10 +186,48 @@ export function drawStorm(ctx, x, y, s, color = '#fff') {
   ctx.restore();
 }
 
+/** Grenades and traps: 0 frag, 1 impulse, 2 Boogie Bomb, 3 Launch Pad. */
+export function drawUtility(ctx, kind, x, y, w, h) {
+  const cx = x + w / 2, cy = y + h / 2, s = Math.min(w, h);
+  ctx.save();
+  if (kind === 0) { // frag: a green egg with a lever and a pin ring
+    ctx.fillStyle = '#4f7a2e'; ctx.beginPath(); ctx.ellipse(cx, cy + s * 0.08, s * 0.24, s * 0.29, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#6f9d43'; ctx.beginPath(); ctx.ellipse(cx - s * 0.07, cy, s * 0.08, s * 0.12, -0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#9aa2ad'; ctx.fillRect(cx - s * 0.1, cy - s * 0.3, s * 0.2, s * 0.1);
+    ctx.fillRect(cx + s * 0.06, cy - s * 0.3, s * 0.08, s * 0.36);
+    ctx.strokeStyle = '#d6dbe2'; ctx.lineWidth = s * 0.035; ctx.beginPath(); ctx.arc(cx - s * 0.17, cy - s * 0.3, s * 0.07, 0, Math.PI * 2); ctx.stroke();
+  } else if (kind === 1) { // impulse: a glowing blue orb in a dark cage
+    const g = ctx.createRadialGradient(cx, cy + s * 0.04, 1, cx, cy + s * 0.04, s * 0.3);
+    g.addColorStop(0, '#e8fbff'); g.addColorStop(0.5, '#52c8ff'); g.addColorStop(1, '#2a4dff');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy + s * 0.04, s * 0.27, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1c2140'; ctx.lineWidth = s * 0.06;
+    ctx.beginPath(); ctx.ellipse(cx, cy + s * 0.04, s * 0.28, s * 0.09, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, cy + s * 0.04, s * 0.09, s * 0.28, 0, 0, Math.PI * 2); ctx.stroke();
+  } else if (kind === 2) { // Boogie Bomb: a disco ball
+    const r = s * 0.29;
+    ctx.fillStyle = '#c9cfe0'; ctx.beginPath(); ctx.arc(cx, cy + s * 0.05, r, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.clip();
+    const tiles = ['#f2f5ff', '#9aa6c8', '#ff6ad5', '#7de8ff', '#ffe36a', '#b9c2dc'];
+    const t = r / 2.6;
+    for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
+      ctx.fillStyle = tiles[(i * 7 + j * 3 + 49) % tiles.length];
+      ctx.fillRect(cx + i * t - t / 2 + 0.5, cy + s * 0.05 + j * t - t / 2 + 0.5, t - 1, t - 1);
+    }
+    ctx.restore();
+    ctx.fillStyle = '#5a5f74'; ctx.fillRect(cx - s * 0.05, cy - s * 0.32, s * 0.1, s * 0.08);
+  } else { // Launch Pad: a squat base with a purple plate and an arrow up
+    ctx.fillStyle = '#3d4258'; poly(ctx, [-0.4, 0.3, 0.4, 0.3, 0.3, 0.12, -0.3, 0.12], cx, cy, s, s); ctx.fill();
+    ctx.fillStyle = '#8a3dff'; poly(ctx, [-0.32, 0.12, 0.32, 0.12, 0.26, 0.02, -0.26, 0.02], cx, cy, s, s); ctx.fill();
+    ctx.fillStyle = '#ffd23d'; poly(ctx, [0, -0.36, 0.17, -0.14, 0.07, -0.14, 0.07, -0.02, -0.07, -0.02, -0.07, -0.14, -0.17, -0.14], cx, cy, s, s); ctx.fill();
+  }
+  ctx.restore();
+}
+
 /** Draw whatever an inventory slot holds. */
 export function drawItem(ctx, slot, x, y, w, h) {
   if (!slot) return;
   if (slot.t === 'p') drawPickaxe(ctx, x + w * 0.1, y + h * 0.1, w * 0.8, h * 0.8, '#d8dde8');
   else if (slot.t === 'w') drawWeapon(ctx, slot.k, x + w * 0.04, y + h * 0.12, w * 0.92, h * 0.76, '#eef1f8');
+  else if (slot.t === 'u') drawUtility(ctx, slot.k, x, y, w, h);
   else drawConsumable(ctx, slot.k, x, y, w, h);
 }

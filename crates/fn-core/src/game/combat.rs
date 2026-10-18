@@ -33,6 +33,24 @@ pub struct Trace {
 /// Share of an explosion's damage and knock-back that reaches a target hidden behind a wall or a hill.
 pub const SPLASH_COVER: f32 = 0.25;
 
+/// What an explosion does: damage at its centre (falling off to the edge), how far it reaches, the damage to buildings,
+/// and how hard it throws people (sideways, upwards).
+#[derive(Clone, Copy, Debug)]
+pub struct Blast {
+    pub damage: f32,
+    pub radius: f32,
+    pub structure: f32,
+    pub push: f32,
+    pub lift: f32,
+    /// What the kill feed blames.
+    pub source: &'static str,
+}
+
+/// Things that blow up hurt whoever is caught in them, the one who set them off included.
+pub fn is_explosive(source: &str) -> bool {
+    source == WeaponKind::RocketLauncher.name() || source == UtilityKind::FragGrenade.name()
+}
+
 pub fn noise_radius(kind: WeaponKind) -> f32 {
     match kind {
         WeaponKind::Pistol => 60.0,
@@ -47,6 +65,24 @@ pub fn noise_radius(kind: WeaponKind) -> f32 {
 fn can_use(kind: ConsumableKind, a: &Actor) -> bool {
     let d = kind.def();
     (d.heal > 0.0 && a.hp < d.max_hp - 0.01) || (d.shield > 0.0 && a.shield < d.max_shield - 0.01)
+}
+
+/// A Slurp Juice at work: health comes back, then shield, a little every moment until its 75 points are used up.
+pub fn tick_regen(a: &mut Actor, dt: f32) {
+    if a.regen <= 0.0 || !a.alive {
+        a.regen = 0.0;
+        return;
+    }
+    let mut give = (REGEN_RATE * dt).min(a.regen);
+    a.regen -= give;
+    let to_hp = give.min((100.0 - a.hp).max(0.0));
+    a.hp += to_hp;
+    give -= to_hp;
+    a.shield = (a.shield + give).min(100.0);
+    if a.hp >= 100.0 && a.shield >= 100.0 {
+        // nothing left to fill: what remains is wasted, as in Fortnite
+        a.regen = 0.0;
+    }
 }
 
 /// What to tell a player who tries a healing item that has nothing to do right now.
@@ -288,6 +324,14 @@ impl Game {
                     self.events.push(Event::Swing { actor: i });
                 }
             }
+            Some(Item::Utility { kind, .. }) => {
+                // thrown or set down on a click, like a healing item even while it is still being raised
+                let a = &self.actors[i];
+                if it.fire_pressed && matches!(a.action, Action::None | Action::Swap { .. }) && a.fire_cd <= 0.0 {
+                    self.actors[i].action = Action::None;
+                    self.use_utility(i, kind);
+                }
+            }
             Some(Item::Consumable { kind, .. }) => {
                 let a = &self.actors[i];
                 // raising the item is only an animation: a click that lands while it comes up (the usual "press 3, click") must not be lost
@@ -338,11 +382,16 @@ impl Game {
         };
         let d = kind.def();
         let a = &mut self.actors[i];
-        if d.heal > 0.0 {
-            a.hp = (a.hp + d.heal).min(d.max_hp.max(a.hp));
-        }
-        if d.shield > 0.0 {
-            a.shield = (a.shield + d.shield).min(d.max_shield.max(a.shield));
+        if d.over_time {
+            // the Slurp Juice starts flowing (see `tick_regen`); a second one tops the first up
+            a.regen = (a.regen + d.heal).min(d.heal * 2.0);
+        } else {
+            if d.heal > 0.0 {
+                a.hp = (a.hp + d.heal).min(d.max_hp.max(a.hp));
+            }
+            if d.shield > 0.0 {
+                a.shield = (a.shield + d.shield).min(d.max_shield.max(a.shield));
+            }
         }
         a.action = Action::None;
         a.inv.use_one(slot);
@@ -579,7 +628,7 @@ impl Game {
         }
         if let Some(at) = attacker {
             // no friendly fire on yourself with bullets (explosions can hurt)
-            if at == victim && weapon != "Rocket Launcher" {
+            if at == victim && !is_explosive(weapon) {
                 return false;
             }
         }
@@ -657,10 +706,16 @@ impl Game {
 
     pub fn explode(&mut self, pos: Vec3, owner: usize, kind: WeaponKind, rarity: Rarity) {
         let def = kind.def();
-        let radius = def.explosion_radius;
+        self.blast(pos, owner, &Blast { damage: def.damage * rarity.damage_mul(), radius: def.explosion_radius, structure: 220.0, push: 7.0, lift: 3.0, source: def.name });
+    }
+
+    /// Something blows up at `pos`: everyone the blast reaches is hurt and thrown (cover soaks most of it), buildings near it
+    /// take heavy damage.
+    pub fn blast(&mut self, pos: Vec3, owner: usize, b: &Blast) {
+        let radius = b.radius;
         self.events.push(Event::Explosion { pos, radius });
         self.events.push(Event::Noise { pos, radius: 140.0, source: owner });
-        let base = def.damage * rarity.damage_mul();
+        let base = b.damage;
         // (actor, damage, push direction, knock-back strength, chest) for everyone the blast reaches; walls and hills between
         // the blast and a target soak most of it, so building cover works against rockets too
         let mut hits = Vec::new();
@@ -685,10 +740,10 @@ impl Game {
             }
         }
         for (j, dmg, push, k, chest) in hits {
-            self.damage_actor(j, dmg, Some(owner), def.name, false, chest, false);
+            self.damage_actor(j, dmg, Some(owner), b.source, false, chest, false);
             if self.actors[j].alive && self.actors[j].mode == MoveMode::Ground {
                 let a = &mut self.actors[j];
-                a.vel += push * 7.0 * k + Vec3::Y * 3.0 * k;
+                a.vel += push * b.push * k + Vec3::Y * b.lift * k;
                 a.on_ground = false;
             }
         }
@@ -697,7 +752,7 @@ impl Game {
         for id in ids {
             let c = self.pieces.get(id).map(shape_center).unwrap_or(pos);
             let k = (1.0 - c.distance(pos) / (radius + 2.5)).clamp(0.2, 1.0);
-            self.damage_piece(id, 220.0 * k, Some(owner));
+            self.damage_piece(id, b.structure * k, Some(owner));
         }
     }
 }
@@ -1224,6 +1279,49 @@ mod tests {
             g.update(1.0 / 60.0, &PlayerInput::default());
         }
         assert_eq!(g.actors[a].shield, 50.0);
+    }
+
+    #[test]
+    fn slurp_juice_heals_first_then_shields_a_little_at_a_time() {
+        let mut g = game(2, true);
+        let a = PLAYER;
+        g.storm.active = false;
+        for b in g.actors.iter_mut().skip(1) {
+            b.brain = None;
+            b.pos += Vec3::new(400.0, 0.0, 0.0);
+        }
+        g.actors[a].inv.add_consumable(ConsumableKind::Slurp, 2);
+        g.actors[a].hp = 60.0;
+        g.actors[a].shield = 0.0;
+        g.select_slot(a, 1);
+        for _ in 0..30 {
+            g.update(1.0 / 60.0, &PlayerInput::default());
+        }
+        g.update(1.0 / 60.0, &PlayerInput { fire: true, fire_pressed: true, ..Default::default() });
+        assert!(matches!(g.actors[a].action, Action::Heal { .. }), "drinking");
+        for _ in 0..(60 * 2 + 6) {
+            g.update(1.0 / 60.0, &PlayerInput::default());
+        }
+        assert!(matches!(g.actors[a].inv.slots[1], Some(Item::Consumable { kind: ConsumableKind::Slurp, count: 1 })), "one drunk");
+        assert!(g.actors[a].hp < 62.0 && g.actors[a].regen > 70.0, "it works over time, not at once: hp {} regen {}", g.actors[a].hp, g.actors[a].regen);
+        // two points a second: health first ...
+        for _ in 0..(60 * 10) {
+            g.update(1.0 / 60.0, &PlayerInput::default());
+        }
+        let hp = g.actors[a].hp;
+        assert!((hp - 80.0).abs() < 1.5 && g.actors[a].shield == 0.0, "ten seconds on: hp {hp} shield {}", g.actors[a].shield);
+        // ... then shield, until all 75 points have gone in
+        for _ in 0..(60 * 30) {
+            g.update(1.0 / 60.0, &PlayerInput::default());
+        }
+        assert_eq!(g.actors[a].hp, 100.0);
+        assert!((g.actors[a].shield - 35.0).abs() < 0.5, "the rest went to shield: {}", g.actors[a].shield);
+        assert_eq!(g.actors[a].regen, 0.0, "and it has run out");
+        // a full player gets nothing from one
+        g.actors[a].shield = 100.0;
+        g.actors[a].action = Action::None;
+        g.update(1.0 / 60.0, &PlayerInput { fire: true, fire_pressed: true, ..Default::default() });
+        assert!(matches!(g.actors[a].action, Action::None), "nothing to heal");
     }
 
     #[test]

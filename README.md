@@ -21,8 +21,18 @@ and two detailed vehicle bodies with animated steering and wheels.
   account: the browsers connect to each other over WebRTC), and bots fill the island. See [Multiplayer](#multiplayer).
 * **Loot**: chests (about 60 inside buildings and 56 spread across the open island, in the hills, forests and
   on the coast), floor weapons with rarity beams (common → legendary), ammo, bandages, medkits, shield potions,
-  Chug Jugs. 5 hotbar slots + pickaxe, health + shield, materials. With a full hotbar **E** swaps the item on the
-  ground with the one in hand, and a click on a healing item that has nothing to heal says why.
+  **Slurp Juice** (heals, then shields, two points a second up to 75) and Chug Jugs. 5 hotbar slots + pickaxe,
+  health + shield, materials. With a full hotbar **E** swaps the item on the ground with the one in hand, and a
+  click on a healing item that has nothing to heal says why.
+* **Ammo boxes and Supply Llamas**: small green ammo boxes in houses and around the towns hold two kinds of
+  ammunition; four purple **Supply Llamas** hide out in the wild, each packed with 250 of every material, ammo
+  of every kind, healing and utility items. Eliminated players drop their **materials** too (walk over them to
+  collect, like ammo).
+* **Utility items**, thrown with a click along a dotted arc preview: the **Frag Grenade** (a 2.5 s fuse, heavy
+  damage, wrecks builds), the **Impulse Grenade** (throws everyone near it through the air without hurting them,
+  and nobody takes fall damage from the flight), and the **Boogie Bomb** (everyone caught in it dances for five
+  seconds: no shooting, building, healing or walking). The **Launch Pad** is set down on level ground and flings
+  whoever steps on it high into the sky to glide down safely. Bots lob frags at enemies in the open.
 * **Supply drops**: a few times a match a **blue supply crate** comes down on a parachute inside the next safe
   circle, marked by a tall blue beam, a minimap marker and a "Supply drop incoming" call-out. Open it (**E**) for
   two epic or legendary weapons with ammo, a Chug Jug or shield potions and a medkit. Bots go for it too, so
@@ -86,7 +96,7 @@ ships a CI workflow (tests, clippy, wasm build) and a manual **Deploy to GitHub 
 | `Shift` (auto-sprint on by default) | Sprint |
 | `Space` | Jump · leave the bus · open the glider |
 | `Ctrl` or `F` | Crouch (browsers reserve Ctrl+W and Ctrl+1–6, so `F` is safer; fullscreen captures them too) |
-| Left mouse | Fire · swing the pickaxe · place the selected piece |
+| Left mouse | Fire · swing the pickaxe · place the selected piece · throw a grenade / set down a Launch Pad |
 | Right mouse | Aim down sights |
 | `R` | Reload |
 | `E` | Pick up (with a full hotbar, swaps with the item in hand) / open chest / enter or exit a vehicle |
@@ -120,10 +130,12 @@ Everybody drops from the same Battle Bus into the same island; the last one stan
 player leaves or loses their connection, a bot takes over their character. Eliminated players can spectate.
 
 How it works: the host's browser is the authority. It runs the whole simulation, with the people in the room as
-extra human actors beside the bots, and sends each player 30 snapshots a second plus every change to the loot,
-chests (including each supply drop as it is let go) and buildings and the one-shot events (shots, hits, pickups) that player could see or hear. Each guest
-runs its own copy of the match: its own character is **predicted** with the very same movement code the host
-runs and corrected from the host's acknowledgements (the controls never wait for the network), the others are
+extra human actors beside the bots, and sends each player 30 snapshots a second (grenades in flight among them)
+plus every change to the loot, chests (including each supply drop as it is let go), Launch Pads and buildings and
+the one-shot events (shots, hits, pickups) that player could see or hear. Each guest runs its own copy of the
+match: its own character is **predicted** with the very same movement code the host runs (Launch Pad launches and
+Boogie Bomb dances included) and corrected from the host's acknowledgements (the controls never wait for the
+network), the others are
 **interpolated** about 100 ms in the past, and the HUD, sounds and effects work on that copy exactly as they do
 in a single-player match. Messages are a small hand-written binary format over two WebRTC data channels per
 player (one reliable and ordered, one unreliable for commands and snapshots); `crates/fn-core/src/net/` has the
@@ -172,7 +184,7 @@ exactly like the keyboard does), so the same rules apply to everyone.
 ## Tests
 
 ```bash
-cargo test --release                       # ~300 unit/integration tests (simulation, bots, models, input, shaders, ...)
+cargo test --release                       # ~320 unit/integration tests (simulation, bots, models, input, shaders, ...)
 cargo test --release -- --ignored monkey   # long randomised "monkey" soak test over many seeds
 cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only match with a timeline
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
@@ -180,14 +192,15 @@ cd tools && npm install && npm test       # real-browser tests (needs `scripts/b
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
                                            #   mp_e2e.mjs   two browsers host/join through the real invite codes over WebRTC
                                            #   supply_e2e.mjs  a supply drop falls, lands, shows on the HUD and is opened with E
+                                           #   utility_e2e.mjs grenades, the Launch Pad, Slurp Juice, ammo boxes and llamas
                                            # npm run fuzz   random keys/clicks/blur/lock releases against the UI state machine
 ```
 
 `tools/` also has `ui_shot.mjs` (the real page with all its UI) and `game_shot.mjs` (the UI-less harness page
 `web/dev.html`, with crop/zoom and multi-frame series options) for scripted screenshots; the WebGPU frame is
 read back explicitly because headless Chromium cannot screenshot a WebGPU canvas. The page exposes a small debug
-console (`window.__game.fn.debug("tp 52 28")`, `give ar epic`, `chest_here`, `build_demo`, `ff 120`, ...) that
-the harnesses use.
+console (`window.__game.fn.debug("tp 52 28")`, `give ar epic`, `util frag 6`, `cons slurp`, `chest 0 llama`,
+`chest_here`, `build_demo`, `ff 120`, ...) that the harnesses use.
 
 To run the browser tests on a Windows desktop with a real WebGPU-capable GPU:
 

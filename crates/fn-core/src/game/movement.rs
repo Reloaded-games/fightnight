@@ -223,9 +223,11 @@ pub fn step_ground(a: &mut Actor, it: &Intent, env: &Env, dt: f32, ev: &mut Vec<
             let surf = surface_under(env, p, g);
             ev.push(Event::Land { actor: a.id, pos: p, speed: speed_down, surface: surf });
             a.anim.land = (speed_down / 14.0).clamp(0.0, 1.0);
-            if fall > FALL_DAMAGE_MIN && surf != Surface::Water && env.water_depth(p.x, p.z) < 1.0 {
+            if fall > FALL_DAMAGE_MIN && surf != Surface::Water && env.water_depth(p.x, p.z) < 1.0 && !a.launched {
                 res.fall_damage = (6.0 + (fall - FALL_DAMAGE_MIN) * 4.5).min(70.0);
             }
+            // an impulse launch is over once the feet are down again
+            a.launched = false;
         }
     }
     let travelled = Vec2::new(p.x - old.x, p.z - old.z).length();
@@ -287,6 +289,7 @@ pub fn step_swim(a: &mut Actor, it: &Intent, env: &Env, dt: f32, _ev: &mut Vec<E
     let bob = (a.anim.time * 2.0).sin() * 0.04;
     a.pos = Vec3::new(p.x, lvl - 0.95 + bob, p.z);
     a.peak_y = a.pos.y;
+    a.launched = false;
     a.sprinting = false;
     a.crouching = false;
     a.ads = false;
@@ -368,6 +371,7 @@ fn land_from_sky(a: &mut Actor, env: &Env, ev: &mut Vec<Event>) {
     a.vel.z *= 0.35;
     a.glide_deployed = false;
     a.peak_y = a.pos.y;
+    a.launched = false;
     if env.water_depth(a.pos.x, a.pos.z) > 1.15 {
         a.mode = MoveMode::Swim;
     } else {

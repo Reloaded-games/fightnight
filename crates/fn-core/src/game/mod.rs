@@ -21,12 +21,13 @@ pub mod remote;
 pub mod rig;
 pub mod scene;
 pub mod supply;
+pub mod utility;
 pub mod vehicles;
 
 use crate::camera::Camera;
 use crate::math::*;
 use crate::rng::Rng;
-use crate::world::{World, WORLD_HALF};
+use crate::world::{ChestKind, World, WORLD_HALF};
 use actor::*;
 use env::Env;
 use events::*;
@@ -129,14 +130,18 @@ pub enum PickupKind {
     Weapon { kind: WeaponKind, rarity: Rarity, ammo: u32 },
     Ammo { kind: AmmoKind, amount: u32 },
     Consumable { kind: ConsumableKind, count: u32 },
+    Utility { kind: UtilityKind, count: u32 },
+    /// A stack of building material (out of a Supply Llama, or dropped by someone eliminated).
+    Mats { mat: Mat, amount: u32 },
 }
 
 impl PickupKind {
     pub fn rarity(&self) -> Rarity {
         match self {
             PickupKind::Weapon { rarity, .. } => *rarity,
-            PickupKind::Ammo { .. } => Rarity::Common,
+            PickupKind::Ammo { .. } | PickupKind::Mats { .. } => Rarity::Common,
             PickupKind::Consumable { kind, .. } => kind.rarity(),
+            PickupKind::Utility { kind, .. } => kind.rarity(),
         }
     }
     pub fn name(&self) -> &'static str {
@@ -144,13 +149,45 @@ impl PickupKind {
             PickupKind::Weapon { kind, .. } => kind.name(),
             PickupKind::Ammo { kind, .. } => kind.name(),
             PickupKind::Consumable { kind, .. } => kind.name(),
+            PickupKind::Utility { kind, .. } => kind.name(),
+            PickupKind::Mats { mat, .. } => mat.name(),
         }
     }
     pub fn count(&self) -> u32 {
         match self {
             PickupKind::Weapon { .. } => 1,
-            PickupKind::Ammo { amount, .. } => *amount,
-            PickupKind::Consumable { count, .. } => *count,
+            PickupKind::Ammo { amount, .. } | PickupKind::Mats { amount, .. } => *amount,
+            PickupKind::Consumable { count, .. } | PickupKind::Utility { count, .. } => *count,
+        }
+    }
+    /// Changes how many there are (a stack someone took part of).
+    pub fn set_count(&mut self, n: u32) {
+        match self {
+            PickupKind::Weapon { .. } => {}
+            PickupKind::Ammo { amount, .. } | PickupKind::Mats { amount, .. } => *amount = n,
+            PickupKind::Consumable { count, .. } | PickupKind::Utility { count, .. } => *count = n,
+        }
+    }
+    /// Walking over it is enough to take it (ammo and materials, as in Fortnite).
+    pub fn auto_pickup(&self) -> bool {
+        matches!(self, PickupKind::Ammo { .. } | PickupKind::Mats { .. })
+    }
+    /// The inventory item this is, for what goes into a slot (weapons, healing and utility items).
+    pub fn item(&self) -> Option<Item> {
+        match *self {
+            PickupKind::Weapon { kind, rarity, ammo } => Some(Item::Weapon { kind, rarity, ammo }),
+            PickupKind::Consumable { kind, count } => Some(Item::Consumable { kind, count }),
+            PickupKind::Utility { kind, count } => Some(Item::Utility { kind, count }),
+            PickupKind::Ammo { .. } | PickupKind::Mats { .. } => None,
+        }
+    }
+    /// An inventory item put down on the ground (the harvesting tool never is).
+    pub fn of_item(item: Item) -> Option<PickupKind> {
+        match item {
+            Item::Weapon { kind, rarity, ammo } => Some(PickupKind::Weapon { kind, rarity, ammo }),
+            Item::Consumable { kind, count } => Some(PickupKind::Consumable { kind, count }),
+            Item::Utility { kind, count } => Some(PickupKind::Utility { kind, count }),
+            Item::Pickaxe => None,
         }
     }
     pub fn from_drop(d: Drop) -> PickupKind {
@@ -158,6 +195,8 @@ impl PickupKind {
             Drop::Weapon { kind, rarity } => PickupKind::Weapon { kind, rarity, ammo: kind.def().mag },
             Drop::Ammo { kind, amount } => PickupKind::Ammo { kind, amount },
             Drop::Consumable { kind, count } => PickupKind::Consumable { kind, count },
+            Drop::Utility { kind, count } => PickupKind::Utility { kind, count },
+            Drop::Mats { mat, amount } => PickupKind::Mats { mat, amount },
         }
     }
 }
@@ -181,8 +220,9 @@ pub struct Chest {
     /// 0 closed .. 1 fully open (animated).
     pub open_t: f32,
     pub opened: bool,
-    /// A supply drop: a bigger, blue crate with better loot that comes down on a parachute (see [`supply`]).
-    pub supply: bool,
+    /// A golden chest, an ammo box, a Supply Llama, or a supply drop: a bigger, blue crate with better loot that comes down on a
+    /// parachute (see [`supply`]).
+    pub kind: ChestKind,
     /// Where the chest rests. A supply crate starts high above it and falls.
     pub land_y: f32,
     /// Seconds since a supply crate touched down (its parachute crumples meanwhile).
@@ -190,9 +230,19 @@ pub struct Chest {
 }
 
 impl Chest {
-    /// A chest sitting on the ground.
+    /// A golden chest sitting on the ground.
     pub fn on_ground(id: u32, pos: Vec3, yaw: f32) -> Chest {
-        Chest { id, pos, yaw, open_t: 0.0, opened: false, supply: false, land_y: pos.y, since_land: 0.0 }
+        Chest::of_kind(id, pos, yaw, ChestKind::Treasure)
+    }
+
+    /// A container of any kind sitting on the ground.
+    pub fn of_kind(id: u32, pos: Vec3, yaw: f32, kind: ChestKind) -> Chest {
+        Chest { id, pos, yaw, open_t: 0.0, opened: false, kind, land_y: pos.y, since_land: 0.0 }
+    }
+
+    /// A supply drop (falling or landed).
+    pub fn is_supply(&self) -> bool {
+        self.kind == ChestKind::Supply
     }
 
     /// A supply crate still in the air.
@@ -282,6 +332,10 @@ pub struct Game {
     pub projectiles: Vec<Projectile>,
     /// Drivable buggies; the room creator owns their physics and driver seats.
     pub vehicles: Vec<vehicles::Vehicle>,
+    /// Grenades and Boogie Bombs on their way.
+    pub thrown: Vec<utility::Thrown>,
+    /// Launch Pads that have been set down.
+    pub traps: Vec<utility::Trap>,
     pub storm: Storm,
     pub bus: Bus,
     pub events: Vec<Event>,
@@ -381,6 +435,8 @@ impl Game {
             pieces: Pieces::new(),
             projectiles: vec![],
             vehicles: vec![],
+            thrown: vec![],
+            traps: vec![],
             storm: matchflow::initial_storm(),
             bus: matchflow::initial_bus(&mut Rng::new(cfg.seed ^ 0xB05)),
             events: vec![],
@@ -571,6 +627,7 @@ impl Game {
                 self.actors[i].dead_time += dt;
                 continue;
             }
+            combat::tick_regen(&mut self.actors[i], dt);
             if self.remotes[i].is_some() {
                 // a person on the network: their commands were applied above; what is left is going along with the bus
                 if self.actors[i].mode == MoveMode::Bus {
@@ -588,6 +645,7 @@ impl Game {
         }
         self.record_history();
         combat::update_projectiles(self, dt);
+        utility::update(self, dt);
         loot::update_pickups(self, dt);
         self.pieces.tick(dt);
         self.update_felled(dt);
@@ -677,6 +735,9 @@ impl Game {
 
     /// Run one actor's intent through movement, items, combat and building.
     pub fn apply_intent(&mut self, i: usize, it: &Intent, dt: f32) {
+        // someone a Boogie Bomb caught only dances (and looks around)
+        let lock = utility::dancing_intent(&mut self.actors[i], it, dt);
+        let it = lock.as_ref().unwrap_or(it);
         let god = self.cfg.god_mode && i == self.local;
         {
             let a = &mut self.actors[i];
@@ -729,6 +790,11 @@ impl Game {
             let a = &mut self.actors[i];
             a.pos.x = a.pos.x.clamp(-lim, lim);
             a.pos.z = a.pos.z.clamp(-lim, lim);
+        }
+        // stepping on a Launch Pad (a guest's machine predicts the very same launch, see `net::client`)
+        if utility::launch_pad_touch(&mut self.actors[i], &self.traps).is_some() {
+            let pos = self.actors[i].pos;
+            self.events.push(Event::Launch { actor: i, pos });
         }
         if fall_damage > 0.0 && !god {
             self.damage_actor(i, fall_damage, None, "Fall damage", false, self.actors[i].pos, false);
@@ -790,6 +856,12 @@ impl Game {
                 self.feed.push(entry);
             }
             Event::Toast { actor, text, secs, style } if actor.is_none_or(|a| a == self.local) => self.show_toast(text.clone(), *secs, *style),
+            Event::Launch { pos, .. } => {
+                // the plate of the pad that fired springs up
+                if let Some(t) = self.traps.iter_mut().filter(|t| t.pos.distance(*pos) < 2.0).min_by(|a, b| a.pos.distance(*pos).total_cmp(&b.pos.distance(*pos))) {
+                    t.bounce = 1.0;
+                }
+            }
             Event::Explosion { pos, radius } => {
                 let d = self.actors[self.camera_actor()].pos.distance(*pos);
                 if d < 60.0 {

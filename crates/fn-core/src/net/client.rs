@@ -20,7 +20,7 @@ use crate::game::events::Event;
 use crate::game::items::*;
 use crate::game::loot::step_loose_items;
 use crate::game::matchflow::BUS_ALTITUDE;
-use crate::game::{movement, Game, Phase, PickupKind, PlayerInput, StormState};
+use crate::game::{movement, Game, Phase, PlayerInput, StormState};
 use crate::math::*;
 use crate::world::{World, WORLD_HALF};
 use std::collections::VecDeque;
@@ -243,6 +243,16 @@ impl Client {
             .iter()
             .map(|p| crate::game::Projectile { pos: p.pos, vel: p.vel, owner: p.owner as usize, kind: p.kind, rarity: p.rarity, life: 1.0 })
             .collect();
+        // thrown things keep their spin between snapshots; the host says where they are and when they go off
+        let spins: std::collections::HashMap<u32, (f32, f32)> = g.thrown.iter().map(|t| (t.id, (t.spin, t.age))).collect();
+        g.thrown = s
+            .thrown
+            .iter()
+            .map(|t| {
+                let (spin, age) = spins.get(&t.id).copied().unwrap_or((0.0, 0.0));
+                crate::game::utility::Thrown { id: t.id, kind: t.kind, pos: t.pos, vel: t.vel, owner: 0, age, resting: t.resting, bounced: false, spin }
+            })
+            .collect();
         let was_driving = g.vehicle_for_actor(self.you).is_some();
         if !was_driving {
             if let Some(v) = s.vehicles.iter().find(|v| v.driver == Some(self.you)) {
@@ -294,6 +304,8 @@ impl Client {
             a.build_mode = own.build_mode;
             a.build_piece = own.build_piece;
             a.build_mat = own.build_mat;
+            a.regen = own.regen;
+            a.boogie = own.mv.boogie;
         }
         let p = &mut self.pred;
         let old = (p.pos, p.mode);
@@ -318,6 +330,8 @@ impl Client {
         p.peak_y = m.peak_y;
         p.steps = m.steps;
         p.anim.time = m.anim_time;
+        p.launched = m.launched;
+        p.boogie = m.boogie;
         if !own.alive || m.mode == MoveMode::Dead {
             self.pending.clear();
             self.offset = Vec3::ZERO;
@@ -356,16 +370,24 @@ impl Client {
         match op {
             SyncOp::Reset => {
                 g.pickups.clear();
-                g.chests.retain(|c| !c.supply);
+                g.traps.clear();
+                g.chests.retain(|c| !c.is_supply());
                 for c in &mut g.chests {
                     c.opened = false;
                     c.open_t = 0.0;
                 }
                 g.pieces.clear();
             }
+            SyncOp::TrapAdd(t) => {
+                if !g.traps.iter().any(|x| x.id == t.id) {
+                    g.traps.push(crate::game::utility::Trap { id: t.id, kind: t.kind, pos: t.pos, yaw: t.yaw, owner: 0, bounce: 0.0 });
+                }
+                g.next_id = g.next_id.max(t.id);
+            }
+            SyncOp::TrapRemove(id) => g.traps.retain(|t| t.id != id),
             SyncOp::ChestAdd(c) => {
                 if g.chest_index(c.id).is_none() {
-                    g.chests.push(crate::game::Chest { id: c.id, pos: c.pos, yaw: c.yaw, open_t: 0.0, opened: false, supply: true, land_y: c.land_y, since_land: 0.0 });
+                    g.chests.push(crate::game::Chest { id: c.id, pos: c.pos, yaw: c.yaw, open_t: 0.0, opened: false, kind: crate::world::ChestKind::Supply, land_y: c.land_y, since_land: 0.0 });
                 }
                 g.next_id = g.next_id.max(c.id);
             }
@@ -387,11 +409,7 @@ impl Client {
             }
             SyncOp::PickupAmount { id, amount } => {
                 if let Some(i) = g.pickup_index(id) {
-                    match &mut g.pickups[i].kind {
-                        PickupKind::Ammo { amount: a, .. } => *a = amount,
-                        PickupKind::Consumable { count, .. } => *count = amount,
-                        PickupKind::Weapon { .. } => {}
-                    }
+                    g.pickups[i].kind.set_count(amount);
                 }
             }
             SyncOp::ChestOpen(id) => {
@@ -436,6 +454,8 @@ impl Client {
     fn predict(&mut self, c: &Cmd, live: bool) {
         let it = c.to_intent();
         let dt = c.dt;
+        // a Boogie Bomb holds the player in place on the host, so it does here (see `Game::apply_intent`)
+        let it = crate::game::utility::dancing_intent(&mut self.pred, &it, dt).unwrap_or(it);
         // Predict steering with the host's physics, replaying only commands
         // after the acknowledged snapshot. The host alone assigns the seat.
         if let Some(index) = self.game.vehicles.iter().position(|v| v.driver == Some(self.you)) {
@@ -482,6 +502,8 @@ impl Client {
             a.pos.x = a.pos.x.clamp(-lim, lim);
             a.pos.z = a.pos.z.clamp(-lim, lim);
         }
+        // the Launch Pads are the host's too (they arrive as sync ops): stepping on one launches the prediction exactly as the host
+        crate::game::utility::launch_pad_touch(a, &self.game.traps);
         crate::game::vehicles::avoid_chassis(a, &self.game.vehicles);
         movement::update_body(a, &it, dt);
         movement::update_anim(a, dt);
@@ -616,6 +638,7 @@ impl Client {
         for p in &mut g.projectiles {
             p.pos += p.vel * dt;
         }
+        crate::game::utility::coast(g, dt);
         if g.bus.active {
             let t = (self.bus_base.0 + (self.clock - self.bus_base.1)).clamp(0.0, g.bus.total);
             let p = g.bus.start.lerp(g.bus.end, t / g.bus.total);
@@ -656,6 +679,7 @@ impl Client {
         a.ads = p.ads;
         a.glide_deployed = p.glide_deployed;
         a.emoting = p.emoting;
+        a.boogie = p.boogie;
         a.pos = if p.mode == MoveMode::Bus { bus_pos } else { p.pos + self.offset };
         if p.mode == MoveMode::Bus {
             a.body_yaw = yaw_of(self.game.bus.dir);
@@ -805,6 +829,10 @@ fn apply_sample(a: &mut Actor, s: &ActorNet, _mix: f32) {
         }
         Held::Consumable { kind } => {
             a.inv.slots[1] = Some(Item::Consumable { kind, count: 1 });
+            a.inv.selected = 1;
+        }
+        Held::Utility { kind } => {
+            a.inv.slots[1] = Some(Item::Utility { kind, count: 1 });
             a.inv.selected = 1;
         }
     }

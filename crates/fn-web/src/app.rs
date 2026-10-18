@@ -402,16 +402,36 @@ impl App {
                 "ok".into()
             }
             "cons" => {
-                // cons <bandage|medkit|shield|bigshield|chug> [count]
+                // cons <bandage|medkit|shield|bigshield|chug|slurp> [count]
                 let kind = match parts.get(1).copied().unwrap_or("bandage") {
                     "medkit" => ConsumableKind::MedKit,
                     "shield" => ConsumableKind::ShieldSmall,
                     "bigshield" => ConsumableKind::ShieldBig,
                     "chug" => ConsumableKind::ChugJug,
+                    "slurp" => ConsumableKind::Slurp,
                     _ => ConsumableKind::Bandage,
                 };
                 g.actors[me].inv.add_consumable(kind, num(2, 1.0) as u32);
                 "ok".into()
+            }
+            "util" => {
+                // util <frag|impulse|boogie|pad> [count]: into the inventory and in hand
+                let kind = match parts.get(1).copied().unwrap_or("frag") {
+                    "impulse" => UtilityKind::ImpulseGrenade,
+                    "boogie" => UtilityKind::BoogieBomb,
+                    "pad" => UtilityKind::LaunchPad,
+                    _ => UtilityKind::FragGrenade,
+                };
+                let a = &mut g.actors[me];
+                a.inv.add_utility(kind, num(2, kind.def().stack as f32) as u32);
+                let slot = a.inv.slots.iter().position(|s| matches!(s, Some(Item::Utility { kind: k, .. }) if *k == kind));
+                match slot {
+                    Some(slot) => {
+                        g.select_slot(me, slot);
+                        "ok".into()
+                    }
+                    None => "no room".into(),
+                }
             }
             "mats" => {
                 let n = num(1, 500.0) as u32;
@@ -567,16 +587,44 @@ impl App {
                 "ok".into()
             }
             "chest" => {
-                // stand next to the nth unopened chest, looking at it
+                // chest [n] [chest|ammobox|llama|supply|any]: stand next to the nth golden chest (or container of that kind), looking at it
                 let idx = num(1, 0.0) as usize;
-                if let Some(c) = g.chests.get(idx % g.chests.len().max(1)).cloned() {
-                    let fwd = yaw_forward(c.yaw);
-                    let p = c.pos + fwd * 2.4;
+                let kind = match parts.get(2).copied() {
+                    Some("ammobox") => Some(fn_core::world::ChestKind::AmmoBox),
+                    Some("llama") => Some(fn_core::world::ChestKind::Llama),
+                    Some("supply") => Some(fn_core::world::ChestKind::Supply),
+                    Some("any") => None,
+                    _ => Some(fn_core::world::ChestKind::Treasure),
+                };
+                let found: Vec<Chest> = g.chests.iter().filter(|c| kind.is_none_or(|k| c.kind == k)).cloned().collect();
+                if let Some(c) = found.get(idx % found.len().max(1)).cloned() {
+                    // in front of it if there is room there (an ammo box may stand against a wall or beside other loot), else
+                    // wherever around it there is room and it is the thing in reach
+                    let dist = if c.kind == fn_core::world::ChestKind::AmmoBox { 1.5 } else { 2.4 };
+                    let spots: Vec<Vec3> = {
+                        let env = g.env();
+                        [dist, dist * 0.7]
+                            .iter()
+                            .flat_map(|d| (0..8).map(move |k| c.pos + yaw_forward(c.yaw + k as f32 * std::f32::consts::FRAC_PI_4) * *d))
+                            .filter(|p| {
+                                let toward = (*p - c.pos).normalize_or_zero();
+                                env.push_out(*p, 0.45, 1.7, 0.3).length() < 0.01 && (env.ground(p.x, p.z, c.pos.y + 0.4, 0.4).y - c.pos.y).abs() < 0.3 && env.line_clear(*p + Vec3::Y * 0.6, c.pos + toward * 0.5 + Vec3::Y * 0.6)
+                            })
+                            .collect()
+                    };
+                    let mut p = spots.first().copied().unwrap_or(c.pos + yaw_forward(c.yaw) * dist);
+                    for s in &spots {
+                        g.actors[me].pos = Vec3::new(s.x, c.pos.y, s.z);
+                        if g.find_target(me) == Some(fn_core::game::loot::Target::Chest(c.id)) {
+                            p = *s;
+                            break;
+                        }
+                    }
                     let a = &mut g.actors[me];
                     a.pos = Vec3::new(p.x, c.pos.y, p.z);
                     a.mode = MoveMode::Ground;
                     a.on_ground = true;
-                    a.yaw = c.yaw + std::f32::consts::PI;
+                    a.yaw = yaw_of(Vec2::new(c.pos.x - p.x, c.pos.z - p.z));
                     a.pitch = -0.1;
                     a.eye_smooth = c.pos.y;
                     if g.phase == Phase::Bus {
@@ -665,6 +713,8 @@ impl App {
                 let dist = num(1, 3.0);
                 let mut kinds: Vec<PickupKind> = ConsumableKind::ALL.iter().map(|&kind| PickupKind::Consumable { kind, count: 2 }).collect();
                 kinds.extend(AmmoKind::ALL.iter().map(|&kind| PickupKind::Ammo { kind, amount: kind.box_amount() }));
+                kinds.extend(UtilityKind::ALL.iter().map(|&kind| PickupKind::Utility { kind, count: kind.def().found }));
+                kinds.extend([Mat::Wood, Mat::Stone, Mat::Metal].map(|mat| PickupKind::Mats { mat, amount: 60 }));
                 let n = kinds.len();
                 for (k, kind) in kinds.into_iter().enumerate() {
                     let pos = p + f * dist + side * ((k as f32 - (n as f32 - 1.0) / 2.0) * 0.9);
@@ -825,7 +875,7 @@ impl App {
             }
             "state" => {
                 let a = &g.actors[me];
-                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{},\"outfit\":{},\"gameMode\":\"{:?}\",\"worldSize\":{},\"vehicles\":{}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting, g.cfg.player_outfit, g.cfg.mode, fn_core::world::WORLD_SIZE, g.vehicles.len())
+                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{},\"outfit\":{},\"gameMode\":\"{:?}\",\"worldSize\":{},\"vehicles\":{},\"shield\":{:.0},\"thrown\":{},\"traps\":{}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting, g.cfg.player_outfit, g.cfg.mode, fn_core::world::WORLD_SIZE, g.vehicles.len(), a.shield, g.thrown.len(), g.traps.len())
             }
             "vehicles" => {
                 let list: Vec<String> = g.vehicles.iter().map(|v| format!("{{\"id\":{},\"pos\":[{:.2},{:.2},{:.2}],\"yaw\":{:.3},\"speed\":{:.2},\"driver\":{}}}", v.id, v.pos.x, v.pos.y, v.pos.z, v.yaw, v.speed, v.driver.map_or("null".into(), |i| i.to_string()))).collect();

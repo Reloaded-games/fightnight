@@ -74,6 +74,11 @@ const TIPS = [
   'Walls block bullets. Build cover before you heal.',
   'Shotguns are deadly up close, snipers reward patience.',
   'You can open the glider early by pressing Space in free fall.',
+  'Frag grenades wreck builds. Throw one at a box before you push it.',
+  'A Launch Pad flings you into the sky and you glide down without fall damage.',
+  'Slurp Juice heals and shields over time; you can keep fighting while it works.',
+  'Ammo boxes are small grey crates; Supply Llamas are full of materials, ammo and items.',
+  'Eliminated players drop their materials. Walk over them to collect.',
 ];
 
 // The wasm side parses `key=value;key=value`, so the free-text player name must not contain either separator.
@@ -454,6 +459,13 @@ function toggleOverlay(name) {
 }
 
 let wdefs = null, cdefs = null;
+// What each grenade or trap does (UtilityKind::ALL order).
+const UTILITY_INFO = [
+  'Click to throw. Explodes after a short fuse: heavy damage to players and builds nearby.',
+  'Click to throw. A shockwave that sends everyone around flying, without hurting them.',
+  'Click to throw. Everyone caught in it dances for 5 seconds and cannot shoot or build.',
+  'Click to place on the ground. Step on it to launch high into the air and glide down safely.',
+];
 let invSig = '';
 function renderInventory(force) {
   if (!hudState) return;
@@ -484,6 +496,8 @@ function renderInventory(force) {
         const d = cdefs[slot.k];
         sub = `<div class="sub">${RARITY_NAMES[slot.r]} &middot; x${slot.c}</div>` +
           (d.heal ? stat('Heals', d.heal / 100, `+${d.heal} (max ${d.maxHp})`) : '') + (d.shield ? stat('Shield', d.shield / 100, `+${d.shield} (max ${d.maxShield})`) : '') + stat('Use time', Math.min(1, d.time / 10), d.time.toFixed(1) + 's');
+      } else if (slot.t === 'u') {
+        sub = `<div class="sub">${RARITY_NAMES[slot.r]} &middot; x${slot.c}</div><div class="sub">${UTILITY_INFO[slot.k] || ''}</div>`;
       } else sub = '<div class="sub">Harvest trees, rocks and enemy structures for building materials.</div>';
       html += `<canvas width="300" height="170"></canvas><div class="name" style="color:${RARITY[rar]}">${name}</div>${sub}`;
       if (slot.t !== 'p') html += `<button class="drop" data-i="${i}">Drop</button>`;

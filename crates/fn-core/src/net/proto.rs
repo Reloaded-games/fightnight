@@ -19,7 +19,7 @@ use crate::game::vehicles::Vehicle;
 use crate::math::*;
 
 /// Bump when anything in this file changes shape; hosts and clients of different versions refuse each other.
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 4;
 /// Most people in one room, the host included.
 pub const MAX_HUMANS: usize = 8;
 /// Most commands a single packet may carry.
@@ -148,6 +148,10 @@ pub struct MoveState {
     pub steps: f32,
     /// The animation clock: swimming bobs on it, so where the actor floats depends on it.
     pub anim_time: f32,
+    /// Thrown by an impulse: the landing does no fall damage.
+    pub launched: bool,
+    /// Seconds a Boogie Bomb still keeps the actor dancing in place.
+    pub boogie: f32,
 }
 
 /// A player's own actor in full: what the HUD shows and what their prediction starts from.
@@ -169,6 +173,8 @@ pub struct Own {
     pub build_piece: PieceKind,
     pub build_mat: Mat,
     pub mv: MoveState,
+    /// Health and shield a Slurp Juice still has to give back.
+    pub regen: f32,
 }
 
 /// The item an actor holds, as others see it.
@@ -178,6 +184,7 @@ pub enum Held {
     Pickaxe,
     Weapon { kind: WeaponKind, rarity: Rarity },
     Consumable { kind: ConsumableKind },
+    Utility { kind: UtilityKind },
 }
 
 /// What a snapshot says about any actor: enough to draw and animate it.
@@ -205,6 +212,25 @@ pub struct ActorNet {
     pub action: u8,
     /// How far along the action is, 0..=1.
     pub progress: f32,
+}
+
+/// A grenade or Boogie Bomb on its way (the host decides when it goes off).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ThrownNet {
+    pub id: u32,
+    pub kind: UtilityKind,
+    pub pos: Vec3,
+    pub vel: Vec3,
+    pub resting: bool,
+}
+
+/// A Launch Pad that was set down.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TrapNet {
+    pub id: u32,
+    pub kind: UtilityKind,
+    pub pos: Vec3,
+    pub yaw: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -236,6 +262,7 @@ pub struct Snapshot {
     pub projectiles: Vec<ProjNet>,
     /// Host-owned cars, including their exclusive driver seat.
     pub vehicles: Vec<Vehicle>,
+    pub thrown: Vec<ThrownNet>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -286,6 +313,9 @@ pub enum SyncOp {
     HarvestBroken { idx: u32, dir: Vec2 },
     /// A supply crate is on its way down.
     ChestAdd(ChestNet),
+    /// A Launch Pad was set down / is gone.
+    TrapAdd(TrapNet),
+    TrapRemove(u32),
 }
 
 // ---- messages -------------------------------------------------------------------------------------------------------
@@ -320,7 +350,7 @@ pub enum ServerMsg {
 /// Names an elimination can be blamed on (see `Event::Eliminated`): every weapon by the name it has in the game (so a
 /// renamed weapon cannot fall out of the table), then the other ways to go.
 fn sources() -> Vec<&'static str> {
-    WeaponKind::ALL.iter().map(|k| k.name()).chain(["Harvesting Tool", "The Storm", "Fall damage"]).collect()
+    WeaponKind::ALL.iter().map(|k| k.name()).chain(["Harvesting Tool", "The Storm", "Fall damage"]).chain(UtilityKind::ALL.iter().map(|k| k.name())).collect()
 }
 
 fn source_id(name: &str) -> u8 {
@@ -328,7 +358,14 @@ fn source_id(name: &str) -> u8 {
 }
 
 fn pickup_names() -> Vec<&'static str> {
-    WeaponKind::ALL.iter().map(|k| k.name()).chain(AmmoKind::ALL.iter().map(|k| k.name())).chain(ConsumableKind::ALL.iter().map(|k| k.name())).collect()
+    WeaponKind::ALL
+        .iter()
+        .map(|k| k.name())
+        .chain(AmmoKind::ALL.iter().map(|k| k.name()))
+        .chain(ConsumableKind::ALL.iter().map(|k| k.name()))
+        .chain(UtilityKind::ALL.iter().map(|k| k.name()))
+        .chain(Mat::ALL.iter().map(|m| m.name()))
+        .collect()
 }
 
 fn pickup_name_id(name: &str) -> u8 {
@@ -343,6 +380,9 @@ fn read_rarity(r: &mut Reader) -> Result<Rarity> {
 }
 fn read_consumable(r: &mut Reader) -> Result<ConsumableKind> {
     Ok(ConsumableKind::ALL[r.index(ConsumableKind::ALL.len(), "consumable")?])
+}
+fn read_utility(r: &mut Reader) -> Result<UtilityKind> {
+    Ok(UtilityKind::ALL[r.index(UtilityKind::ALL.len(), "utility item")?])
 }
 fn read_ammo(r: &mut Reader) -> Result<AmmoKind> {
     Ok(AmmoKind::ALL[r.index(AmmoKind::ALL.len(), "ammo")?])
@@ -381,6 +421,11 @@ fn write_item(w: &mut Writer, it: &Option<Item>) {
             w.u8(idx(&ConsumableKind::ALL, *kind));
             w.u16((*count).min(65535) as u16);
         }
+        Some(Item::Utility { kind, count }) => {
+            w.u8(4);
+            w.u8(idx(&UtilityKind::ALL, *kind));
+            w.u16((*count).min(65535) as u16);
+        }
     }
 }
 
@@ -396,6 +441,10 @@ fn read_item(r: &mut Reader) -> Result<Option<Item>> {
         3 => {
             let kind = read_consumable(r)?;
             Some(Item::Consumable { kind, count: r.u16()? as u32 })
+        }
+        4 => {
+            let kind = read_utility(r)?;
+            Some(Item::Utility { kind, count: r.u16()? as u32 })
         }
         _ => return Err(WireError::Invalid("item")),
     })
@@ -419,6 +468,16 @@ fn write_pickup_kind(w: &mut Writer, k: &PickupKind) {
             w.u8(idx(&ConsumableKind::ALL, *kind));
             w.u16((*count).min(65535) as u16);
         }
+        PickupKind::Utility { kind, count } => {
+            w.u8(3);
+            w.u8(idx(&UtilityKind::ALL, *kind));
+            w.u16((*count).min(65535) as u16);
+        }
+        PickupKind::Mats { mat, amount } => {
+            w.u8(4);
+            w.u8(idx(&Mat::ALL, *mat));
+            w.u16((*amount).min(65535) as u16);
+        }
     }
 }
 
@@ -436,6 +495,14 @@ fn read_pickup_kind(r: &mut Reader) -> Result<PickupKind> {
         2 => {
             let kind = read_consumable(r)?;
             PickupKind::Consumable { kind, count: r.u16()? as u32 }
+        }
+        3 => {
+            let kind = read_utility(r)?;
+            PickupKind::Utility { kind, count: r.u16()? as u32 }
+        }
+        4 => {
+            let mat = read_mat(r)?;
+            PickupKind::Mats { mat, amount: r.u16()? as u32 }
         }
         _ => return Err(WireError::Invalid("pickup kind")),
     })
@@ -483,7 +550,7 @@ impl MoveState {
         w.vec3(self.vel);
         w.u8(idx(&MoveMode::ALL, self.mode));
         let mut f = 0u8;
-        for (k, on) in [self.on_ground, self.crouching, self.sprinting, self.ads, self.glide_deployed, self.emoting].into_iter().enumerate() {
+        for (k, on) in [self.on_ground, self.crouching, self.sprinting, self.ads, self.glide_deployed, self.emoting, self.launched].into_iter().enumerate() {
             f |= (on as u8) << k;
         }
         w.u8(f);
@@ -492,6 +559,7 @@ impl MoveState {
         w.f32(self.peak_y);
         w.f32(self.steps);
         w.f32(self.anim_time);
+        w.f32(self.boogie);
     }
 
     fn read(r: &mut Reader) -> Result<Self> {
@@ -500,7 +568,24 @@ impl MoveState {
         let mode = read_mode(r)?;
         let f = r.u8()?;
         let on = |k: u8| f & (1 << k) != 0;
-        Ok(MoveState { pos, vel, mode, on_ground: on(0), crouching: on(1), sprinting: on(2), ads: on(3), glide_deployed: on(4), emoting: on(5), coyote: r.f32()?, jump_buffer: r.f32()?, peak_y: r.f32()?, steps: r.f32()?, anim_time: r.f32()? })
+        Ok(MoveState {
+            pos,
+            vel,
+            mode,
+            on_ground: on(0),
+            crouching: on(1),
+            sprinting: on(2),
+            ads: on(3),
+            glide_deployed: on(4),
+            emoting: on(5),
+            launched: on(6),
+            coyote: r.f32()?,
+            jump_buffer: r.f32()?,
+            peak_y: r.f32()?,
+            steps: r.f32()?,
+            anim_time: r.f32()?,
+            boogie: r.f32()?.clamp(0.0, 30.0),
+        })
     }
 }
 
@@ -528,6 +613,7 @@ impl Own {
         w.u8(idx(&PieceKind::ALL, self.build_piece));
         w.u8(idx(&Mat::ALL, self.build_mat));
         self.mv.write(w);
+        w.f32(self.regen);
     }
 
     fn read(r: &mut Reader) -> Result<Self> {
@@ -556,7 +642,8 @@ impl Own {
         let build_piece = read_piece(r)?;
         let build_mat = read_mat(r)?;
         let mv = MoveState::read(r)?;
-        Ok(Own { hp, shield, alive, kills, placement, damage_dealt, survived, slots, selected, ammo, mats, action, build_mode, build_piece, build_mat, mv })
+        let regen = r.f32()?.clamp(0.0, 1000.0);
+        Ok(Own { hp, shield, alive, kills, placement, damage_dealt, survived, slots, selected, ammo, mats, action, build_mode, build_piece, build_mat, mv, regen })
     }
 }
 
@@ -590,6 +677,10 @@ impl ActorNet {
                 w.u8(3);
                 w.u8(idx(&ConsumableKind::ALL, kind));
             }
+            Held::Utility { kind } => {
+                w.u8(4);
+                w.u8(idx(&UtilityKind::ALL, kind));
+            }
         }
         w.u8(self.action);
         w.unit(self.progress);
@@ -615,6 +706,7 @@ impl ActorNet {
                 Held::Weapon { kind, rarity: read_rarity(r)? }
             }
             3 => Held::Consumable { kind: read_consumable(r)? },
+            4 => Held::Utility { kind: read_utility(r)? },
             _ => return Err(WireError::Invalid("held item")),
         };
         let action = r.u8()?;
@@ -677,6 +769,14 @@ impl Snapshot {
             w.f32(v.steer);
             w.opt_u8(v.driver);
         }
+        w.u16(self.thrown.len() as u16);
+        for t in &self.thrown {
+            w.u32(t.id);
+            w.u8(idx(&UtilityKind::ALL, t.kind));
+            w.vec3(t.pos);
+            w.vec3(t.vel);
+            w.bool(t.resting);
+        }
     }
 
     fn read(r: &mut Reader) -> Result<Self> {
@@ -732,7 +832,12 @@ impl Snapshot {
             }
             vehicles.push(Vehicle { id, pos, yaw, speed, steer, driver });
         }
-        Ok(Snapshot { time, echo, ack, phase, tie, winner, match_time, bus_active, bus_t, storm, own, actors, projectiles, vehicles })
+        let n = r.count(MAX_PROJECTILES, "thrown items")?;
+        let mut thrown = Vec::with_capacity(n);
+        for _ in 0..n {
+            thrown.push(ThrownNet { id: r.u32()?, kind: read_utility(r)?, pos: r.vec3()?, vel: r.vec3()?, resting: r.bool()? });
+        }
+        Ok(Snapshot { time, echo, ack, phase, tie, winner, match_time, bus_active, bus_t, storm, own, actors, projectiles, vehicles, thrown })
     }
 }
 
@@ -799,6 +904,17 @@ impl SyncOp {
                 w.f32(c.yaw);
                 w.f32(c.land_y);
             }
+            SyncOp::TrapAdd(t) => {
+                w.u8(10);
+                w.u32(t.id);
+                w.u8(idx(&UtilityKind::ALL, t.kind));
+                w.vec3(t.pos);
+                w.f32(t.yaw);
+            }
+            SyncOp::TrapRemove(id) => {
+                w.u8(11);
+                w.u32(*id);
+            }
         }
     }
 
@@ -828,6 +944,8 @@ impl SyncOp {
             7 => SyncOp::PieceHp { id: r.u32()?, hp: r.f32()? },
             8 => SyncOp::HarvestBroken { idx: r.u32()?, dir: r.vec2()? },
             9 => SyncOp::ChestAdd(ChestNet { id: r.u32()?, pos: r.vec3()?, yaw: r.f32()?, land_y: r.f32()? }),
+            10 => SyncOp::TrapAdd(TrapNet { id: r.u32()?, kind: read_utility(r)?, pos: r.vec3()?, yaw: r.f32()? }),
+            11 => SyncOp::TrapRemove(r.u32()?),
             _ => return Err(WireError::Invalid("sync op")),
         })
     }
@@ -1018,6 +1136,24 @@ fn write_event(w: &mut Writer, e: &Event) {
             w.u8(28);
             actor(w, *a);
         }
+        Event::Impulse { pos } => {
+            w.u8(29);
+            w.vec3(*pos);
+        }
+        Event::Boogie { pos } => {
+            w.u8(30);
+            w.vec3(*pos);
+        }
+        Event::Launch { actor: a, pos } => {
+            w.u8(31);
+            actor(w, *a);
+            w.vec3(*pos);
+        }
+        Event::TrapPlaced { actor: a, pos } => {
+            w.u8(32);
+            actor(w, *a);
+            w.vec3(*pos);
+        }
         Event::Noise { .. } => unreachable!("noise is not sent"),
     }
 }
@@ -1076,6 +1212,10 @@ fn read_event(r: &mut Reader) -> Result<Event> {
         26 => Event::StormPhase { phase: r.u8()? as usize, shrinking: r.bool()? },
         27 => Event::Victory { winner: actor(r)? },
         28 => Event::Swing { actor: actor(r)? },
+        29 => Event::Impulse { pos: r.vec3()? },
+        30 => Event::Boogie { pos: r.vec3()? },
+        31 => Event::Launch { actor: actor(r)?, pos: r.vec3()? },
+        32 => Event::TrapPlaced { actor: actor(r)?, pos: r.vec3()? },
         _ => return Err(WireError::Invalid("event")),
     })
 }
@@ -1261,6 +1401,8 @@ mod tests {
         slots[0] = Some(Item::Pickaxe);
         slots[1] = Some(Item::Weapon { kind: WeaponKind::Sniper, rarity: Rarity::Epic, ammo: 1 });
         slots[3] = Some(Item::Consumable { kind: ConsumableKind::ChugJug, count: 1 });
+        slots[4] = Some(Item::Utility { kind: UtilityKind::BoogieBomb, count: 2 });
+        slots[5] = Some(Item::Consumable { kind: ConsumableKind::Slurp, count: 2 });
         Own {
             hp: 87.5,
             shield: 40.0,
@@ -1277,7 +1419,8 @@ mod tests {
             build_mode: true,
             build_piece: PieceKind::Ramp,
             build_mat: Mat::Metal,
-            mv: MoveState { pos: v(1.0, 2.0, 3.0), vel: v(-4.0, 0.5, 6.0), mode: MoveMode::Glide, on_ground: false, crouching: true, sprinting: false, ads: true, glide_deployed: true, emoting: false, coyote: 0.05, jump_buffer: 0.1, peak_y: 77.0, steps: 1.25, anim_time: 31.5 },
+            mv: MoveState { pos: v(1.0, 2.0, 3.0), vel: v(-4.0, 0.5, 6.0), mode: MoveMode::Glide, on_ground: false, crouching: true, sprinting: false, ads: true, glide_deployed: true, emoting: false, coyote: 0.05, jump_buffer: 0.1, peak_y: 77.0, steps: 1.25, anim_time: 31.5, launched: true, boogie: 2.5 },
+            regen: 37.5,
         }
     }
 
@@ -1300,7 +1443,12 @@ mod tests {
             body_yaw: 5.5,
             hp: 77,
             shield: 12,
-            held: if id % 3 == 0 { Held::Weapon { kind: WeaponKind::Smg, rarity: Rarity::Rare } } else { Held::Pickaxe },
+            held: match id % 4 {
+                0 => Held::Weapon { kind: WeaponKind::Smg, rarity: Rarity::Rare },
+                1 => Held::Utility { kind: UtilityKind::FragGrenade },
+                2 => Held::Consumable { kind: ConsumableKind::Slurp },
+                _ => Held::Pickaxe,
+            },
             action: 1,
             progress: 0.5,
         }
@@ -1322,6 +1470,7 @@ mod tests {
             actors: (0..n as u8).map(actor).collect(),
             projectiles: vec![ProjNet { pos: v(1.0, 2.0, 3.0), vel: v(0.0, 0.0, -58.0), owner: 2, kind: WeaponKind::RocketLauncher, rarity: Rarity::Legendary }],
             vehicles: vec![Vehicle { id: 17, pos: v(20.0, 2.0, 30.0), yaw: 1.2, speed: 12.0, steer: 0.3, driver: Some(1) }],
+            thrown: vec![ThrownNet { id: 55, kind: UtilityKind::ImpulseGrenade, pos: v(3.0, 4.0, 5.0), vel: v(1.0, -2.0, 3.0), resting: false }, ThrownNet { id: 56, kind: UtilityKind::FragGrenade, pos: v(-3.0, 1.0, 5.0), vel: Vec3::ZERO, resting: true }],
         }
     }
 
@@ -1361,6 +1510,13 @@ mod tests {
             Event::StormPhase { phase: 3, shrinking: true },
             Event::Victory { winner: 2 },
             Event::Swing { actor: 3 },
+            Event::Impulse { pos: p },
+            Event::Boogie { pos: p },
+            Event::Launch { actor: 4, pos: p },
+            Event::TrapPlaced { actor: 5, pos: p },
+            Event::Pickup { actor: 1, pos: p, sound: PickupSound::Material, name: "Metal", rarity: Rarity::Common, count: 250 },
+            Event::Pickup { actor: 1, pos: p, sound: PickupSound::Weapon, name: "Boogie Bomb", rarity: Rarity::Epic, count: 2 },
+            Event::Eliminated { victim: 6, killer: Some(1), weapon: Some("Frag Grenade"), storm: false },
         ]
     }
 
@@ -1469,6 +1625,10 @@ mod tests {
             SyncOp::PieceHp { id: 6, hp: 33.5 },
             SyncOp::HarvestBroken { idx: 4242, dir: Vec2::new(0.6, -0.8) },
             SyncOp::ChestAdd(ChestNet { id: 901, pos: v(-120.5, 311.25, 48.0), yaw: 2.5, land_y: 71.25 }),
+            SyncOp::TrapAdd(TrapNet { id: 77, kind: UtilityKind::LaunchPad, pos: v(5.0, 6.0, 7.0), yaw: 1.5 }),
+            SyncOp::TrapRemove(77),
+            SyncOp::PickupAdd(PickupNet { id: 15, pos: v(1.0, 2.0, 3.0), vel: Vec3::ZERO, kind: PickupKind::Utility { kind: UtilityKind::LaunchPad, count: 1 }, grounded: true, spin: 0.5 }),
+            SyncOp::PickupAdd(PickupNet { id: 16, pos: v(1.0, 2.0, 3.0), vel: Vec3::ZERO, kind: PickupKind::Mats { mat: Mat::Stone, amount: 250 }, grounded: true, spin: 0.5 }),
         ];
         let ServerMsg::Sync(back) = ServerMsg::decode(&ServerMsg::Sync(ops.clone()).encode()).unwrap() else { panic!() };
         // the spin is kept to 1/65536 of a turn
