@@ -317,11 +317,14 @@ pub enum ServerMsg {
 
 // ---- helpers: tables and enums --------------------------------------------------------------------------------------
 
-/// Names an elimination can be blamed on (see `Event::Eliminated`).
-const SOURCES: [&str; 9] = ["Pistol", "Submachine Gun", "Assault Rifle", "Pump Shotgun", "Bolt-Action Sniper", "Rocket Launcher", "Harvesting Tool", "The Storm", "Fall damage"];
+/// Names an elimination can be blamed on (see `Event::Eliminated`): every weapon by the name it has in the game (so a
+/// renamed weapon cannot fall out of the table), then the other ways to go.
+fn sources() -> Vec<&'static str> {
+    WeaponKind::ALL.iter().map(|k| k.name()).chain(["Harvesting Tool", "The Storm", "Fall damage"]).collect()
+}
 
 fn source_id(name: &str) -> u8 {
-    SOURCES.iter().position(|s| *s == name).map_or(255, |i| i as u8)
+    sources().iter().position(|s| *s == name).map_or(255, |i| i as u8)
 }
 
 fn pickup_names() -> Vec<&'static str> {
@@ -1042,7 +1045,7 @@ fn read_event(r: &mut Reader) -> Result<Event> {
             let killer = r.opt_u8()?;
             let weapon = match r.u8()? {
                 255 => None,
-                i => Some(*SOURCES.get(i as usize).ok_or(WireError::Invalid("damage source"))?),
+                i => Some(*sources().get(i as usize).ok_or(WireError::Invalid("damage source"))?),
             };
             Event::Eliminated { victim, killer, weapon, storm: r.bool()? }
         }
@@ -1338,7 +1341,7 @@ mod tests {
             Event::Hurt { actor: 2, amount: 7.0, from: None },
             Event::Toast { actor: Some(1), text: "Not enough wood".into(), secs: 1.5, style: 3 },
             Event::Toast { actor: None, text: "The storm is closing in".into(), secs: 4.0, style: 2 },
-            Event::Eliminated { victim: 8, killer: Some(2), weapon: Some("Assault Rifle"), storm: false },
+            Event::Eliminated { victim: 8, killer: Some(2), weapon: Some(WeaponKind::AssaultRifle.name()), storm: false },
             Event::Eliminated { victim: 9, killer: None, weapon: Some("The Storm"), storm: true },
             Event::Reload { actor: 1, pos: p, kind: WeaponKind::Pistol },
             Event::EmptyClick { actor: 1, pos: p },
@@ -1363,6 +1366,16 @@ mod tests {
 
     fn dbg(e: &[Event]) -> String {
         format!("{e:?}")
+    }
+
+    #[test]
+    fn every_way_to_be_eliminated_keeps_its_name_on_the_wire() {
+        // the table used to be written out by hand, and renaming a weapon silently dropped it from guests' kill feeds
+        for name in WeaponKind::ALL.iter().map(|k| k.name()).chain(["Harvesting Tool", "The Storm", "Fall damage"]) {
+            let sent = vec![Event::Eliminated { victim: 3, killer: Some(1), weapon: Some(name), storm: false }];
+            let ServerMsg::Events { events, .. } = ServerMsg::decode(&ServerMsg::Events { time: 1.0, events: sent.clone() }.encode()).unwrap() else { panic!() };
+            assert_eq!(dbg(&events), dbg(&sent), "{name}");
+        }
     }
 
     #[test]

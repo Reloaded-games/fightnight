@@ -16,7 +16,8 @@ const frames = async (n) => {
   const start = await page.evaluate(() => ({ frames: window.__game.frames, t: JSON.parse(window.__game.fn.debug('state')).t }));
   await page.waitForFunction(({ frames, t, native }) =>
     window.__game.frames >= frames && (!native || window.__game.state !== 'playing' || JSON.parse(window.__game.fn.debug('state')).t >= t),
-  { frames: start.frames + n, t: start.t + n / 10, native: process.env.FN_FLAGS === 'native' }, { timeout: 120000 });
+  // (a software renderer can take well over a second a frame with the full cartoon asset pack)
+  { frames: start.frames + n, t: start.t + n / 10, native: process.env.FN_FLAGS === 'native' }, { timeout: 300000 });
 };
 
 await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=15;god=1'));

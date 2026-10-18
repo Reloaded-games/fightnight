@@ -4,7 +4,7 @@
 export const RARITY = ['#b4b8c2', '#5bd13a', '#3d9eff', '#b65dff', '#ffae1a'];
 export const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 export const RARITY_DARK = ['#3b3f4a', '#1d5b13', '#123f8f', '#4b1a85', '#8a5a00'];
-export const WEAPON_NAMES = ['Pistol', 'Submachine Gun', 'Assault Rifle', 'Pump Shotgun', 'Bolt-Action Sniper', 'Rocket Launcher'];
+export const WEAPON_NAMES = ['Pistol', 'Submachine Gun', 'AK-47', 'Pump Shotgun', 'Bolt-Action Sniper', 'Rocket Launcher'];
 export const CONSUMABLE_NAMES = ['Bandage', 'Medkit', 'Mini Shield', 'Shield Potion', 'Chug Jug'];
 export const AMMO_NAMES = ['Light', 'Medium', 'Heavy', 'Shells', 'Rockets'];
 export const AMMO_COLORS = ['#f2bf40', '#66bf59', '#5980f2', '#e65940', '#f28c26'];

@@ -436,7 +436,7 @@ impl App {
             }
             "kill_me" => {
                 // eliminate the player (killed by bot 1)
-                g.eliminate(me, Some(1), "Assault Rifle", false);
+                g.eliminate(me, Some(1), WeaponKind::AssaultRifle.name(), false);
                 "ok".into()
             }
             "kill_bots" => {
