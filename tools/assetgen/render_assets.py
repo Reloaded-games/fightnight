@@ -99,8 +99,12 @@ elif BOARD == 'vehicles':
             for z in (-1.02,1.05):
                 mesh('VehicleWheel', base @ tr((x,.47,z)))
     camera_pos, focus, scale = (7,10,7), (0,0,1), 9.2
+elif BOARD == 'environment':
+    for i, name in enumerate(['Crate','Barrel','HayBale','Stump','Rock0','Rock1','Rock2','Boulder']):
+        mesh(name,tr(((i%4-1.5)*3.8,0,(i//4)*4.7)),0xe1e5e7)
+    camera_pos, focus, scale = (13,20,15), (0,-2,1), 19
 else:
-    raise ValueError('choose characters, weapons or vehicles')
+    raise ValueError('choose characters, weapons, vehicles or environment')
 
 scene = bpy.context.scene
 scene.render.engine = 'BLENDER_EEVEE'

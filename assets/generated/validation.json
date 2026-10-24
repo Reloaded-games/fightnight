@@ -1,0 +1,7 @@
+{
+  "validator": "Khronos glTF Validator 2.0.0-dev.3.10",
+  "files": 145,
+  "errors": 0,
+  "warnings": 0,
+  "manifest_sha256": "05dfade0ee9e1646cc1a3aa72bdef78365910090c124431bfc8cdf18942c94cf"
+}

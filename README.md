@@ -7,6 +7,11 @@ in code. The [free original cartoon asset pack](assets/cartoon/README.md) includ
 source, rigged GLBs and nine animation clips; Scout, Ranger, Pilot and Vanguard are selectable in the menu.
 The upgraded pack includes sculpted faces/clothing, an AK-47, five other distinct guns,
 and two detailed vehicle bodies with animated steering and wheels.
+The [complete free 3D library](assets/generated/README.md) also provides individual
+GLBs for the game's model library, 17 building/landmark/street-prop models and an
+editable island overview. Eight new Blender props (rocks, barrel, crate, stump
+and hay bale) are embedded in the game. Rebuild instructions and researched free
+3D-generation options are included with the library.
 
 * Drop from the **Battle Bus** (hot-air balloon and all), skydive and glide onto the island.
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
@@ -44,6 +49,7 @@ and two detailed vehicle bodies with animated steering and wheels.
 ![Upgraded cartoon characters with original clothing and sculpted faces](docs/screenshots/models-characters.png)
 ![Six distinct original weapon models, including the AK-47](docs/screenshots/models-weapons.png)
 ![Island Buggy and Island Roadster](docs/screenshots/models-vehicles.png)
+![New original island props](docs/screenshots/models-environment.png)
 ![Upgraded Scout and AK-47 in a live match](docs/screenshots/models-gameplay.png)
 ![Live weapon grip and aiming pose](docs/screenshots/models-ak47.png)
 ![Roadster cockpit and updated driving HUD](docs/screenshots/models-roadster.png)
