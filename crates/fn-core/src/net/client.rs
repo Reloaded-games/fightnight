@@ -545,9 +545,9 @@ impl Client {
                 inp.emote = false;
             }
             let look = input.look / steps as f32;
-            let airborne = matches!(self.pred.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
+            let (lo, hi) = crate::game::pitch_limits(self.pred.mode);
             self.view_yaw -= look.x;
-            self.view_pitch = (self.view_pitch + look.y).clamp(if airborne { -1.45 } else { -1.5 }, 1.5);
+            self.view_pitch = (self.view_pitch + look.y).clamp(lo, hi);
             // the recoil of the player's shots lifts the view and settles again (see `Game::handle_items`)
             if self.recoil_kick > 0.0 {
                 let r = self.recoil_kick.min(h * (0.5 + self.recoil_kick * 4.0));

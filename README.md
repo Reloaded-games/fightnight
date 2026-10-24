@@ -13,7 +13,8 @@ editable island overview. Eight new Blender props (rocks, barrel, crate, stump
 and hay bale) are embedded in the game. Rebuild instructions and researched free
 3D-generation options are included with the library.
 
-* Drop from the **Battle Bus** (hot-air balloon and all), skydive and glide onto the island.
+* Ride the **Battle Bus** (hot-air balloon and all) on its roof with the other players, then drop, skydive and glide
+  onto the island.
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
   weapon bloom and recoil, **reloading**, headshots and damage falloff.
 * **39 enemy bots** (adjustable) that land, loot, heal, build cover, fight and run from the storm.
