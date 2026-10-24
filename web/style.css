@@ -200,11 +200,15 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #map .hint { position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); font-family: var(--font); font-style: italic; font-size: 15px; white-space: nowrap; color: #fff; opacity: .85; text-shadow: 0 2px 0 #000; }
 
 /* ---------- end of match ---------- */
-#over { z-index: 20; background: radial-gradient(900px 600px at 50% 40%, rgba(24,40,150,.55), rgba(3,5,22,.9)); gap: 8px; }
+#over { z-index: 20; background: radial-gradient(900px 600px at 50% 40%, rgba(24,40,150,.55), rgba(3,5,22,.9)); gap: 8px; overflow-y: auto; justify-content: flex-start; padding: 16px 0; }
+/* auto margins centre the result when it fits and still let a short window scroll to the top (as in the inventory) */
+#over > :first-child { margin-top: auto; }
+#over > :last-child { margin-bottom: auto; }
+#over .over-main { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; }
 #over .banner { font-size: clamp(60px, 11vw, 170px); line-height: .95; transform: skewX(-8deg); text-align: center; }
 #over.win .banner { color: var(--yellow); text-shadow: 0 8px 0 #a68b00, 0 0 70px rgba(246,229,0,.65); animation: pop .6s cubic-bezier(.2,1.8,.4,1) both; }
 #over.lose .banner { color: #fff; text-shadow: 0 8px 0 #7a1020, 0 0 50px rgba(255,60,80,.5); animation: pop .5s cubic-bezier(.2,1.6,.4,1) both; }
-#over .place { font-family: var(--font); font-style: italic; font-size: clamp(30px, 4vw, 54px); color: #fff; margin-bottom: 14px; }
+#over .place { font-family: var(--font); font-style: italic; font-size: clamp(30px, 4vw, 54px); color: #fff; margin-bottom: 14px; text-align: center; padding: 0 16px; }
 #over .place b { color: var(--yellow); font-size: 1.4em; }
 #over .stats { display: flex; gap: 12px; margin: 14px 0 22px; }
 #over .stat { background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.25); padding: 10px 28px; text-align: center; transform: skewX(-8deg); }
@@ -217,7 +221,7 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #over .points small { display: block; font-family: var(--font-body); font-style: normal; text-transform: none; font-size: 14px; color: #bcd0ff; margin-top: 3px; }
 #over .points small b { font-size: 1em; }
 /* this match's standings: beside the result on a wide screen, under it on a narrow one */
-.over-board { position: absolute; right: 2.5vw; top: 50%; transform: translateY(-50%); width: 340px; background: rgba(8,12,44,.72); border: 2px solid rgba(255,255,255,.18); padding: 10px 12px; }
+.over-board { width: min(560px, 92vw); margin-top: 10px; flex: none; background: rgba(8,12,44,.72); border: 2px solid rgba(255,255,255,.18); padding: 10px 12px; }
 .over-board:empty { display: none; }
 .over-board h4 { margin: 0 0 6px; font-family: var(--font); font-style: italic; font-weight: 900; text-transform: uppercase; font-size: 20px; color: var(--yellow); }
 .over-board table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -228,12 +232,26 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 .over-board tr.me td { background: rgba(246,229,0,.14); color: #fff; font-weight: 700; }
 .over-board i { color: #6dff7a; font-style: normal; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 .over-board .tag { margin-left: 5px; font-size: 9px; padding: 0 3px; }
+@media (min-width: 1280px) {
+  /* a loss: the result and the standings side by side, the result keeping the rest of the width */
+  #over.lose { flex-direction: row; align-items: flex-start; justify-content: center; gap: 3vw; padding: 16px 2.5vw; }
+  #over.lose > * { margin-top: auto; margin-bottom: auto; }
+  #over.lose .over-main { flex: 0 1 auto; min-width: 0; }
+  #over.lose .over-board { width: 340px; }
+  /* a win: the standings sit at the right edge, clear of the dancer in the middle */
+  #over.win .over-board { position: absolute; right: 2.5vw; top: 50%; transform: translateY(-50%); width: 340px; margin: 0; }
+}
 @media (max-width: 1279px) {
-  .over-board { position: static; transform: none; width: min(560px, 92vw); margin-top: 10px; }
   #over.win .over-board { display: none; }
+}
+@media (max-height: 820px) {
+  #over.lose .banner { font-size: clamp(48px, 8vw, 110px); }
+  #over.lose .place { font-size: clamp(24px, 3vw, 40px); margin-bottom: 4px; }
+  #over.lose .stats { margin: 6px 0 14px; }
 }
 /* a win keeps the middle of the screen clear: the winner dances there with the camera swinging round */
 #over.win { background: radial-gradient(ellipse 70% 60% at 50% 52%, rgba(3,5,22,0) 35%, rgba(3,5,22,.62) 100%); backdrop-filter: none; justify-content: flex-start; padding: 3vh 0 3vh; }
+#over.win .over-main { flex: 1 0 auto; margin: 0; }
 #over.win .banner { font-size: clamp(44px, 7vw, 110px); }
 #over.win .place { font-size: clamp(22px, 2.6vw, 36px); margin-bottom: 0; }
 #over.win .stats { margin: auto 0 14px; }

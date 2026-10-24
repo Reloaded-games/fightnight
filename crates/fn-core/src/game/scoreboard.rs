@@ -58,7 +58,10 @@ pub struct Row {
     /// A person who left the match: a bot played on in their place, so the result is not theirs.
     pub left: bool,
     pub alive: bool,
-    /// The result is final (eliminated, or the match is decided).
+    /// The result is final: eliminated, or still standing when the match is decided. (On a player's copy of a multiplayer match
+    /// the placement comes from the host's scoreboard and the end of the match from a snapshot, so asking for both keeps a
+    /// line from counting before its last numbers have arrived. Explosives can still add to it afterwards: the page keeps
+    /// up with that.)
     pub done: bool,
     /// 1 is first; 0 while still in play.
     pub place: u32,
@@ -92,7 +95,7 @@ pub fn rows(g: &Game) -> Vec<Row> {
                 human: a.id < humans,
                 left: a.id < humans && !a.human,
                 alive: a.alive,
-                done: place > 0,
+                done: a.placement > 0 && (!a.alive || g.phase == Phase::Over),
                 place,
                 won,
                 kills: a.kills,
@@ -247,6 +250,19 @@ mod tests {
         assert!(me.won && me.place == 1 && me.alive);
         assert_eq!(me.points, Points { elims: 50, damage: 6, placement: 50, victory: 50 });
         assert_eq!(r[0].id, PLAYER);
+    }
+
+    #[test]
+    fn a_line_is_final_only_once_its_actor_is_out_or_the_match_is_decided() {
+        let mut g = game(2, true);
+        // a player's copy of a multiplayer match can hear the winner's placement before it hears that the match is over
+        g.actors[1].placement = 1;
+        let line = |g: &Game| rows(g).into_iter().find(|r| r.id == 1).unwrap();
+        assert!(!line(&g).done, "not final while the match goes on for all this copy knows");
+        g.phase = Phase::Over;
+        g.winner = Some(1);
+        let r = line(&g);
+        assert!(r.done && r.won && r.points.victory == VICTORY_POINTS, "final as a win, with the win's points: {r:?}");
     }
 
     #[test]

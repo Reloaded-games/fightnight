@@ -2,7 +2,8 @@
 // in a multiplayer match and the bots), added up in localStorage. A match's own numbers and points come from the wasm module
 // (`fn.scoreboard()`, see crates/fn-core/src/game/scoreboard.rs). A result counts once it is final (eliminated, or the match is
 // decided), so a match left half-way only counts for those already out; quitting a match you are still in counts as going
-// out right there.
+// out right there. A counted result that still changes while the match goes on (a grenade its owner threw before falling goes
+// off) is brought up to date.
 
 const KEY = 'fightnight.leaderboard';
 const HISTORY = 60; // recent results of people (not bots) kept for the player cards
@@ -50,30 +51,37 @@ function load() {
 
 function playerKey(name, bot) { return (bot ? 'b:' : 'p:') + String(name).trim().toLowerCase(); }
 
-function add(s, r) {
-  s.matches++;
-  if (r.won) s.wins++;
-  if (r.place > 0 && r.place <= 10) s.top10++;
-  s.score += r.pts;
-  s.best = Math.max(s.best, r.pts);
-  s.kills += r.kills;
-  s.mostKills = Math.max(s.mostKills, r.kills);
-  s.damage += r.damage;
-  s.headshots += r.headshots;
-  s.shots += r.shots;
-  s.hits += r.hits;
-  s.longest = Math.max(s.longest, r.longest);
-  s.built += r.built;
-  s.opened += r.opened;
-  s.time += r.time;
-  s.placeSum += r.place;
-  s.bestPlace = s.bestPlace ? Math.min(s.bestPlace, r.place) : r.place;
-  if (r.quit) s.quits++;
+// The numbers of a result that can still change after it was counted.
+const COUNTED = ['pts', 'kills', 'damage', 'headshots', 'shots', 'hits', 'longest', 'built', 'opened', 'won', 'place'];
+
+// Add a result to a player's totals; `sign` -1 takes one back out, so a result that changed can be swapped for its new numbers
+// (the bests only ever go up, and so do a result's numbers).
+function add(s, r, sign = 1) {
+  s.matches += sign;
+  s.wins += sign * (r.won ? 1 : 0);
+  s.top10 += sign * (r.place > 0 && r.place <= 10 ? 1 : 0);
+  s.score += sign * r.pts;
+  s.kills += sign * r.kills;
+  s.damage += sign * r.damage;
+  s.headshots += sign * r.headshots;
+  s.shots += sign * r.shots;
+  s.hits += sign * r.hits;
+  s.built += sign * r.built;
+  s.opened += sign * r.opened;
+  s.time += sign * r.time;
+  s.placeSum += sign * r.place;
+  s.quits += sign * (r.quit ? 1 : 0);
+  if (sign > 0) {
+    s.best = Math.max(s.best, r.pts);
+    s.mostKills = Math.max(s.mostKills, r.kills);
+    s.longest = Math.max(s.longest, r.longest);
+    s.bestPlace = s.bestPlace ? Math.min(s.bestPlace, r.place) : r.place;
+  }
 }
 
 export function createLeaderboard({ fn, myName, click, show }) {
   let data = load() || fresh();
-  let match = null; // the match being followed: { recorded: Set of actor ids, acc: seconds since the last look }
+  let match = null; // the match being followed: { id, recorded: actor id -> { key, mode, res } as counted, acc: seconds since the last look }
   let board = null; // the latest scoreboard of that match
   const view = { mode: 'all', bots: false, sort: 'score', sel: null, confirmReset: false };
   try { Object.assign(view, JSON.parse(localStorage.getItem(KEY + '.view') || '{}'), { sel: null, confirmReset: false }); } catch (e) { /* defaults */ }
@@ -87,23 +95,52 @@ export function createLeaderboard({ fn, myName, click, show }) {
     try { localStorage.setItem(KEY + '.view', JSON.stringify({ mode: view.mode, bots: view.bots, sort: view.sort })); } catch (e) { /* ignore */ }
   }
 
+  // Whose career a line counts for. The person at this keyboard is always themselves, whatever the match called them; anybody
+  // else with their name (a friend who also kept the default "You") is kept apart from them.
+  function keyOf(r) {
+    const mine = playerKey(myName(), false);
+    if (r.me) return { key: mine, name: myName() };
+    const key = playerKey(r.name, !r.human);
+    return key === mine ? { key: playerKey(r.name + ' (other)', false), name: r.name + ' (other)' } : { key, name: r.name };
+  }
+
   // Add one finished result to the player's totals (and to the recent results, for people).
   function record(r, b, quit = false) {
     const bot = !r.human;
-    const key = playerKey(r.name, bot);
-    const p = data.players[key] || (data.players[key] = { name: r.name, bot, all: blank(), modes: {} });
-    p.name = r.name;
+    const { key, name } = keyOf(r);
+    const p = data.players[key] || (data.players[key] = { name, bot, all: blank(), modes: {} });
+    p.name = name;
     p.last = Date.now();
     const res = { ...r, quit };
     add(p.all, res);
     add(p.modes[b.mode] || (p.modes[b.mode] = blank()), res);
     if (!bot) {
-      data.history.unshift({ key, t: p.last, mode: b.mode, map: b.map, difficulty: b.difficulty, total: b.total, place: r.place, won: r.won, quit, kills: r.kills, damage: r.damage, time: r.time, pts: r.pts });
+      data.history.unshift({ key, m: match.id, a: r.id, t: p.last, mode: b.mode, map: b.map, difficulty: b.difficulty, total: b.total, place: r.place, won: r.won, quit, kills: r.kills, damage: r.damage, time: r.time, pts: r.pts });
       if (data.history.length > HISTORY) data.history.length = HISTORY;
     }
+    match.recorded.set(r.id, { key, mode: b.mode, res });
   }
 
-  // Look at the match's scoreboard and count every result that became final since the last look.
+  // A counted result whose numbers changed since (a grenade or rocket its owner let go before falling found somebody; on a
+  // player's copy of a multiplayer match, the host's last numbers came in late): swap the old numbers for the new ones.
+  // The time survived stays what it was when the result became final (a winner's clock runs on while they dance).
+  function amend(r, rec) {
+    const res = { ...r, time: rec.res.time, quit: rec.res.quit };
+    const p = data.players[rec.key];
+    if (p) {
+      for (const s of [p.all, p.modes[rec.mode]]) {
+        if (!s) continue;
+        add(s, rec.res, -1);
+        add(s, res);
+      }
+      const h = data.history.find((x) => x.m === match.id && x.a === r.id);
+      if (h) Object.assign(h, { place: res.place, won: res.won, kills: res.kills, damage: res.damage, pts: res.pts });
+    }
+    rec.res = res;
+  }
+
+  // Look at the match's scoreboard: count every result that became final since the last look, and bring the counted ones
+  // up to date.
   function poll() {
     if (!match) return board;
     let b;
@@ -111,13 +148,13 @@ export function createLeaderboard({ fn, myName, click, show }) {
     if (!b || !Array.isArray(b.rows)) return board;
     board = b;
     // someone who left the match is played on by a bot: that result is not theirs
-    const finished = b.rows.filter((r) => r.done && !r.left && !match.recorded.has(r.id));
-    if (finished.length) {
+    const final = b.rows.filter((r) => r.done && !r.left);
+    const added = final.filter((r) => !match.recorded.has(r.id));
+    const changed = final.filter((r) => match.recorded.has(r.id) && COUNTED.some((k) => r[k] !== match.recorded.get(r.id).res[k]));
+    if (added.length || changed.length) {
       data = load() || data; // another tab may have added matches since
-      for (const r of finished) {
-        match.recorded.add(r.id);
-        record(r, b);
-      }
+      for (const r of added) record(r, b);
+      for (const r of changed) amend(r, match.recorded.get(r.id));
       save();
       if ($('leaderboard').classList.contains('active')) render();
     }
@@ -199,7 +236,7 @@ export function createLeaderboard({ fn, myName, click, show }) {
     const recent = x.p.bot ? [] : data.history.filter((h) => h.key === x.key && (view.mode === 'all' || h.mode === view.mode)).slice(0, 8);
     const when = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const recentHtml = recent.length ? `<h4>Recent matches</h4><table class="lb-recent"><thead><tr><th>When</th><th>Mode</th><th>Map</th><th>Place</th><th>Elims</th><th>Damage</th><th>Survived</th><th>Points</th></tr></thead><tbody>${recent.map((h) => `<tr class="${h.won ? 'won' : ''}"><td>${esc(when(h.t))}</td><td>${esc(MODE_NAMES[h.mode] || h.mode)}</td><td>${esc(MAP_NAMES[h.map] || h.map)}</td><td>${h.won ? 'Victory' : '#' + h.place + ' / ' + h.total}${h.quit ? ' (left)' : ''}</td><td>${h.kills}</td><td>${int(h.damage)}</td><td>${clock(h.time)}</td><td class="score">+${int(h.pts)}</td></tr>`).join('')}</tbody></table>` : '';
-    $('leaderboard-detail').innerHTML = `<div class="lb-who"><span class="rank-badge${rank <= 3 ? ' r' + rank : ''}">${rank}</span><h4>${esc(x.p.name)}</h4>${x.p.bot ? '<span class="tag">bot</span>' : ''}${x.key === me ? '<span class="tag you">you</span>' : ''}<small>${MODE_NAMES[view.mode]}${x.p.last ? ' &middot; last played ' + esc(new Date(x.p.last).toLocaleDateString()) : ''}</small></div><div class="lb-tiles">${tiles}</div>${modes ? `<div class="leaderboard-modes">${modes}</div>` : ''}${recentHtml}`;
+    $('leaderboard-detail').innerHTML = `<div class="lb-who"><span class="rank-badge${rank <= 3 ? ' r' + rank : ''}">${rank}</span><h4>${esc(x.p.name)}</h4>${x.p.bot ? '<span class="tag">bot</span>' : ''}${x.key === me ? '<span class="tag you">you</span>' : ''}<small>${MODE_NAMES[view.mode]}${x.p.last ? ' &middot; last played ' + esc(new Date(x.p.last).toLocaleDateString()) : ''}</small></div><div class="lb-tiles">${tiles}</div>${modes ? `<div class="lb-modes">${modes}</div>` : ''}${recentHtml}`;
   }
 
   function rules(b) {
@@ -216,7 +253,7 @@ export function createLeaderboard({ fn, myName, click, show }) {
     if (mine) {
       const [e, d, p, v] = mine.parts;
       const parts = [[e, 'elims'], [d, 'damage'], [p, 'placement'], [v, 'victory']].filter(([n]) => n > 0).map(([n, l]) => `${int(n)} ${l}`).join(' &middot; ');
-      const key = playerKey(mine.name, false);
+      const { key } = keyOf(mine);
       const career = data.players[key];
       const { rank, of } = rankOf(key);
       const where = career && match && match.recorded.has(mine.id) ? `Career <b>${int(career.all.score)}</b> points${rank ? ` &middot; ${ordinal(rank)} of ${of} on the leaderboard` : ''}` : 'Counts on the leaderboard once your result is final';
@@ -278,7 +315,7 @@ export function createLeaderboard({ fn, myName, click, show }) {
     get board() { return board; },
     get data() { return data; },
     // A new match: nothing of it is counted yet.
-    beginMatch() { match = { recorded: new Set(), acc: 0 }; board = null; },
+    beginMatch() { match = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), recorded: new Map(), acc: 0 }; board = null; },
     // Called every frame during a match.
     tick(dt) {
       if (!match) return;
@@ -297,7 +334,6 @@ export function createLeaderboard({ fn, myName, click, show }) {
       const mine = b && b.rows.find((r) => r.me);
       if (underway && b.leave && mine && !mine.done && !mine.left && !match.recorded.has(mine.id)) {
         data = load() || data;
-        match.recorded.add(mine.id);
         record({ ...mine, ...b.leave, won: false, done: true }, b, true);
         save();
       }

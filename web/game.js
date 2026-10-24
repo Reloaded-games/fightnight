@@ -466,6 +466,10 @@ window.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('beforeunload', (e) => {
   if (state === 'playing' || state === 'paused') { e.preventDefault(); e.returnValue = ''; }
 });
+// Closing or reloading the page is walking out of the match too (the leaderboard saves synchronously, which still works here).
+window.addEventListener('pagehide', () => {
+  if (state === 'playing' || state === 'paused' || state === 'over') leaderboard.leave(state !== 'over' && !!hudState && hudState.ph !== 0);
+});
 // In fullscreen Chromium can hand us the keys that are normally browser shortcuts (Ctrl+W, Ctrl+1..6, ...).
 document.addEventListener('fullscreenchange', () => {
   const kb = navigator.keyboard;

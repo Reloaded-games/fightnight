@@ -1,10 +1,12 @@
 // End-to-end test of the leaderboard: a won match and a quit match land on the career board with the right points, the end
-// screen shows the match's points and standings, bots only show when asked, the columns sort and the board can be reset.
+// screen shows the match's points and standings (beside the result without covering it, or under it with room to scroll), a
+// counted result that still changes is brought up to date, bots only show when asked, the columns sort and the board resets.
 //   node leaderboard_e2e.mjs            (needs `scripts/build.sh` first)
 import { serve, launch } from './browser.mjs';
 
 const { srv, url } = await serve();
-const { browser, page, logs } = await launch({ width: 1600, height: 900 });
+// (wide enough for the standings to sit beside the result; software rendering gets slow on bigger windows)
+const { browser, page, logs } = await launch({ width: 1280, height: 720 });
 let failed = 0;
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  ' + extra : ''}`); if (!ok) failed++; };
 const ev = (f, arg) => page.evaluate(f, arg);
@@ -87,11 +89,47 @@ const ada2 = d?.players['p:ada']?.all;
 check('quitting a match you are in counts as a loss', ada2 && ada2.matches === 2 && ada2.wins === 1 && ada2.quits === 1 && ada2.kills === 4 && ada2.score === 220 + 37, JSON.stringify(ada2));
 check('and is marked in the recent matches', d.history[0].quit === true && d.history[0].place === 11, JSON.stringify(d.history[0]));
 
+// ---- an eliminated player's result is counted at once, and kept up to date ------------------------------------------------
+await page.click('#btn-play');
+await until(() => window.__game.state === 'playing');
+await debug('kill_me');
+await until(() => (JSON.parse(localStorage.getItem('fightnight.leaderboard')) || { players: {} }).players['p:ada']?.all.matches === 3, null, 120000);
+check('an elimination counts before the end screen shows', true);
+// a grenade thrown before falling can still score: the counted result follows
+await debug('stats 2 100 300');
+await until(() => (JSON.parse(localStorage.getItem('fightnight.leaderboard')) || { players: {} }).players['p:ada']?.all.kills === 6, null, 120000);
+d = await stored();
+const ada3 = d.players['p:ada'].all;
+check('a counted result that changes is updated, not counted again', ada3.matches === 3 && ada3.kills === 6 && ada3.damage === 570 + 300 && d.history[0].kills === 2 && d.history[0].damage === 300, JSON.stringify({ all: ada3, last: d.history[0] }));
+check('and its points with it', ada3.score === 257 + d.history[0].pts && d.history[0].pts === 2 * 25 + 30, JSON.stringify(d.history[0]));
+await until(() => window.__game.state === 'over', null, 180000);
+await page.waitForTimeout(300);
+await ev(() => { document.getElementById('gpu').style.visibility = 'hidden'; }); // the layout checks below need no frames
+const layout = () => ev(() => {
+  const r = (id) => document.getElementById(id).getBoundingClientRect();
+  const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  const board = r('over-board');
+  return { place: hit(r('over-place'), board), stats: hit(r('over-stats'), board), banner: Math.round(r('over-banner').top), board: Math.round(board.width) };
+});
+for (const [w, h] of [[1280, 720], [1366, 768], [1600, 900]]) {
+  await page.setViewportSize({ width: w, height: h });
+  const l = await layout();
+  check(`at ${w}x${h} the standings sit beside the result without covering it`, !l.place && !l.stats && l.banner >= 0 && l.board > 0, JSON.stringify(l));
+}
+await page.setViewportSize({ width: 960, height: 540 });
+const narrow = await layout();
+const scrolls = await ev(() => { const o = document.getElementById('over'); return o.scrollHeight > o.clientHeight && getComputedStyle(o).overflowY === 'auto'; });
+check('on a small window they go under it and the screen scrolls instead of cutting the top off', !narrow.place && narrow.banner >= 0 && scrolls, JSON.stringify(narrow));
+await page.setViewportSize({ width: 1280, height: 720 });
+await ev(() => { document.getElementById('gpu').style.visibility = ''; });
+await page.click('#btn-menu');
+await until(() => window.__game.state === 'menu');
+
 // ---- reset ----------------------------------------------------------------------------------------------------------------------
 await page.click('#btn-leaderboard');
 check('the board remembers the bots choice', await ev(() => document.getElementById('leaderboard-bots').checked));
 await page.click('#leaderboard-reset');
-check('reset asks for a second click', /again/i.test(await text('#leaderboard-reset')) && (await stored()).history.length === 2);
+check('reset asks for a second click', /again/i.test(await text('#leaderboard-reset')) && (await stored()).history.length === 3);
 await page.click('#leaderboard-reset');
 check('the second click erases everything', /No finished matches yet/.test(await text('#leaderboard-body')) && Object.keys((await stored()).players).length === 0);
 await page.click('#leaderboard-close');

@@ -211,6 +211,7 @@ cd tools && npm install && npm test       # real-browser tests (needs `scripts/b
                                            #   utility_e2e.mjs grenades, the Launch Pad, Slurp Juice, ammo boxes and llamas
                                            #   maps_e2e.mjs  the map choice, a match on Chapter 1 and Chapter 2, places in their grid cells
                                            #   leaderboard_e2e.mjs  match points on the end screen, the career board, quitting, reset
+                                           #   (leaderboard_logic.mjs checks the board's bookkeeping in plain Node, no build needed)
                                            # npm run fuzz   random keys/clicks/blur/lock releases against the UI state machine
 ```
 
