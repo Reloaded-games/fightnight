@@ -17,8 +17,9 @@ and two detailed vehicle bodies with animated steering and wheels.
   gear, vegetation, studded terrain and build pieces, with battle royale rules).
 * **Drivable Island Buggies and Roadsters** parked around the island. Enter or leave with **E**, drive with **WASD**,
   boost with **Shift** and brake with **Space**. Driver seats, collisions and physics are owned by the host.
-* **Multiplayer**: one player hosts a room, up to seven friends join with a copy-and-paste code (no server, no
-  account: the browsers connect to each other over WebRTC), and bots fill the island. See [Multiplayer](#multiplayer).
+* **Multiplayer**: one player hosts a room, up to seven friends join it from the room list or by typing its
+  six-letter code (no game server, no account: the browsers connect to each other over WebRTC), and bots fill the
+  island. See [Multiplayer](#multiplayer).
 * **Loot**: chests (about 60 inside buildings and 56 spread across the open island, in the hills, forests and
   on the coast), floor weapons with rarity beams (common → legendary), ammo, bandages, medkits, shield potions,
   **Slurp Juice** (heals, then shields, two points a second up to 75) and Chug Jugs. 5 hotbar slots + pickaxe,
@@ -123,12 +124,15 @@ cover before you heal; the next safe circle is the dashed white ring on the map.
 
 Press **Multiplayer** in the main menu.
 
-* **Host a game** opens your room. Press *+ Invite a player* for every friend: it makes an **invite code**; send it
-  to them (chat, mail, anything). They choose **Join a game**, paste it, press *Continue*, and send back the
-  **reply code** they get. Paste that into the matching box on your side and press *Connect*: they appear in
-  the player list. The **room creator is the host**. When everybody is in, choose the mode,
-  number of bots and difficulty and press **Start match**. Every guest uses those match rules.
-* **Join a game**: paste the host's invite, send back your reply, and wait for the host to start.
+* **Host a game** opens your room and shows its **room code** (six letters and digits). A **public** room is
+  listed for everybody who opens *Join a game*; switch it to **private** and only players who type the code can
+  join. Players come in by themselves and appear in the player list. The **room creator is the host**: when
+  everybody is in, choose the mode, map, number of bots and difficulty and press **Start match**. Every guest uses
+  those match rules.
+* **Join a game** lists the open public rooms: press *Join* on one. For a private room, type its code and press
+  *Join*.
+* No internet room service (see below)? Both screens also keep the old way in: *invite with copied codes*, where
+  the host sends an invite code, the guest pastes it and sends back a reply code, and the host pastes that.
 
 Everybody drops from the same Battle Bus into the same island; the last one standing (human or bot) wins. If a
 player leaves or loses their connection, a bot takes over their character. Eliminated players can spectate.
@@ -144,6 +148,13 @@ network), the others are
 in a single-player match. Messages are a small hand-written binary format over two WebRTC data channels per
 player (one reliable and ordered, one unreliable for commands and snapshots); `crates/fn-core/src/net/` has the
 protocol, the host, the guest and tests that drive them through a simulated lossy network.
+
+Finding each other: the room list and the connection set-up go through free public MQTT brokers (several at once,
+so one being down does not matter). A public room is a small retained message the host refreshes while the room is
+open and the broker removes when the host goes away; a player who joins sends a request on the room's topic, the
+host answers it with a WebRTC offer and the guest's page answers back, all by itself (`web/rooms.js`). Only that
+set-up goes through the brokers: the match itself runs directly between the browsers. Anyone who knows a private
+room's code can join it, so share it only with friends.
 
 Limits: connections are direct, so two players behind strict (symmetric) NATs may not be able to reach each other
 (there is no relay server; a public STUN server is used to find addresses); the match cannot be joined once it has
@@ -171,7 +182,8 @@ crates/
   fn-shaders/  WGSL shaders (+ a naga validation test so a shader typo fails `cargo test`)
   fn-web/      the wasm module: wgpu WebGPU renderer, app loop, and the exports used by the page
 web/           index.html, CSS and the JS for menus, HUD drawing (Canvas2D), icons and WebAudio playback;
-               net.js / multiplayer.js: WebRTC data channels, invite codes and the lobby screens
+               net.js / rooms.js / multiplayer.js: WebRTC data channels, the room service (room list, room
+               codes), the copied-code fallback and the lobby screens
 scripts/       build script (cargo → wasm-bindgen → dist/)
 tools/         headless-Chromium helpers: screenshots and the end-to-end tests
 assets/cartoon/ editable Blender source, rigged GLBs, baked mesh buffers and animation curves
@@ -197,7 +209,8 @@ cargo run --release -p fn-core --example dump_height -- 1234 h.png chapter2  # i
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
                                            #   e2e.mjs      gameplay: move, shoot, reload, build, harvest, chests, kills...
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
-                                           #   mp_e2e.mjs   two browsers host/join through the real invite codes over WebRTC
+                                           #   rooms_e2e.mjs two browsers find each other: room list, private code, rejoin
+                                           #   mp_e2e.mjs   two browsers host/join with copied codes, then play together
                                            #   supply_e2e.mjs  a supply drop falls, lands, shows on the HUD and is opened with E
                                            #   utility_e2e.mjs grenades, the Launch Pad, Slurp Juice, ammo boxes and llamas
                                            #   maps_e2e.mjs  the map choice, a match on Chapter 1 and Chapter 2, places in their grid cells
@@ -225,7 +238,7 @@ hardware gets the same movement, reload and harvesting durations as software ren
 
 ## Notes and limitations
 
-* Multiplayer is peer-to-peer with hand-exchanged codes: no matchmaking, no relay server, no late joining
+* Multiplayer is peer-to-peer, found through public MQTT brokers: no skill matchmaking, no relay server, no late joining
   (see [Multiplayer](#multiplayer)). There is no structure editing.
 * Desktop only (keyboard and mouse). Quality presets exist because GPUs vary: if the frame rate stays under
   roughly 30 fps for a few seconds the game steps the preset down by itself (never up; switch it off in

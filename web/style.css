@@ -105,6 +105,26 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 .invite small { display: block; color: #9fb6e8; margin: 4px 0 3px; font-size: 12px; }
 .invite .mp-actions { margin-top: 4px; }
 .lobby-settings { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.15); padding-top: 6px; }
+.room-box { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; background: rgba(0,0,0,.25); border: 2px solid rgba(255,255,255,.16); padding: 10px 14px; margin: 0 0 12px; }
+.room-code-wrap small { display: block; color: #9fb6e8; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
+.room-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 800; font-size: 40px; letter-spacing: .18em; color: var(--yellow); -webkit-user-select: all; user-select: all; }
+.room-vis { flex: 1; min-width: 220px; }
+.room-vis .mp-note { margin: 6px 0 0; font-size: 13px; }
+.rooms-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.rooms-status { color: #9fb6e8; font-size: 13px; }
+.rooms-status.bad { color: #ff8f9a; }
+.room-list { display: flex; flex-direction: column; gap: 8px; min-height: 52px; max-height: 260px; overflow-y: auto; margin-bottom: 4px; }
+.room-list .empty { color: #9fb6e8; font-size: 14px; padding: 14px 4px; }
+.room-row { display: flex; align-items: center; gap: 12px; background: rgba(0,0,0,.3); border: 2px solid rgba(255,255,255,.16); padding: 8px 10px 8px 14px; }
+.room-row .who { flex: 1; min-width: 0; font-family: var(--font); font-style: italic; font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-row .what { color: #9fb6e8; font-size: 13px; white-space: nowrap; }
+.room-row .count { font-family: var(--font); font-size: 20px; min-width: 44px; text-align: right; }
+.code-row { display: flex; gap: 10px; align-items: stretch; }
+.code-row input { flex: 1; min-width: 0; max-width: 260px; background: rgba(0,0,0,.4); border: 2px solid rgba(255,255,255,.3); color: #fff; font: 800 26px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .2em; text-transform: uppercase; padding: 8px 12px; outline: none; }
+.code-row input:focus { border-color: var(--yellow); }
+details.manual { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 8px; }
+details.manual summary { cursor: pointer; color: #9fb6e8; font-size: 13px; }
+details.manual[open] summary { margin-bottom: 8px; }
 .mp-msg { min-height: 22px; margin-top: 10px; color: #ffe08a; font-size: 14px; text-align: center; }
 .mp-msg.bad { color: #ff8f9a; }
 #err { color: #ff8f9a; font-size: 14px; max-width: 520px; }

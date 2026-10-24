@@ -246,6 +246,12 @@ fn now_ms() -> u32 {
     web_sys::window().and_then(|w| w.performance()).map(|p| p.now() as u32).unwrap_or(0)
 }
 
+/// The network protocol's version: only players with the same one can play together (the room list keeps them apart).
+#[wasm_bindgen]
+pub fn net_version() -> u32 {
+    fn_core::net::proto::VERSION as u32
+}
+
 /// Open a room for other players; `name` is the host's name.
 #[wasm_bindgen]
 pub fn net_host_open(name: &str) {
