@@ -43,8 +43,8 @@ and two detailed vehicle bodies with animated steering and wheels.
 * **Harvesting**: hit trees (wood), grey rocks (stone) and the blue-grey ore rocks (metal) with the pickaxe (trees really fall over).
 * **Shrinking storm** in 7 phases that forces everyone together, with a minimap, full map and storm timer.
 * **Sound directions**: like the footstep and gunfire indicators of mobile shooters, a ring around the crosshair
-  points at every footstep (white) and shot (red) you can hear, bolder the closer it is, and follows a walking enemy
-  until they go quiet. Turn it off in Settings.
+  points at the footsteps and jumps (white) and the shots (red, up to 220 m away) you can hear, the moment the sound
+  reaches you, bolder the closer it is, and follows a moving enemy until they go quiet. Turn it off in Settings.
 * **Three maps**, chosen in the menu (and by the multiplayer host): **Chapter 1** and **Chapter 2**, recreations of
   the Fortnite Battle Royale islands of Chapter 1 (season 4) and Chapter 2 (season 1) built from their real layouts
   (every named location in its grid cell, the coastline, lakes, rivers, swamps, hills and roads), and the

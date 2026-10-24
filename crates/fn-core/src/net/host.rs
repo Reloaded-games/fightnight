@@ -6,6 +6,7 @@
 
 use super::proto::*;
 use crate::game::actor::{Action, Actor, MoveMode};
+use crate::game::audio_map::SHOT_MARKER_RANGE;
 use crate::game::events::Event;
 use crate::game::items::Item;
 use crate::game::pieces::PieceKey;
@@ -586,7 +587,7 @@ pub(crate) fn audience(g: &Game, e: &Event, who: usize) -> bool {
         Event::Eliminated { .. } | Event::Victory { .. } | Event::StormPhase { .. } | Event::TreeFelled { .. } => true,
         Event::Explosion { pos, .. } | Event::Impulse { pos } | Event::Boogie { pos } => near(*pos, 300.0),
         Event::Launch { pos, .. } | Event::TrapPlaced { pos, .. } => near(*pos, 160.0),
-        Event::Shot { pos, .. } => near(*pos, 220.0),
+        Event::Shot { pos, .. } => near(*pos, SHOT_MARKER_RANGE),
         Event::Tracer { from, .. } => near(*from, 220.0),
         Event::Damage { attacker, pos, .. } => *attacker == Some(who) || near(*pos, 160.0),
         Event::Pickup { actor, pos, .. } => *actor == who || near(*pos, 80.0),

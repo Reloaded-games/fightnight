@@ -725,16 +725,20 @@ export class Hud {
   soundIndicators(s, W, H, S) {
     if (!this.showSounds || !s.snd || !s.snd.length) return;
     const ctx = this.ctx;
-    // wider than tall, so a sound on the left clears the character the shoulder camera puts there
-    const cx = W / 2, cy = H / 2, RX = Math.min(W * 0.3, H * 0.5), RY = H * 0.28;
+    // wider than tall, so a sound from the left clears the character the shoulder camera puts there (how far left of the
+    // crosshair it stands goes with the height of the screen, so the width follows the height on narrow windows too)
+    const cx = W / 2, cy = H / 2, RX = Math.min(W / 2 - 60 * S, Math.max(H * 0.42, Math.min(W * 0.3, H * 0.5))), RY = H * 0.28;
     // the ellipse's own angle for the point in direction `th`, and how far from the centre that point is
     const param = (rx, ry, th) => Math.atan2(rx * Math.sin(th), ry * Math.cos(th));
     const reach = (rx, ry, th) => 1 / Math.hypot(Math.cos(th) / rx, Math.sin(th) / ry);
-    for (const m of s.snd) {
+    // solid while fresh, then fading out; nearer sounds are stronger and bigger
+    const strength = (m) => Math.min(1, m.t * 2.5) * (0.45 + 0.55 * m.l);
+    // shots over steps (an enemy walking and shooting stays red), and the strongest of each on top
+    const marks = s.snd.slice().sort((a, b) => a.k - b.k || strength(a) - strength(b));
+    for (const m of marks) {
       const shot = m.k === 1;
       const col = shot ? '#ff5a36' : '#ffffff';
-      // solid while fresh, then fading out; nearer sounds are stronger and bigger
-      const alpha = Math.min(1, m.t * 2.5) * (0.45 + 0.55 * m.l);
+      const alpha = strength(m);
       if (alpha < 0.02) continue;
       const fresh = Math.max(0, (m.t - 0.85) / 0.15); // each new step or shot makes the marker swell for a moment
       const ang = m.a - Math.PI / 2; // canvas angles start at 3 o'clock, the game's bearings at 12
