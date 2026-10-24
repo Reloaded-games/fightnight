@@ -459,6 +459,7 @@ impl Game {
 
         // ---- hitscan ------------------------------------------------------------------------
         let mut any_actor = false;
+        let mut any_head = false;
         let mut first_end = origin + aim * def.range;
         for p in 0..def.pellets {
             let dir = if spread > 0.0 { perturb(aim, spread, &mut self.rng) } else { aim };
@@ -479,6 +480,7 @@ impl Game {
             match tr.hit {
                 TraceHit::Actor { idx, head } => {
                     any_actor = true;
+                    any_head |= head;
                     let dmg = if head { base * def.head_mult } else { base };
                     self.damage_actor(idx, dmg, Some(i), def.name, head, tr.point, false);
                 }
@@ -493,6 +495,10 @@ impl Game {
             }
         }
         self.events.push(Event::Shot { actor: i, pos: muzzle, weapon: kind, end: first_end, hit_actor: any_actor });
+        let a = &mut self.actors[i];
+        a.shots += 1;
+        a.hits += any_actor as u32;
+        a.headshots += any_head as u32;
     }
 
     fn impact_kind(&self, tag: Option<Tag>) -> ImpactKind {
@@ -698,7 +704,10 @@ impl Game {
         }
         self.drop_inventory(victim);
         if let Some(k) = killer {
-            self.actors[k].kills += 1;
+            let far = self.actors[k].pos.distance(self.actors[victim].pos);
+            let a = &mut self.actors[k];
+            a.kills += 1;
+            a.longest_elim = a.longest_elim.max(far);
         }
         self.actors[victim].survived = self.match_time;
         self.events.push(Event::Eliminated { victim, killer, weapon: Some(weapon), storm });
@@ -1187,6 +1196,33 @@ mod tests {
         let head = 500.0 - g.actors[b].hp;
         assert!(head > body * 2.0, "headshot {head} vs body {body}");
         assert!(g.events.iter().any(|e| matches!(e, Event::Damage { headshot: true, .. })));
+    }
+
+    #[test]
+    fn the_scoreboard_counts_shots_hits_and_a_shotgun_headshot_once() {
+        let mut g = game(2, true);
+        let (a, b) = duel(&mut g, 4.0);
+        equip(&mut g, a, WeaponKind::Shotgun, Rarity::Common);
+        g.actors[b].hp = 1000.0;
+        g.actors[a].ads = true;
+        for _ in 0..4 {
+            let (o, _) = g.aim_ray(a);
+            let to = g.actors[b].head_pos() - o;
+            g.actors[a].yaw = yaw_of(Vec2::new(to.x, to.z));
+            g.actors[a].pitch = (to.y / Vec2::new(to.x, to.z).length()).atan();
+        }
+        g.update(1.0 / 60.0, &shoot());
+        let heads = g.events.iter().filter(|e| matches!(e, Event::Damage { headshot: true, .. })).count();
+        assert!(heads > 1, "several pellets found the head: {heads}");
+        let s = &g.actors[a];
+        assert_eq!((s.shots, s.hits, s.headshots), (1, 1, 1), "one blast is one shot, one hit and one headshot");
+        // a shot into the sky misses
+        g.actors[a].fire_cd = 0.0;
+        g.actors[a].pitch = 1.2;
+        g.update(1.0 / 60.0, &shoot());
+        let s = &g.actors[a];
+        assert_eq!((s.shots, s.hits, s.headshots), (2, 1, 1));
+        assert_eq!(g.actors[b].shots, 0, "the target did not shoot");
     }
 
     #[test]

@@ -110,6 +110,60 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #err { color: #ff8f9a; font-size: 14px; max-width: 520px; }
 .credit { position: fixed; left: 5vw; bottom: 2vh; font-size: 12px; color: rgba(255,255,255,.45); z-index: 11; }
 
+/* ---------- leaderboard ---------- */
+#leaderboard { z-index: 26; background: rgba(5,8,35,.88); backdrop-filter: blur(6px); }
+.lb-panel { width: min(1180px, 96vw); max-height: 94vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.lb-panel h3 { margin: 0; }
+.lb-filters { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.lb-check { display: flex; gap: 8px; align-items: center; font-family: var(--font); font-style: italic; text-transform: uppercase; font-size: 18px; letter-spacing: .04em; cursor: pointer; }
+.lb-check input { width: 20px; height: 20px; accent-color: var(--yellow); margin: 0; }
+.lb-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.lb-table th { font-family: var(--font); font-style: italic; font-weight: 900; text-transform: uppercase; font-size: 17px; letter-spacing: .04em; color: #bcd0ff; text-align: right; padding: 6px 10px; border-bottom: 2px solid rgba(255,255,255,.2); white-space: nowrap; }
+.lb-table th[data-sort] { cursor: pointer; }
+.lb-table th[data-sort]:hover { color: #fff; }
+.lb-table th.on { color: var(--yellow); }
+.lb-table th.on::after { content: " \25BC"; font-size: .65em; }
+.lb-table td { text-align: right; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,.08); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lb-table .rank, .lb-table .name { text-align: left; }
+.lb-table .name { width: 99%; }
+.lb-table tbody tr { cursor: pointer; transition: background .1s ease; }
+.lb-table tbody tr:hover { background: rgba(255,255,255,.08); }
+.lb-table tbody tr.sel { background: rgba(246,229,0,.13); box-shadow: inset 4px 0 0 var(--yellow); }
+.lb-table tr.me .name b { color: var(--yellow); }
+.lb-table tr.bot { color: #c9d7ff; }
+.lb-table td.score, .lb-recent td.score { font-family: var(--font); font-style: italic; font-size: 22px; color: var(--yellow); }
+.rank-badge { display: inline-block; min-width: 34px; text-align: center; font-family: var(--font); font-style: italic; font-size: 20px; padding: 1px 6px; transform: skewX(-10deg); background: rgba(255,255,255,.12); color: #fff; }
+.rank-badge.r1 { background: #ffd23a; color: var(--ink); }
+.rank-badge.r2 { background: #dfe5f0; color: var(--ink); }
+.rank-badge.r3 { background: #e39a5c; color: var(--ink); }
+.tag { display: inline-block; font-family: var(--font-body); font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 1px 5px; margin-left: 8px; border: 1px solid rgba(255,255,255,.35); color: #bcd0ff; vertical-align: middle; }
+.tag.you { border-color: var(--yellow); color: var(--yellow); }
+.lb-empty { text-align: center; padding: 34px 10px; color: #a9c5ed; font-size: 16px; }
+.lb-detail:empty { display: none; }
+.lb-detail { border-top: 1px solid rgba(255,255,255,.15); padding-top: 12px; }
+.lb-who { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.lb-who h4, .lb-detail h4 { margin: 0; font-family: var(--font); font-style: italic; font-weight: 900; text-transform: uppercase; font-size: 26px; letter-spacing: .02em; }
+.lb-who small { color: #9fb6e8; font-size: 13px; margin-left: auto; }
+.lb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.lb-tile { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.15); padding: 7px 12px; }
+.lb-tile b { display: block; font-family: var(--font); font-style: italic; font-size: 28px; line-height: 1.05; color: #fff; }
+.lb-tile:first-child b { color: var(--yellow); }
+.lb-tile span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #9fb6e8; }
+.lb-modes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.lb-mode { background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.15); padding: 6px 12px; font-size: 13px; color: #c9d7ff; }
+.lb-mode span { font-family: var(--font); font-style: italic; text-transform: uppercase; font-size: 17px; color: #fff; margin-right: 8px; }
+.lb-mode b { color: var(--yellow); }
+.lb-detail h4 + .lb-recent, .lb-detail .lb-recent { margin-top: 6px; }
+.lb-detail > h4 { font-size: 20px; margin-top: 14px; color: #bcd0ff; }
+.lb-recent { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lb-recent th { text-align: left; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #9fb6e8; padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,.15); }
+.lb-recent td { padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,.06); white-space: nowrap; }
+.lb-recent td.score { font-size: 18px; }
+.lb-recent tr.won td:nth-child(4) { color: var(--yellow); font-weight: 700; }
+.lb-foot { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,.15); padding-top: 10px; }
+.lb-rules { margin: 0; color: #a9c5ed; font-size: 13px; max-width: 700px; line-height: 1.45; }
+
 /* ---------- pause ---------- */
 #pause, #inventory, #over, #nowebgpu { background: rgba(5, 8, 35, .72); backdrop-filter: blur(6px); flex-direction: column; gap: 18px; }
 #pause .panel { min-width: 420px; }
@@ -157,6 +211,27 @@ h1, h2, h3, .big { font-family: var(--font); font-style: italic; font-weight: 90
 #over .stat b { display: block; font-family: var(--font); font-style: italic; font-size: 44px; color: var(--yellow); line-height: 1; }
 #over .stat span { font-size: 12px; letter-spacing: .15em; text-transform: uppercase; color: #bcd0ff; }
 #over .btns { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+#over .points { font-family: var(--font); font-style: italic; font-size: 28px; color: #fff; text-align: center; margin: -8px 0 16px; text-transform: uppercase; }
+#over .points:empty { display: none; }
+#over .points b { color: var(--yellow); font-size: 1.35em; }
+#over .points small { display: block; font-family: var(--font-body); font-style: normal; text-transform: none; font-size: 14px; color: #bcd0ff; margin-top: 3px; }
+#over .points small b { font-size: 1em; }
+/* this match's standings: beside the result on a wide screen, under it on a narrow one */
+.over-board { position: absolute; right: 2.5vw; top: 50%; transform: translateY(-50%); width: 340px; background: rgba(8,12,44,.72); border: 2px solid rgba(255,255,255,.18); padding: 10px 12px; }
+.over-board:empty { display: none; }
+.over-board h4 { margin: 0 0 6px; font-family: var(--font); font-style: italic; font-weight: 900; text-transform: uppercase; font-size: 20px; color: var(--yellow); }
+.over-board table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.over-board th { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #9fb6e8; text-align: right; padding: 2px 4px; }
+.over-board td { text-align: right; padding: 3px 4px; border-top: 1px solid rgba(255,255,255,.07); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.over-board .name { text-align: left; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.over-board td.score { color: var(--yellow); font-weight: 700; }
+.over-board tr.me td { background: rgba(246,229,0,.14); color: #fff; font-weight: 700; }
+.over-board i { color: #6dff7a; font-style: normal; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.over-board .tag { margin-left: 5px; font-size: 9px; padding: 0 3px; }
+@media (max-width: 1279px) {
+  .over-board { position: static; transform: none; width: min(560px, 92vw); margin-top: 10px; }
+  #over.win .over-board { display: none; }
+}
 /* a win keeps the middle of the screen clear: the winner dances there with the camera swinging round */
 #over.win { background: radial-gradient(ellipse 70% 60% at 50% 52%, rgba(3,5,22,0) 35%, rgba(3,5,22,.62) 100%); backdrop-filter: none; justify-content: flex-start; padding: 3vh 0 3vh; }
 #over.win .banner { font-size: clamp(44px, 7vw, 110px); }

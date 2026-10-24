@@ -3,6 +3,7 @@ import init, * as fn from './pkg/fightnight.js';
 import { Hud, drawFullMap } from './hud.js';
 import { GameAudio } from './audio.js';
 import { createMultiplayer } from './multiplayer.js';
+import { createLeaderboard } from './leaderboard.js';
 import { RARITY, RARITY_NAMES, RARITY_DARK, drawItem, AMMO_NAMES, AMMO_COLORS, MAT_NAMES, MAT_COLORS } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
@@ -36,18 +37,21 @@ const gpuCanvas = $('gpu');
 const hudCanvas = $('hud');
 const mapImage = document.createElement('canvas');
 const hud = new Hud(hudCanvas, mapImage);
+const playerName = () => String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You';
 const mp = createMultiplayer({
   fn,
   cfg,
   show: (id, on) => show(id, on),
   click: () => click(),
   note: (t, ms) => note(t, ms),
-  name: () => String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You',
+  name: playerName,
   startMatch: (kind) => startMatch(kind),
   setProgress: (p, t) => setProgress(p, t),
 });
+const leaderboard = createLeaderboard({ fn, myName: playerName, click: () => click(), show: (id, on) => show(id, on) });
 window.__game = { get state() { return state; }, get overlay() { return overlay; }, get waiting() { return waitingForLock; }, get hud() { return hudState; }, fn, cfg, frames: 0, audio };
 window.__game.mp = mp;
+window.__game.leaderboard = leaderboard;
 // Test helper: read back the rendered frame and paint it into a plain 2D canvas so a normal page
 // screenshot (which cannot see the WebGPU swapchain in headless mode) shows the whole UI.
 window.__game.freezeFrame = async () => {
@@ -84,7 +88,7 @@ const TIPS = [
 
 // The wasm side parses `key=value;key=value`, so the free-text player name must not contain either separator.
 function matchOptions() {
-  const name = String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You';
+  const name = playerName();
   return `mode=${cfg.mode};map=${cfg.map};bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};outfit=${cfg.outfit};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
 }
 
@@ -173,6 +177,7 @@ function wireUi() {
   bindSeg('lb-diff', 'difficulty');
   bindCheck('lb-skipbus', 'skipbus');
   mp.wire();
+  leaderboard.wire();
   bindRange('set-sens', 'val-sens', 'sens', (v) => v, applyRuntimeOptions);
   bindRange('set-fov', 'val-fov', 'fov', (v) => v, applyRuntimeOptions);
   bindRange('set-vol', 'val-vol', 'vol', (v) => v, applyRuntimeOptions);
@@ -188,12 +193,15 @@ function wireUi() {
   $('btn-play').addEventListener('click', () => { click(); startMatch(); });
   $('btn-settings').addEventListener('click', () => { click(); show('settings'); });
   $('btn-help').addEventListener('click', () => { click(); show('help'); });
+  $('btn-leaderboard').addEventListener('click', () => { click(); leaderboard.open(); });
+  $('btn-over-leaderboard').addEventListener('click', () => { click(); leaderboard.open(); });
   $('btn-settings-close').addEventListener('click', () => { click(); show('settings', false); });
   $('btn-help-close').addEventListener('click', () => { click(); show('help', false); });
   $('btn-resume').addEventListener('click', () => { click(); resume(); });
   $('btn-pause-settings').addEventListener('click', () => { click(); show('settings'); });
   $('btn-pause-help').addEventListener('click', () => { click(); show('help'); });
-  $('btn-quit').addEventListener('click', () => { click(); toMenu(); });
+  // walking out of a match you are still in counts as being eliminated there (once the bus has gone)
+  $('btn-quit').addEventListener('click', () => { click(); leaderboard.leave(!!hudState && hudState.ph !== 0); toMenu(); });
   $('btn-again').addEventListener('click', () => { click(); startMatch(); });
   $('btn-menu').addEventListener('click', () => { click(); toMenu(); });
   $('btn-reload').addEventListener('click', () => location.reload());
@@ -228,7 +236,7 @@ function fatal(title, message) {
   state = 'fatal';
   audio.silenceLoops();
   document.exitPointerLock?.();
-  for (const id of ['menu', 'pause', 'inventory', 'map', 'over', 'settings', 'help', 'loading']) show(id, false);
+  for (const id of ['menu', 'pause', 'inventory', 'map', 'over', 'settings', 'help', 'leaderboard', 'loading']) show(id, false);
   hud.clear();
   $('nowebgpu-title').textContent = title;
   $('nowebgpu-msg').textContent = message;
@@ -313,7 +321,7 @@ async function startMatch(kind = 'solo') {
   $('click-to-play').style.display = 'none';
   state = 'loading';
   $('tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
-  for (const id of ['menu', 'over', 'pause', 'settings', 'help', 'inventory', 'map', 'mp', 'lobby']) show(id, false);
+  for (const id of ['menu', 'over', 'pause', 'settings', 'help', 'inventory', 'map', 'mp', 'lobby', 'leaderboard']) show(id, false);
   stopConfetti();
   overlay = null;
   $('err').textContent = '';
@@ -352,6 +360,7 @@ async function startMatch(kind = 'solo') {
   }
   spectating = false; endShown = false; waitingForLock = false;
   hud.reset();
+  leaderboard.beginMatch();
   state = 'playing';
   $('loading').classList.add('fade');
   setTimeout(() => { show('loading', false); $('loading').classList.remove('fade'); }, 600);
@@ -360,11 +369,12 @@ async function startMatch(kind = 'solo') {
 }
 
 function toMenu() {
+  leaderboard.leave(false);
   mp.leave();
   state = 'menu'; overlay = null;
   fn.set_paused(false); fn.set_menu(true);
   audio.silenceLoops();
-  show('pause', false); show('over', false); show('inventory', false); show('map', false); show('settings', false); stopConfetti();
+  show('pause', false); show('over', false); show('inventory', false); show('map', false); show('settings', false); show('leaderboard', false); stopConfetti();
   show('menu');
   $('click-to-play').style.display = 'none';
   document.activeElement?.blur?.();
@@ -431,7 +441,9 @@ window.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.code !== 'ControlLeft') e.preventDefault();
   } else if (state === 'paused' && e.code === 'Escape') {
     resume();
-  } else if (state === 'menu' && e.code === 'Enter' && !document.activeElement?.matches('input,button,select,textarea') && !['settings', 'help', 'mp', 'lobby'].some((id) => $(id).classList.contains('active'))) {
+  } else if (e.code === 'Escape' && $('leaderboard').classList.contains('active')) {
+    leaderboard.close();
+  } else if (state === 'menu' && e.code === 'Enter' && !document.activeElement?.matches('input,button,select,textarea') && !['settings', 'help', 'mp', 'lobby', 'leaderboard'].some((id) => $(id).classList.contains('active'))) {
     startMatch();
   }
 });
@@ -603,6 +615,7 @@ function maybeShowEnd(s) {
   $('btn-spectate').style.display = won || over ? 'none' : '';
   // a multiplayer match cannot be restarted from here: everybody goes back to the menu
   $('btn-again').style.display = mp.active ? 'none' : '';
+  leaderboard.showEnd();
   show('over');
   unlockPointer();
   if (won) startConfetti();
@@ -676,6 +689,7 @@ function tick(dt) {
     if (hudState) {
       if (state === 'over') hud.clear(); // the result screen gets the whole picture (the winner is dancing behind it)
       else hud.draw(hudState, dt);
+      leaderboard.tick(dt);
       if (state === 'playing' || state === 'over') {
         const cues = fn.audio_cues();
         if (cues.length) audio.playCues(cues);

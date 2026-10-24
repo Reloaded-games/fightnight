@@ -6,7 +6,7 @@ use super::proto::*;
 use crate::game::actor::*;
 use crate::game::events::Event;
 use crate::game::items::*;
-use crate::game::{Difficulty, Game, Phase, PlayerInput};
+use crate::game::{scoreboard, Difficulty, Game, Phase, PlayerInput};
 use crate::math::*;
 use crate::rng::Rng;
 use crate::world::World;
@@ -685,6 +685,10 @@ fn a_whole_match_with_two_guests_ends_with_the_same_winner_everywhere() {
         assert_eq!(me.kills, theirs.kills);
         let json = crate::game::hud::hud_json(g, &g.camera(1.6), false);
         assert!(json.contains("\"ph\":2"), "{json}");
+        // the whole scoreboard, not only the player's own line, as the host has it
+        let lines = |g: &Game| scoreboard::rows(g).into_iter().map(|r| (r.id, r.done, r.place, r.kills, r.damage, r.headshots, r.shots, r.hits, r.built, r.opened, r.points)).collect::<Vec<_>>();
+        assert_eq!(lines(g), lines(host), "everybody's end screen has everybody's numbers");
+        assert!(scoreboard::rows(g).iter().all(|r| r.done));
         assert!(g.alive_cache <= 1 || host.tie);
     }
     assert!(h.clients.iter().all(|c| c.stats.snapshots > 100));
@@ -739,6 +743,11 @@ fn a_guest_who_says_goodbye_or_goes_quiet_is_replaced_by_a_bot() {
     assert!(h.host.peers().iter().any(|p| p.actor == 1 && !p.connected));
     assert!(h.host.game.toast.iter().any(|t| t.0 == "Guest1 left"), "the host's HUD says so: {:?}", h.host.game.toast);
     assert!(h.clients[1].game.toast.iter().any(|t| t.0 == "Guest1 left"), "and so does the other guest's: {:?}", h.clients[1].game.toast);
+    // the bot playing on is not Guest1: the other guest's scoreboard says they left, so their leaderboard leaves it out
+    h.run(1.2, &idle(), &[idle(), idle()]);
+    let line = |g: &Game, id: usize| scoreboard::rows(g).into_iter().find(|r| r.id == id).unwrap();
+    assert!(line(&h.clients[1].game, 1).left && line(&h.host.game, 1).left);
+    assert!(!line(&h.clients[1].game, 2).left && !line(&h.clients[1].game, 0).left);
     // going quiet: no packets from guest 2 at all
     for _ in 0..(TIMEOUT as usize + 2) * 60 {
         h.now += 1.0 / 60.0;

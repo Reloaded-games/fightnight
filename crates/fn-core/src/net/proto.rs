@@ -20,7 +20,7 @@ use crate::math::*;
 use crate::world::maps::MapKind;
 
 /// Bump when anything in this file changes shape; hosts and clients of different versions refuse each other.
-pub const VERSION: u16 = 5;
+pub const VERSION: u16 = 6;
 /// Most people in one room, the host included.
 pub const MAX_HUMANS: usize = 8;
 /// Most commands a single packet may carry.
@@ -181,6 +181,59 @@ pub struct Own {
     pub mv: MoveState,
     /// Health and shield a Slurp Juice still has to give back.
     pub regen: f32,
+}
+
+/// One actor's line on the scoreboard (see `game::scoreboard`): sent whenever it changes, so every player's end screen and
+/// leaderboard have everybody's numbers and not only their own.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScoreNet {
+    pub id: u8,
+    /// A person plays it (false once a bot took over from somebody who left).
+    pub human: bool,
+    pub kills: u16,
+    pub placement: u16,
+    pub damage_dealt: f32,
+    pub survived: f32,
+    pub headshots: u16,
+    pub shots: u16,
+    pub hits: u16,
+    pub longest_elim: f32,
+    pub built: u16,
+    pub opened: u16,
+}
+
+impl ScoreNet {
+    fn write(&self, w: &mut Writer) {
+        w.u8(self.id);
+        w.bool(self.human);
+        w.u16(self.kills);
+        w.u16(self.placement);
+        w.f32(self.damage_dealt);
+        w.f32(self.survived);
+        w.u16(self.headshots);
+        w.u16(self.shots);
+        w.u16(self.hits);
+        w.f32(self.longest_elim);
+        w.u16(self.built);
+        w.u16(self.opened);
+    }
+
+    fn read(r: &mut Reader) -> Result<Self> {
+        Ok(ScoreNet {
+            id: r.u8()?,
+            human: r.bool()?,
+            kills: r.u16()?,
+            placement: r.u16()?,
+            damage_dealt: r.f32()?,
+            survived: r.f32()?,
+            headshots: r.u16()?,
+            shots: r.u16()?,
+            hits: r.u16()?,
+            longest_elim: r.f32()?,
+            built: r.u16()?,
+            opened: r.u16()?,
+        })
+    }
 }
 
 /// The item an actor holds, as others see it.
@@ -346,6 +399,8 @@ pub enum ServerMsg {
     Snapshot(Box<Snapshot>),
     Sync(Vec<SyncOp>),
     Events { time: f32, events: Vec<Event> },
+    /// The scoreboard lines that changed since the last time.
+    Scores(Vec<ScoreNet>),
     Reject { reason: String },
     /// The host closed the room.
     Closed,
@@ -1352,6 +1407,13 @@ impl ServerMsg {
                 w.str(reason);
             }
             ServerMsg::Closed => w.u8(7),
+            ServerMsg::Scores(rows) => {
+                w.u8(8);
+                w.u16(rows.len() as u16);
+                for r in rows {
+                    r.write(&mut w);
+                }
+            }
         }
         w.buf
     }
@@ -1381,6 +1443,10 @@ impl ServerMsg {
             }
             6 => ServerMsg::Reject { reason: r.str()? },
             7 => ServerMsg::Closed,
+            8 => {
+                let n = r.count(MAX_ACTORS, "scoreboard")?;
+                ServerMsg::Scores((0..n).map(|_| ScoreNet::read(&mut r)).collect::<Result<Vec<_>>>()?)
+            }
             _ => return Err(WireError::Invalid("server message")),
         };
         if !r.finished() {
@@ -1616,6 +1682,25 @@ mod tests {
         }
     }
 
+    fn score(id: u8) -> ScoreNet {
+        ScoreNet { id, human: id < 2, kills: 3, placement: 7, damage_dealt: 412.5, survived: 301.25, headshots: 4, shots: 60, hits: 21, longest_elim: 143.5, built: 37, opened: 5 }
+    }
+
+    #[test]
+    fn the_scoreboard_round_trips_and_stays_small() {
+        let rows: Vec<ScoreNet> = (0..60).map(score).collect();
+        let bytes = ServerMsg::Scores(rows.clone()).encode();
+        assert!(bytes.len() < 1800, "{} bytes for 60 lines", bytes.len());
+        let ServerMsg::Scores(back) = ServerMsg::decode(&bytes).unwrap() else { panic!() };
+        assert_eq!(back, rows);
+        assert!(ServerMsg::Scores(vec![]).reliable(), "a lost line would stay wrong until it changed again");
+        // more lines than there can be actors
+        let mut b = ServerMsg::Scores(vec![]).encode();
+        b[1] = 0xff;
+        b[2] = 0xff;
+        assert!(ServerMsg::decode(&b).is_err());
+    }
+
     #[test]
     fn world_changes_round_trip() {
         let ops = vec![
@@ -1683,6 +1768,7 @@ mod tests {
             ServerMsg::Welcome { you: 1, names: vec!["a".into()] }.encode(),
             ClientMsg::Cmds { time: 5, cmds: vec![Cmd::default(); 3] }.encode(),
             ClientMsg::Hello { version: 1, name: "x".into() }.encode(),
+            ServerMsg::Scores(vec![score(0), score(5)]).encode(),
         ];
         samples.push(ServerMsg::Sync(vec![SyncOp::PickupRemove(1), SyncOp::HarvestBroken { idx: 1, dir: Vec2::X }]).encode());
         let mut rng = crate::rng::Rng::new(99);

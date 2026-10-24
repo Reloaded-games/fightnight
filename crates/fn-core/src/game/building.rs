@@ -72,6 +72,7 @@ impl Game {
         self.pieces.insert_footed(plan.key, mat, plan.base_y, i, footing);
         let a = &mut self.actors[i];
         a.inv.mats[mat.index()] -= cost;
+        a.built += 1;
         a.fire_cd = PLACE_COOLDOWN;
         a.anim.build = 1.0;
         let pos = shape_of(&plan.key, plan.base_y).aabb().center();

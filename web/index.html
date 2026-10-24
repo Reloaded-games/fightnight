@@ -29,7 +29,10 @@
   <div class="left">
     <div class="logo big"><b>Fight</b> Night<small>Battle Royale</small></div>
     <button class="btn primary play" id="btn-play"><span>Play</span></button>
-    <button class="btn" id="btn-multi" style="align-self:flex-start"><span>Multiplayer</span></button>
+    <div class="row">
+      <button class="btn" id="btn-multi"><span>Multiplayer</span></button>
+      <button class="btn" id="btn-leaderboard"><span>Leaderboard</span></button>
+    </div>
     <div class="row">
       <button class="btn ghost" id="btn-settings"><span>Settings</span></button>
       <button class="btn ghost" id="btn-help"><span>How to play</span></button>
@@ -97,6 +100,28 @@
     <div class="mp-actions" style="justify-content:center;margin-top:12px">
       <button class="btn primary hidden" id="btn-lobby-start" style="font-size:36px;padding:12px 50px"><span>Start match</span></button>
       <button class="btn ghost" id="btn-lobby-leave"><span>Leave</span></button>
+    </div>
+  </div>
+</section>
+
+<!-- career leaderboard: everybody's finished matches on this browser -->
+<section id="leaderboard" class="screen">
+  <div class="panel lb-panel">
+    <div class="lb-head">
+      <h3>Leaderboard</h3>
+      <div class="lb-filters">
+        <div class="seg" id="leaderboard-modes"></div>
+        <label class="lb-check" for="leaderboard-bots"><input type="checkbox" id="leaderboard-bots"> Show bots</label>
+      </div>
+    </div>
+    <div id="leaderboard-body"></div>
+    <div class="lb-detail" id="leaderboard-detail"></div>
+    <div class="lb-foot">
+      <p class="lb-rules" id="leaderboard-rules"></p>
+      <div class="mp-actions">
+        <button class="btn ghost small" id="leaderboard-reset"><span>Reset</span></button>
+        <button class="btn" id="leaderboard-close"><span>Back</span></button>
+      </div>
     </div>
   </div>
 </section>
@@ -170,11 +195,14 @@
   <div class="banner big" id="over-banner">Victory Royale</div>
   <div class="place" id="over-place"></div>
   <div class="stats" id="over-stats"></div>
+  <div class="points" id="over-points"></div>
   <div class="btns">
     <button class="btn primary" id="btn-again" style="font-size:34px;padding:14px 50px"><span>Play again</span></button>
     <button class="btn" id="btn-spectate"><span>Spectate</span></button>
+    <button class="btn ghost" id="btn-over-leaderboard"><span>Leaderboard</span></button>
     <button class="btn ghost" id="btn-menu"><span>Main menu</span></button>
   </div>
+  <div class="over-board" id="over-board"></div>
 </section>
 
 <section id="nowebgpu" class="screen">

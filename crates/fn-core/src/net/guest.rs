@@ -33,7 +33,7 @@ impl GuestRoom {
             ServerMsg::Start { you, setup } => self.start = Some((you as usize, setup)),
             ServerMsg::Reject { reason } => self.closed = Some(reason),
             ServerMsg::Closed => self.closed = Some("The host closed the room.".into()),
-            ServerMsg::Snapshot(_) | ServerMsg::Sync(_) | ServerMsg::Events { .. } => {}
+            ServerMsg::Snapshot(_) | ServerMsg::Sync(_) | ServerMsg::Events { .. } | ServerMsg::Scores(_) => {}
         }
     }
 

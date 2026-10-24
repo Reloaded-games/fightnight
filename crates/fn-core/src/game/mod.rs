@@ -19,6 +19,7 @@ pub mod movement;
 pub mod pieces;
 pub mod remote;
 pub mod rig;
+pub mod scoreboard;
 pub mod scene;
 pub mod supply;
 pub mod utility;

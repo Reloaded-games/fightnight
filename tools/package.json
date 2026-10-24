@@ -9,6 +9,7 @@
     "test:multiplayer": "node mp_e2e.mjs",
     "test:supply": "node supply_e2e.mjs",
     "test:utility": "node utility_e2e.mjs",
+    "test:leaderboard": "node leaderboard_e2e.mjs",
     "fuzz": "node fuzz_ui.mjs 1 150",
     "screenshots": "bash screenshots.sh"
   },

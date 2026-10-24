@@ -375,6 +375,17 @@ pub struct Actor {
     pub kills: u32,
     pub placement: u32,
     pub damage_dealt: f32,
+    /// Shots that hit someone in the head (a shotgun blast counts once, however many pellets found the head).
+    pub headshots: u32,
+    /// Shots fired with hitscan guns, and how many of them hit somebody (the accuracy on the scoreboard).
+    pub shots: u32,
+    pub hits: u32,
+    /// The farthest this actor eliminated anybody from (m).
+    pub longest_elim: f32,
+    /// Building pieces put up this match.
+    pub built: u32,
+    /// Chests, ammo boxes, Supply Llamas and supply drops opened this match.
+    pub opened: u32,
     pub outfit: Outfit,
     pub anim: AnimState,
     pub peak_y: f32,
@@ -440,6 +451,12 @@ impl Actor {
             kills: 0,
             placement: 0,
             damage_dealt: 0.0,
+            headshots: 0,
+            shots: 0,
+            hits: 0,
+            longest_elim: 0.0,
+            built: 0,
+            opened: 0,
             outfit,
             anim: AnimState::default(),
             peak_y: 0.0,

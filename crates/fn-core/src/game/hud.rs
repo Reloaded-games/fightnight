@@ -9,7 +9,7 @@ use crate::camera::Camera;
 use crate::math::*;
 use std::fmt::Write;
 
-fn esc(s: &str) -> String {
+pub(crate) fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
     o.push('"');
     for c in s.chars() {
@@ -25,7 +25,7 @@ fn esc(s: &str) -> String {
     o
 }
 
-fn n(v: f32) -> String {
+pub(crate) fn n(v: f32) -> String {
     if v.is_finite() {
         let r = (v * 100.0).round() / 100.0;
         if r == r.trunc() {

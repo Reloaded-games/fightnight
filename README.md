@@ -40,6 +40,13 @@ and two detailed vehicle bodies with animated steering and wheels.
 * **Building**: walls, floors, ramps and roofs on a Fortnite-style grid in wood, stone and metal — ramp-rush
   up cliffs, box yourself in, and watch bullets and rockets chew through your pieces.
 * **Harvesting**: hit trees (wood), grey rocks (stone) and the blue-grey ore rocks (metal) with the pickaxe (trees really fall over).
+* **Leaderboard and stats**: every match is scored (25 points per elimination, 1 per 10 damage dealt, up to 50 for
+  how much of the field you outlast and 50 more for a Victory Royale) and the end screen shows your points and the
+  match standings. **Leaderboard** in the menu ranks everyone this browser has played with by career score, per mode
+  or overall, with sortable columns (matches, wins, win rate, eliminations, K/D, damage, top 10s, best match) and a
+  card per player (headshots, accuracy, longest elimination, time survived, pieces built, chests opened, recent
+  matches). Multiplayer matches count for every person in the room, bots can be shown alongside, and leaving a match
+  you are still in counts as being eliminated there. It is kept in the browser's local storage (there is no server).
 * **Shrinking storm** in 7 phases that forces everyone together, with a minimap, full map and storm timer.
 * **Three maps**, chosen in the menu (and by the multiplayer host): **Chapter 1** and **Chapter 2**, recreations of
   the Fortnite Battle Royale islands of Chapter 1 (season 4) and Chapter 2 (season 1) built from their real layouts
@@ -135,8 +142,8 @@ player leaves or loses their connection, a bot takes over their character. Elimi
 
 How it works: the host's browser is the authority. It runs the whole simulation, with the people in the room as
 extra human actors beside the bots, and sends each player 30 snapshots a second (grenades in flight among them)
-plus every change to the loot, chests (including each supply drop as it is let go), Launch Pads and buildings and
-the one-shot events (shots, hits, pickups) that player could see or hear. Each guest runs its own copy of the
+plus every change to the loot, chests (including each supply drop as it is let go), Launch Pads, buildings and the
+scoreboard, and the one-shot events (shots, hits, pickups) that player could see or hear. Each guest runs its own copy of the
 match: its own character is **predicted** with the very same movement code the host runs (Launch Pad launches and
 Boogie Bomb dances included) and corrected from the host's acknowledgements (the controls never wait for the
 network), the others are
@@ -161,7 +168,8 @@ crates/
                so almost everything is unit tested without a browser.
     src/world/   island: terrain + biomes, lakes, roads, towns and buildings, props, colliders, nav grid, minimap
     src/game/    actors, movement/physics, combat, loot, building pieces, storm + bus, bot AI, rig (animation),
-                 scene (draw lists), fx (particles), hud (JSON snapshot), audio_map (positional cues),
+                 scene (draw lists), fx (particles), hud (JSON snapshot), scoreboard (match stats and points),
+                 audio_map (positional cues),
                  cmd + remote (the commands a networked player sends and how the host applies them)
     src/net/     multiplayer: wire format, protocol, the host (room + authoritative match), the guest's lobby and
                  predicted copy of the match; no I/O, so it is tested natively through an in-memory network
@@ -171,7 +179,8 @@ crates/
   fn-shaders/  WGSL shaders (+ a naga validation test so a shader typo fails `cargo test`)
   fn-web/      the wasm module: wgpu WebGPU renderer, app loop, and the exports used by the page
 web/           index.html, CSS and the JS for menus, HUD drawing (Canvas2D), icons and WebAudio playback;
-               net.js / multiplayer.js: WebRTC data channels, invite codes and the lobby screens
+               net.js / multiplayer.js: WebRTC data channels, invite codes and the lobby screens;
+               leaderboard.js: the career leaderboard (local storage) and the end screen's points
 scripts/       build script (cargo → wasm-bindgen → dist/)
 tools/         headless-Chromium helpers: screenshots and the end-to-end tests
 assets/cartoon/ editable Blender source, rigged GLBs, baked mesh buffers and animation curves
@@ -201,13 +210,14 @@ cd tools && npm install && npm test       # real-browser tests (needs `scripts/b
                                            #   supply_e2e.mjs  a supply drop falls, lands, shows on the HUD and is opened with E
                                            #   utility_e2e.mjs grenades, the Launch Pad, Slurp Juice, ammo boxes and llamas
                                            #   maps_e2e.mjs  the map choice, a match on Chapter 1 and Chapter 2, places in their grid cells
+                                           #   leaderboard_e2e.mjs  match points on the end screen, the career board, quitting, reset
                                            # npm run fuzz   random keys/clicks/blur/lock releases against the UI state machine
 ```
 
 `tools/` also has `ui_shot.mjs` (the real page with all its UI) and `game_shot.mjs` (the UI-less harness page
 `web/dev.html`, with crop/zoom and multi-frame series options) for scripted screenshots; the WebGPU frame is
 read back explicitly because headless Chromium cannot screenshot a WebGPU canvas. The page exposes a small debug
-console (`window.__game.fn.debug("tp 52 28")`, `give ar epic`, `util frag 6`, `cons slurp`, `chest 0 llama`,
+console (`window.__game.fn.debug("tp 52 28")`, `give ar epic`, `util frag 6`, `cons slurp`, `chest 0 llama`, `elim 3 1`,
 `chest_here`, `build_demo`, `ff 120`, ...) that the harnesses use.
 
 To run the browser tests on a Windows desktop with a real WebGPU-capable GPU:
