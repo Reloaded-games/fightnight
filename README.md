@@ -78,6 +78,8 @@ and two detailed vehicle bodies with animated steering and wheels.
 | ![Sniper scope](docs/screenshots/scope.jpg) | ![Victory Royale](docs/screenshots/victory.jpg) |
 | ![Inventory](docs/screenshots/inventory.jpg) | ![Island map](docs/screenshots/map.jpg) |
 
+![The career leaderboard, with the bots shown and a player's card](docs/screenshots/leaderboard.jpg)
+
 (Regenerate them with `tools/screenshots.sh`.)
 
 ## Play
