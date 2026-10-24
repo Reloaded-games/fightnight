@@ -138,6 +138,40 @@ impl Line {
             (Vec3::new(self.c + d0, y0, self.a0 + u0), Vec3::new(self.c + d1, y1, self.a0 + u1))
         }
     }
+    /// The point `u` along the wall, `d` across it (from the centre line) and at height `y`.
+    fn at(&self, u: f32, d: f32, y: f32) -> Vec3 {
+        if self.along_x {
+            Vec3::new(self.a0 + u, y, self.c + d)
+        } else {
+            Vec3::new(self.c + d, y, self.a0 + u)
+        }
+    }
+    /// The outward direction of the wall.
+    fn out_dir(&self) -> Vec3 {
+        if self.along_x {
+            Vec3::new(0.0, 0.0, self.out)
+        } else {
+            Vec3::new(self.out, 0.0, 0.0)
+        }
+    }
+    /// The across range (from the centre line, low to high) of something that stands `d0`..`d1` proud of the outer face.
+    fn proud(&self, d0: f32, d1: f32) -> (f32, f32) {
+        let f = WALL_T / 2.0;
+        if self.out > 0.0 {
+            (f + d0, f + d1)
+        } else {
+            (-f - d1, -f - d0)
+        }
+    }
+    /// The faces of a box set against the outer face that can be seen: all but its back.
+    fn outer_faces(&self) -> u8 {
+        match (self.along_x, self.out > 0.0) {
+            (true, true) => 0b011111,
+            (true, false) => 0b101111,
+            (false, true) => 0b111101,
+            (false, false) => 0b111110,
+        }
+    }
 }
 
 /// A stateless random number in [0, 1) from three integers.
@@ -149,6 +183,78 @@ fn hunit(a: i32, b: i32, c: i32) -> f32 {
 fn shade_hex(col: u32, k: f32) -> u32 {
     let c = |sh: u32| (((col >> sh) & 255) as f32 * k).clamp(0.0, 255.0) as u32;
     (c(16) << 16) | (c(8) << 8) | c(0)
+}
+
+/// The colour `a` taken a fraction `t` of the way to `b`.
+fn mix_hex(a: u32, b: u32, t: f32) -> u32 {
+    let c = |sh: u32| {
+        let (x, y) = (((a >> sh) & 255) as f32, ((b >> sh) & 255) as f32);
+        (x + (y - x) * t).round().clamp(0.0, 255.0) as u32
+    };
+    (c(16) << 16) | (c(8) << 8) | c(0)
+}
+
+// ---------------------------------------------------------------------------------
+// Facade dressing: mesh only, never a collider, and never a random number (what varies follows from sizes and colours already drawn)
+
+/// A band `out` proud of the outer face of the wall `l` between the heights `y0 + v0` and `y0 + v1`, broken where an opening of `ops`
+/// crosses it. It runs on round the corners: a front or back band past the ends of its wall, a side band up to the faces of the front and back.
+fn wall_band(b: &mut B, l: Line, y0: f32, v0: f32, v1: f32, ops: &[Op], out: f32, col: u32, m: u8) {
+    let ext = if l.along_x { out } else { WALL_T };
+    let mut cuts: Vec<(f32, f32)> = ops.iter().filter(|o| o.v0 < v1 && o.v1 > v0).map(|o| (o.u0, o.u1)).collect();
+    cuts.sort_by(|a, c| a.0.total_cmp(&c.0));
+    let (d0, d1) = l.proud(0.0, out);
+    let mut u = -ext;
+    let mut spans = vec![];
+    for (c0, c1) in cuts {
+        if c0 > u + 1e-3 {
+            spans.push((u, c0));
+        }
+        u = u.max(c1);
+    }
+    if l.len() + ext > u + 1e-3 {
+        spans.push((u, l.len() + ext));
+    }
+    for (u0, u1) in spans {
+        let (a, c) = l.bx(u0, u1, d0, d1, y0 + v0, y0 + v1);
+        b.bx_faces(a, c, col, m, l.outer_faces(), false);
+    }
+}
+
+/// A flat pilaster `w` wide centred `u` along the wall `l`, standing `out` proud of its outer face from `y_lo` to `y_hi`.
+fn pilaster(b: &mut B, l: Line, u: f32, w: f32, y_lo: f32, y_hi: f32, out: f32, col: u32, m: u8) {
+    let (d0, d1) = l.proud(0.0, out);
+    let (a, c) = l.bx(u - w / 2.0, u + w / 2.0, d0, d1, y_lo, y_hi);
+    b.bx_faces(a, c, col, m, l.outer_faces(), false);
+}
+
+/// A striped shop awning on the outer face of the wall `l` over `u0`..`u1`: cloth from `y_top` at the wall sloping `drop` down to
+/// `reach` out, a valance along its front edge, cheeks at its ends and two stays back to the wall.
+fn awning(b: &mut B, l: Line, u0: f32, u1: f32, y_top: f32, drop: f32, reach: f32, col: u32) {
+    let f = WALL_T / 2.0;
+    let o = l.out_dir();
+    let n = o * drop + Vec3::Y * reach;
+    let back = |u: f32| l.at(u, l.out * (f + 0.01), y_top);
+    let front = |u: f32, dy: f32| l.at(u, l.out * (f + reach), y_top - drop - dy);
+    let stripes = ((u1 - u0) / 0.42).round().max(2.0) as i32;
+    b.mb.mat(mat::CLOTH);
+    for k in 0..stripes {
+        let (ua, ub) = (u0 + (u1 - u0) * k as f32 / stripes as f32, u0 + (u1 - u0) * (k + 1) as f32 / stripes as f32);
+        b.mb.hex(if k % 2 == 0 { col } else { 0xf7f2e6 });
+        let p = [back(ua), back(ub), front(ub, 0.0), front(ua, 0.0)];
+        b.mb.quad_out(p, n);
+        b.mb.quad_out(p, -n);
+        let v = [front(ua, 0.0), front(ub, 0.0), front(ub, 0.2), front(ua, 0.2)];
+        b.mb.quad_out(v, o);
+        b.mb.quad_out(v, -o);
+    }
+    b.mb.hex(col);
+    let along = if l.along_x { Vec3::X } else { Vec3::Z };
+    for (u, s) in [(u0, -1.0f32), (u1, 1.0)] {
+        b.mb.tri_out(back(u), front(u, 0.0), l.at(u, l.out * (f + 0.01), y_top - drop), along * s);
+        b.mb.tri_out(back(u), front(u, 0.0), l.at(u, l.out * (f + 0.01), y_top - drop), -along * s);
+        b.tube(l.at(u + 0.08 * -s, l.out * (f + reach - 0.05), y_top - drop + 0.03), l.at(u + 0.08 * -s, l.out * f, y_top - drop - 0.35), 0.018, 0x2b2e34, mat::METAL);
+    }
 }
 
 struct B {
@@ -945,6 +1051,16 @@ pub fn gen_shop(rng: &mut Rng, w: f32, d: f32) -> Geom {
             b.opening_trim(side, FLOOR_Y, o, true, accent, None);
         }
     }
+    // a tiled plinth round the walls (under the shop windows, broken at the door) and pilasters up the corners to the parapet
+    let door_cut = [Op { u0: ops[0].u0 - 0.12, u1: ops[0].u1 + 0.12, ..ops[0] }];
+    for (line, cut) in [(front, &door_cut[..]), (back, &[][..]), (left, &[][..]), (right, &[][..])] {
+        wall_band(&mut b, line, FLOOR_Y, 0.0, 0.55, cut, 0.05, shade_hex(accent, 0.72), mat::STONE);
+    }
+    for (sx, sz) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        let (x0, x1) = if sx > 0.0 { (hx - 0.24, hx + 0.08) } else { (-hx - 0.08, -hx + 0.24) };
+        let (z0, z1) = if sz > 0.0 { (hz - 0.24, hz + 0.08) } else { (-hz - 0.08, -hz + 0.24) };
+        b.bx_faces(Vec3::new(x0, FLOOR_Y, z0), Vec3::new(x1, top_y, z1), 0xf7f5ee, mat::PLASTER, 0b110011, false);
+    }
     // flat roof with parapet and cornice
     b.bx(Vec3::new(-hx, top_y - 0.2, -hz), Vec3::new(hx, top_y, hz), 0x8a8d93, mat::STONE, true);
     let par = 0.5;
@@ -1057,11 +1173,23 @@ pub fn gen_barn(rng: &mut Rng) -> Geom {
     let ops = vec![Op { u0: door_u - 1.8, u1: door_u + 1.8, v0: 0.0, v1: 3.7 }, Op { u0: 1.2, u1: 2.2, v0: 3.2, v1: 4.1 }, Op { u0: w - 2.2, u1: w - 1.2, v0: 3.2, v1: 4.1 }];
     b.wall(front, FLOOR_Y, h, &ops, red, mat::WOOD);
     b.opening_trim(front, FLOOR_Y, &ops[0], false, 0xf5efe0, None);
-    // white X-braced barn doors flanking the opening (visual only)
+    // barn doors slid open either side of the opening (visual only): red boards in a white frame with a rail across the middle and
+    // an X brace in each half
     for sx in [-1.0f32, 1.0] {
         let x0 = door_u - 1.8 + (if sx < 0.0 { -1.8 } else { 3.6 });
-        let (a, c) = front.bx(x0 + 0.0, x0 + 1.8, WALL_T / 2.0, WALL_T / 2.0 + 0.05, FLOOR_Y, FLOOR_Y + 3.7);
-        b.bx(a, c, 0xf5efe0, mat::WOOD, false);
+        let (f, y0, y1, w) = (WALL_T / 2.0, FLOOR_Y, FLOOR_Y + 3.7, 0.15);
+        let (x1, ym) = (x0 + 1.8, (y0 + y1) / 2.0);
+        let (a, c) = front.bx(x0, x1, f, f + 0.05, y0, y1);
+        b.bx(a, c, shade_hex(red, 0.9), mat::WOOD, false);
+        for (u0, u1, v0, v1) in [(x0, x0 + w, y0, y1), (x1 - w, x1, y0, y1), (x0 + w, x1 - w, y0, y0 + w), (x0 + w, x1 - w, y1 - w, y1), (x0 + w, x1 - w, ym - w / 2.0, ym + w / 2.0)] {
+            let (a, c) = front.bx(u0, u1, f + 0.05, f + 0.09, v0, v1);
+            b.bx_faces(a, c, 0xf5efe0, mat::WOOD, front.outer_faces(), false);
+        }
+        for (ya, yb) in [(y0 + w, ym - w / 2.0), (ym + w / 2.0, y1 - w)] {
+            for (ua, ub) in [(x0 + w, x1 - w), (x1 - w, x0 + w)] {
+                b.board(front.at(ua, f + 0.07, ya), front.at(ub, f + 0.07, yb), Vec3::Z, 0.13, 0.04, 0xf5efe0, mat::WOOD);
+            }
+        }
     }
     b.opening_trim(front, FLOOR_Y, &ops[1], true, 0xf5efe0, None);
     b.opening_trim(front, FLOOR_Y, &ops[2], true, 0xf5efe0, None);
@@ -1175,9 +1303,23 @@ pub fn gen_lighthouse() -> Geom {
         let a = k as f32 / 12.0 * TAU_F;
         b.bx(Vec3::new(a.cos() * 2.45 - 0.04, total + 0.35, a.sin() * 2.45 - 0.04), Vec3::new(a.cos() * 2.45 + 0.04, total + 1.3, a.sin() * 2.45 + 0.04), 0x3d3f46, mat::METAL, false);
     }
-    // lamp room (emissive)
+    // a handrail round the tops of the gallery's posts
+    for k in 0..12 {
+        let (a0, a1) = (k as f32 / 12.0 * TAU_F, (k + 1) as f32 / 12.0 * TAU_F);
+        let (p0, p1) = (Vec3::new(a0.cos() * 2.45, total + 1.3, a0.sin() * 2.45), Vec3::new(a1.cos() * 2.45, total + 1.3, a1.sin() * 2.45));
+        let mid = (p0 + p1) * 0.5;
+        b.board(p0, p1, Vec3::new(mid.x, 0.0, mid.z), 0.07, 0.07, 0x3d3f46, mat::METAL);
+    }
+    // lamp room (emissive) behind glazing bars, on a dark base ring
     b.mb.mat(mat::EMISSIVE).hex(0xfff2b0);
     b.mb.cylinder(Vec3::new(0.0, total + 0.35, 0.0), 1.5, 1.5, 2.2, 10, false, false);
+    b.mb.mat(mat::METAL).hex(0x3d3f46);
+    b.mb.cylinder(Vec3::new(0.0, total + 0.35, 0.0), 1.56, 1.56, 0.32, 10, false, false);
+    for k in 0..10 {
+        let a = k as f32 / 10.0 * TAU_F;
+        let p = Vec3::new(a.cos() * 1.5, 0.0, a.sin() * 1.5);
+        b.board(p + Vec3::Y * (total + 0.6), p + Vec3::Y * (total + 2.55), p, 0.07, 0.08, 0x3d3f46, mat::METAL);
+    }
     b.mb.mat(mat::METAL).hex(0xc43b32);
     b.mb.cylinder(Vec3::new(0.0, total + 2.55, 0.0), 1.9, 0.0, 1.8, 10, true, false);
     // door with a stone frame and a step, round windows up the tower, a finial on the lantern roof
@@ -1624,6 +1766,14 @@ fn tower_window(b: &mut B, l: Line, y0: f32, o: &Op, trim: u32) {
     b.bx(a, c, trim, mat::FLAT, false);
     let (a, c) = l.bx(o.u0 - 0.12, o.u1 + 0.12, -t, t, y0 + o.v1, y0 + o.v1 + 0.16);
     b.bx(a, c, trim, mat::FLAT, false);
+    // flat jambs on the outer face from the sill up to the lintel, which close the frame (3.5 cm proud: only their fronts are worth
+    // drawing, a building has dozens of windows)
+    let (d0, d1) = l.proud(0.0, 0.035);
+    let front = l.outer_faces() & !(if l.along_x { 0b001111 } else { 0b111100 });
+    for (u0, u1) in [(o.u0 - 0.1, o.u0), (o.u1, o.u1 + 0.1)] {
+        let (a, c) = l.bx(u0, u1, d0, d1, y0 + o.v0, y0 + o.v1);
+        b.bx_faces(a, c, trim, mat::FLAT, front, false);
+    }
     // (the bars leave out the end faces that butt against the sill, the lintel and the jambs)
     let um = (o.u0 + o.u1) * 0.5;
     let (a, c) = l.bx(um - 0.03, um + 0.03, -0.03, 0.03, y0 + o.v0, y0 + o.v1);
@@ -1743,6 +1893,8 @@ pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom
     // the solid steps right behind them would fill them up
     let low_steps = (0.9 / (STORY_H / STAIR_STEPS as f32)).floor();
     let stairwell = (z_back - left.a0, z_front - low_steps * TOWER_RUN - left.a0);
+    // the shop storey is faced in stone (a brick tower's in pale dressed stone, a rendered one's in a stone tinted like its walls)
+    let (base_col, base_mat) = if st.wall_mat == mat::BRICK { (0xbcb3a3u32, mat::STONE) } else { (mix_hex(st.wall, 0x857f77, 0.62), mat::STONE) };
     for fl in 0..floors {
         let y0 = FLOOR_Y + fl as f32 * STORY_H;
         for (li, line) in [front, back, left, right].into_iter().enumerate() {
@@ -1758,7 +1910,8 @@ pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom
             let (half_w, v0, v1) = if street { (0.8, 0.6, 2.35) } else { (0.65, 0.9, 2.2) };
             let wins: Vec<Op> = B::window_slots(line.len(), &avoid, 3.3).into_iter().map(|c| Op { u0: c - half_w, u1: c + half_w, v0, v1 }).collect();
             ops.extend(wins.iter().copied());
-            lean_wall(&mut b, line, y0, STORY_H, &ops, st.wall, st.wall_mat);
+            let (col, m) = if fl == 0 { (base_col, base_mat) } else { (st.wall, st.wall_mat) };
+            lean_wall(&mut b, line, y0, STORY_H, &ops, col, m);
             for o in &wins {
                 tower_window(&mut b, line, y0, o, st.trim);
             }
@@ -1782,6 +1935,30 @@ pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom
         b.bx(Vec3::new(hx, y0, -hz), Vec3::new(hx + o, y1, hz), st.trim, mat::FLAT, false);
     }
     b.corner_posts(hx - 0.06, hz - 0.06, FLOOR_Y, roof_y - 0.3, st.trim);
+    // pilasters between the bays of the storeys above the shops, with capitals under a frieze that runs round below the cornice
+    // (nothing stands further out than the cornice, so the tower's bounds stay what they were)
+    let pil_col = if st.wall_mat == mat::BRICK { shade_hex(st.wall, 1.12) } else { mix_hex(st.wall, 0xffffff, 0.3) };
+    for line in [front, back, left, right] {
+        let bays = ((line.len() / 3.3).floor() as i32).max(1);
+        for k in 1..bays {
+            let u = line.len() * k as f32 / bays as f32;
+            pilaster(&mut b, line, u, 0.42, FLOOR_Y + STORY_H + 0.12, roof_y - 0.42, 0.1, pil_col, st.wall_mat);
+            pilaster(&mut b, line, u, 0.56, roof_y - 0.42, roof_y - 0.3, 0.12, st.trim, mat::FLAT);
+        }
+        wall_band(&mut b, line, roof_y, -0.56, -0.46, &[], 0.05, st.trim, mat::FLAT);
+    }
+    // striped awnings over the shop windows, clear of the door's canopy and of the corners
+    for c in B::window_slots(front.len(), &[(door.u0 - 0.4, door.u1 + 0.4)], 3.3) {
+        let (mut u0, mut u1) = ((c - 0.95).max(0.3), (c + 0.95).min(front.len() - 0.3));
+        if c < door_u {
+            u1 = u1.min(door_u - 1.35);
+        } else {
+            u0 = u0.max(door_u + 1.35);
+        }
+        if u1 - u0 > 0.8 {
+            awning(&mut b, front, u0, u1, FLOOR_Y + STORY_H - 0.2, 0.45, 0.8, st.roof);
+        }
+    }
     // the front door standing ajar, and a canopy over it on two stays
     b.opening_trim(front, FLOOR_Y, &door, false, st.trim, None);
     b.door_leaf(front, FLOOR_Y, &door, door_col, 0xe3c15a);
@@ -1817,6 +1994,21 @@ pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom
                 b.bx(Vec3::new(a0, y - SLAB_T, c0), Vec3::new(a1, y, c1), 0xf1ede2, mat::PLASTER, true);
                 let (col, m) = if roof { (0x7d7f84, mat::STONE) } else { (floor_col, floor_mat) };
                 b.bx_faces(Vec3::new(a0, y, c0), Vec3::new(a1, y + 0.02, c1), col, m, 0b110111, false);
+                if roof {
+                    // the joints between the roof's paving slabs, on one grid across all the pieces
+                    b.mb.mat(mat::STONE).hex(0x696b70);
+                    let (grid, yj, hw) = (1.5f32, y + 0.03, 0.025);
+                    let mut x = ((a0 + hx) / grid).floor() * grid - hx + grid;
+                    while x < a1 - 0.1 {
+                        b.mb.quad_out([Vec3::new(x - hw, yj, c0), Vec3::new(x + hw, yj, c0), Vec3::new(x + hw, yj, c1), Vec3::new(x - hw, yj, c1)], Vec3::Y);
+                        x += grid;
+                    }
+                    let mut z = ((c0 + hz) / grid).floor() * grid - hz + grid;
+                    while z < c1 - 0.1 {
+                        b.mb.quad_out([Vec3::new(a0, yj, z - hw), Vec3::new(a1, yj, z - hw), Vec3::new(a1, yj, z + hw), Vec3::new(a0, yj, z + hw)], Vec3::Y);
+                        z += grid;
+                    }
+                }
             }
         }
         // guard rails across the foot end of the opening and down its open sides; the sides stop a metre short of the head of the
@@ -1965,15 +2157,43 @@ pub fn gen_warehouse(rng: &mut Rng, w: f32, d: f32) -> Geom {
         }
     }
     b.corner_posts(hx - 0.06, hz - 0.06, FLOOR_Y, top_y, steel);
-    // the roll-up door, rolled up into its drum inside above the opening, with its bottom rail just showing; a sign and a lamp outside
+    // a concrete plinth round the foot of the walls (broken at the doors and their frames) and flashing along their tops
+    for (line, door, _) in &walls {
+        let cut: Vec<Op> = door.iter().map(|o| Op { u0: o.u0 - 0.12, u1: o.u1 + 0.12, ..*o }).collect();
+        wall_band(&mut b, *line, FLOOR_Y, 0.0, 0.5, &cut, 0.09, 0x8f8d88, mat::STONE);
+        wall_band(&mut b, *line, FLOOR_Y, h - 0.25, h, &[], 0.07, steel, mat::METAL);
+    }
+    // the roll-up door, rolled up into its drum inside above the opening, with its last few slats and bottom rail showing; hazard
+    // stripes up the frame, a sign and lamps outside
     b.opening_trim(front, FLOOR_Y, &big, false, hazard, None);
+    let t = WALL_T / 2.0 + 0.056;
+    for u in [big.u0 - 0.1, big.u1] {
+        for k in 0..6 {
+            let y = FLOOR_Y + 0.15 + k as f32 * 0.32;
+            let (a, c) = front.bx(u - 0.006, u + 0.106, -t, t, y, y + 0.16);
+            b.bx_faces(a, c, 0x2b2e34, mat::FLAT, 0b110011, false);
+        }
+    }
     let inner = -WALL_T / 2.0;
     let (a, c) = front.bx(big.u0 - 0.25, big.u1 + 0.25, inner - 0.6, inner, FLOOR_Y + big.v1 + 0.05, FLOOR_Y + big.v1 + 0.65);
     b.bx(a, c, steel, mat::METAL, false);
-    let (a, c) = front.bx(big.u0, big.u1, -0.06, 0.02, FLOOR_Y + big.v1 - 0.32, FLOOR_Y + big.v1);
+    let (a, c) = front.bx(big.u0, big.u1, -0.06, 0.02, FLOOR_Y + big.v1 - 0.62, FLOOR_Y + big.v1);
     b.bx(a, c, shade_hex(skin, 0.92), mat::METAL, false);
-    let (a, c) = front.bx(big.u0, big.u1, -0.08, 0.04, FLOOR_Y + big.v1 - 0.38, FLOOR_Y + big.v1 - 0.32);
+    for k in 1..4 {
+        let y = FLOOR_Y + big.v1 - k as f32 * 0.155;
+        let (a, c) = front.bx(big.u0, big.u1, -0.072, 0.032, y - 0.018, y + 0.018);
+        b.bx_faces(a, c, shade_hex(skin, 0.78), mat::METAL, 0b111100, false);
+    }
+    let (a, c) = front.bx(big.u0, big.u1, -0.08, 0.04, FLOOR_Y + big.v1 - 0.68, FLOOR_Y + big.v1 - 0.62);
     b.bx(a, c, steel, mat::METAL, false);
+    for u in [big.u0 - 0.5, big.u1 + 0.5] {
+        let (y, f) = (FLOOR_Y + 4.0, WALL_T / 2.0);
+        b.tube(front.at(u, f, y + 0.3), front.at(u, f + 0.22, y + 0.12), 0.025, steel, mat::METAL);
+        b.mb.mat(mat::METAL).hex(steel);
+        b.mb.cylinder(front.at(u, f + 0.22, y - 0.02), 0.17, 0.05, 0.14, 8, false, true);
+        b.mb.mat(mat::EMISSIVE).hex(0xffe9b0);
+        b.mb.cylinder(front.at(u, f + 0.22, y - 0.03), 0.13, 0.13, 0.012, 8, true, false);
+    }
     let (a, c) = front.bx(big.u0 + 0.5, big.u1 - 0.5, WALL_T / 2.0, WALL_T / 2.0 + 0.06, FLOOR_Y + 4.85, FLOOR_Y + 5.6);
     b.bx(a, c, *rng.pick(&[0xc24a3cu32, 0x2f8f8a, 0x3f5f94, 0xd9772f]), mat::FLAT, false);
     let (a, c) = front.bx(big.u0 + 0.7, big.u1 - 0.7, WALL_T / 2.0 + 0.06, WALL_T / 2.0 + 0.08, FLOOR_Y + 5.0, FLOOR_Y + 5.45);
@@ -2007,8 +2227,32 @@ pub fn gen_warehouse(rng: &mut Rng, w: f32, d: f32) -> Geom {
             let x = -el + 0.06 + (2.0 * el - 0.12) * k as f32 / seams as f32;
             b.board(map(x, eave_y + 0.03, s * ew), map(x, top_y + rise + 0.03, 0.0), n, 0.06, 0.05, shade_hex(roof_col, 0.85), mat::METAL);
         }
-        // a gutter along the eave
+        // a gutter along the eave, with a downpipe at either end down the wall to a shoe above the plinth
         b.tube(map(-el, eave_y - 0.02, s * (ew + 0.03)), map(el, eave_y - 0.02, s * (ew + 0.03)), 0.07, 0x9aa0a8, mat::METAL);
+        for t in [-1.0f32, 1.0] {
+            let x = t * (len_h - 0.4);
+            let (z_eave, z_wall, z_shoe) = (s * (ew + 0.03), s * (wid_h + 0.13), s * (wid_h + 0.24));
+            let y_bend = eave_y - 0.3;
+            for (p0, p1) in [
+                (map(x, eave_y - 0.02, z_eave), map(x, y_bend, z_eave)),
+                (map(x, y_bend, z_eave), map(x, y_bend - 0.12, z_wall)),
+                (map(x, y_bend - 0.12, z_wall), map(x, FLOOR_Y + 0.75, z_wall)),
+                (map(x, FLOOR_Y + 0.75, z_wall), map(x, FLOOR_Y + 0.6, z_shoe)),
+            ] {
+                b.tube(p0, p1, 0.055, 0x9aa0a8, mat::METAL);
+            }
+        }
+        // skylights in every bay between the trusses: a pane in a frame, a little proud of the sheeting
+        let bays = ((2.0 * len_h) / 4.5).round().max(2.0) as i32;
+        let lift = |x: f32, w: f32, e: f32| map(x, top_y + rise - (top_y + rise - eave_y) * w / ew, s * w) + n * e;
+        for k in 0..bays {
+            let xc = -len_h + 2.0 * len_h * (k as f32 + 0.5) / bays as f32;
+            let (w0, w1) = (0.3 * ew, 0.72 * ew);
+            b.mb.mat(mat::METAL).hex(0xc9ccd0);
+            b.mb.quad_out([lift(xc - 0.75, w0 - 0.08, 0.075), lift(xc + 0.75, w0 - 0.08, 0.075), lift(xc + 0.75, w1 + 0.08, 0.075), lift(xc - 0.75, w1 + 0.08, 0.075)], n);
+            b.mb.mat(mat::GLASS).hex(0x56788a);
+            b.mb.quad_out([lift(xc - 0.62, w0, 0.085), lift(xc + 0.62, w0, 0.085), lift(xc + 0.62, w1, 0.085), lift(xc - 0.62, w1, 0.085)], n);
+        }
     }
     let (a, c) = (map(-el - 0.02, top_y + rise - 0.05, -0.2), map(el + 0.02, top_y + rise + 0.08, 0.2));
     b.bx(a.min(c), a.max(c), shade_hex(roof_col, 0.8), mat::METAL, false);
@@ -2327,6 +2571,20 @@ fn house_details(b: &mut B, hx: f32, hz: f32, door_u: f32, floors: u32, st: &Sty
     let door_col = if st.logs { 0x5d3f27 } else { door_cols[(hunit(seed, 5, 17) * 6.0) as usize % 6] };
     let door = Op { u0: door_u - DOOR_W / 2.0, u1: door_u + DOOR_W / 2.0, v0: 0.0, v1: DOOR_H };
     b.door_leaf(front, FLOOR_Y, &door, door_col, 0xe3c15a);
+    // a wainscot round the foot of the ground-floor walls in a deeper tone under a rail of trim (broken at the door and its frame):
+    // stone under a brick house, darker boards under a cabin
+    let (base, base_mat) = if st.logs {
+        (shade_hex(st.wall, 0.72), mat::WOOD)
+    } else if st.wall_mat == mat::BRICK {
+        (0xa39b8f, mat::STONE)
+    } else {
+        (shade_hex(st.wall, 0.8), st.wall_mat)
+    };
+    let door_cut = [Op { u0: door.u0 - 0.12, u1: door.u1 + 0.12, ..door }];
+    for (line, cut) in [(front, &door_cut[..]), (back, &[][..]), (left, &[][..]), (right, &[][..])] {
+        wall_band(b, line, FLOOR_Y, 0.0, 0.7, cut, 0.03, base, base_mat);
+        wall_band(b, line, FLOOR_Y, 0.7, 0.77, cut, 0.055, st.trim, mat::FLAT);
+    }
     let lu = if door_u + 1.2 < front.len() - 0.5 { door_u + 1.25 } else { door_u - 1.25 };
     let (a, c) = front.bx(lu - 0.07, lu + 0.07, WALL_T / 2.0, WALL_T / 2.0 + 0.1, FLOOR_Y + 1.95, FLOOR_Y + 2.25);
     b.bx(a, c, 0x2b2e34, mat::METAL, false);
@@ -3025,6 +3283,23 @@ mod tests {
                     assert!(floor_clear_cols(&g.cols, c.x, c.z, c.y, 0.4), "{name}: chest at {c:?}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn facade_dressing_stands_no_further_out_than_the_cornice_or_the_eaves() {
+        // a building's mesh bounds decide where grass may grow, the nav grid round it and the bots' notion of indoors, so the pilasters,
+        // awnings and window jambs of a tower and the plinth, downpipes and lamps of a warehouse keep within what was already there:
+        // the coping of the parapet (and the door's canopy in front), the roof's overhang and its gutters
+        for (floors, hx, hz, g) in towers() {
+            let bb = g.mesh.bounds();
+            assert!(bb.min.x >= -hx - 0.151 && bb.max.x <= hx + 0.151 && bb.min.z >= -hz - 0.151 && bb.max.z <= hz + 0.901, "{floors} storeys, {hx}x{hz}: {bb:?}");
+        }
+        let mut r = Rng::new(31);
+        for (w, d) in [(16.0f32, 12.0f32), (22.0, 16.0), (28.0, 20.0), (18.0, 20.0)] {
+            let g = gen_warehouse(&mut r, w, d);
+            let (bb, hx, hz) = (g.mesh.bounds(), g.half.x, g.half.y);
+            assert!(bb.min.x >= -hx - 0.41 && bb.max.x <= hx + 0.41 && bb.min.z >= -hz - 0.41 && bb.max.z <= hz + 0.41, "warehouse {w}x{d}: {bb:?}");
         }
     }
 
