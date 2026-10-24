@@ -156,11 +156,15 @@ player (one reliable and ordered, one unreliable for commands and snapshots); `c
 protocol, the host, the guest and tests that drive them through a simulated lossy network.
 
 Finding each other: the room list and the connection set-up go through free public MQTT brokers (several at once,
-so one being down does not matter). A public room is a small retained message the host refreshes while the room is
-open and the broker removes when the host goes away; a player who joins sends a request on the room's topic, the
-host answers it with a WebRTC offer and the guest's page answers back, all by itself (`web/rooms.js`). Only that
-set-up goes through the brokers: the match itself runs directly between the browsers. Anyone who knows a private
-room's code can join it, so share it only with friends.
+redialled when they drop). A public room is a small retained message the host refreshes while the room is open and
+the broker removes when the host goes away; a player who joins sends a request, the host answers it with a WebRTC
+offer and the guest's page answers back, all by itself (`web/rooms.js`). Only that set-up goes through the brokers:
+the match itself runs directly between the browsers. Anybody can read a public broker, so the set-up is protected:
+the topics a room's joins use are derived from its code with a slow hash (PBKDF2) and every message on them is
+encrypted with a key derived from the code (AES-GCM), so a private room's code never appears on the wire; each join
+also agrees a key with the host (ECDH), so the offer and the answer, which hold the players' addresses, cannot be read
+or forged by the other people who know the code; and a room picked from the list only accepts an answer made with
+the host key in its listing. Anyone who knows a private room's code can join it, so share it only with friends.
 
 Limits: connections are direct, so two players behind strict (symmetric) NATs may not be able to reach each other
 (there is no relay server; a public STUN server is used to find addresses); the match cannot be joined once it has
@@ -216,6 +220,8 @@ cd tools && npm install && npm test       # real-browser tests (needs `scripts/b
                                            #   e2e.mjs      gameplay: move, shoot, reload, build, harvest, chests, kills...
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
                                            #   rooms_e2e.mjs two browsers find each other: room list, private code, rejoin
+                                           #   rooms_unit.mjs the room service without a browser: privacy, forged messages,
+                                           #                  broker restarts, clock skew (fast)
                                            #   mp_e2e.mjs   two browsers host/join with copied codes, then play together
                                            #   supply_e2e.mjs  a supply drop falls, lands, shows on the HUD and is opened with E
                                            #   utility_e2e.mjs grenades, the Launch Pad, Slurp Juice, ammo boxes and llamas

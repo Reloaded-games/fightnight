@@ -25,6 +25,7 @@ export function startBroker({ port = 0, log = false } = {}) {
   const sockets = new Set();
   const retained = new Map(); // topic -> payload Buffer
   let published = 0;
+  let protocolErrors = 0;
 
   function deliver(topic, payload, retain) {
     published++;
@@ -48,6 +49,8 @@ export function startBroker({ port = 0, log = false } = {}) {
     } else if (type === 3) { // PUBLISH
       const n = (body[0] << 8) | body[1];
       const topic = body.subarray(2, 2 + n).toString('utf8');
+      // like the real brokers: a wildcard, a NUL or an empty topic name is a protocol error and ends the connection
+      if (!topic || /[+#\u0000]/.test(topic)) { c.protocolErrors = (c.protocolErrors || 0) + 1; protocolErrors++; c.end(); return; }
       let at = 2 + n;
       if ((flags >> 1) & 3) at += 2;
       deliver(topic, Buffer.from(body.subarray(at)), !!(flags & 1));
@@ -147,6 +150,7 @@ export function startBroker({ port = 0, log = false } = {}) {
         url: `ws://127.0.0.1:${p}/mqtt`,
         retained,
         get published() { return published; },
+        get protocolErrors() { return protocolErrors; },
         get clients() { return clients.size; },
         close: () => new Promise((r) => { for (const sock of sockets) sock.destroy(); server.close(() => r()); }),
       });

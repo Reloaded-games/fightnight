@@ -1,20 +1,30 @@
 // Rooms: how players find each other without a game server.
 //
-// The page talks to free public MQTT brokers over WebSockets (several at once, so one being down does not matter):
-// - a public room is a retained message under `<prefix>/rooms/<code>` that the host refreshes while the room is open
-//   (and that the broker clears when the host goes away), so everybody who opens "Join a game" sees the list;
-// - a private room is not listed; its code is the only way in;
-// - joining sends a request to `<prefix>/room/<code>/host`; the host answers on `<prefix>/room/<code>/to/<guest>` with a
-//   WebRTC offer, the guest sends its answer back the same way, and from then on the two talk directly (net.js).
-// Nobody copies or pastes anything: the room code (6 letters) is all a friend needs.
+// The page talks to free public MQTT brokers over WebSockets, several at once so one being down does not matter, and it
+// redials any that drop. Anyone can read and write on a public broker, so:
+// - a public room is a retained message under `<prefix>/rooms/<listing>` (a random id, not the room code) that the host
+//   refreshes while the room is open and the broker clears when the host goes away. It carries the room code, so
+//   everybody who opens "Join a game" can join, and the host's public key, so nobody else can answer for the host;
+// - a private room is never published at all: its code is the only way in;
+// - the topics a room's joins go through are derived from its code with a slow hash, and every message on them is
+//   encrypted with a key derived from the code, so a code is never seen on the wire and nobody without it can read or
+//   forge them. Each join also agrees a key of its own with the host (ECDH): the WebRTC offer and answer, which hold the
+//   players' addresses, are sealed with it, so other players of the room cannot read them or answer in someone's place.
+// The host answers a join with a WebRTC offer, the guest's page answers back, and from then on the two talk directly
+// (net.js). Nobody copies or pastes anything: the room code (6 letters and digits) is all a friend needs.
 
 const DEFAULT_BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I to misread
 export const CODE_LENGTH = 6;
 const REFRESH_MS = 8000; // a listed room is announced again this often
 const STALE_MS = 25000; // and drops off the list when it has not been for this long
+const RETAINED_MAX_AGE_MS = 10 * 60 * 1000; // a kept announcement older than this is a room that is long gone
 const KEEPALIVE_S = 30;
 const MAX_LISTED = 40;
+const MAX_PAYLOAD = 16 * 1024; // nothing the room service carries is bigger
+const KDF_ITERATIONS = 100000;
+const KDF_SALT = 'fightnight/rooms2';
+const ID_RE = /^[0-9a-f]{16}$/;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -29,8 +39,52 @@ export function cleanCode(text) {
   return String(text || '').toUpperCase().split('').filter((c) => CODE_ALPHABET.includes(c)).join('').slice(0, CODE_LENGTH);
 }
 
-function randomId() {
-  return [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('');
+const isCode = (c) => typeof c === 'string' && c.length === CODE_LENGTH && cleanCode(c) === c;
+const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+function randomId() { return hex(crypto.getRandomValues(new Uint8Array(8))); }
+const b64 = {
+  enc(bytes) { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); },
+  dec(text) { const s = atob(text); const out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out; },
+};
+
+// ---- keys -------------------------------------------------------------------------------------------------------------------
+/** What a room code unlocks: the topic its joins go through and the key that seals them. */
+async function roomKeys(code) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(code), 'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode(KDF_SALT), iterations: KDF_ITERATIONS, hash: 'SHA-256' }, base, 512));
+  const key = await crypto.subtle.importKey('raw', bits.slice(32, 64), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  return { topic: hex(bits.slice(0, 12)), key };
+}
+
+async function seal(key, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj))));
+  return b64.enc(iv) + '.' + b64.enc(ct);
+}
+
+/** The object sealed in `box`, or null if it was not sealed with `key` (or is not a box at all). */
+async function unseal(key, box) {
+  if (typeof box !== 'string' || box.length > MAX_PAYLOAD) return null;
+  try {
+    const [iv, ct] = box.split('.');
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64.dec(iv) }, key, b64.dec(ct));
+    return JSON.parse(dec.decode(pt));
+  } catch (e) { return null; }
+}
+
+const ECDH = { name: 'ECDH', namedCurve: 'P-256' };
+async function keyPair() {
+  const pair = await crypto.subtle.generateKey(ECDH, false, ['deriveBits']);
+  return { priv: pair.privateKey, pub: b64.enc(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))) };
+}
+
+/** The key two sides agree on from one's private key and the other's public one. */
+async function sharedKey(priv, theirPub) {
+  if (typeof theirPub !== 'string' || theirPub.length > 200) throw new Error('bad key');
+  const pub = await crypto.subtle.importKey('raw', b64.dec(theirPub), ECDH, false, []);
+  const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: pub }, priv, 256);
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array([...new Uint8Array(bits), ...enc.encode('fightnight/join')]));
+  return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
 // ---- a minimal MQTT 3.1.1 client over a WebSocket (QoS 0, retained messages, last will) ---------------------------------
@@ -46,11 +100,14 @@ function varint(n) {
 }
 function str(s) {
   const b = enc.encode(s);
+  if (b.length > 65535) throw new Error('string too long for MQTT');
   return [b.length >> 8, b.length & 255, ...b];
 }
 function packet(type, flags, body) {
   return new Uint8Array([(type << 4) | flags, ...varint(body.length), ...body]);
 }
+// a topic name we publish to: never empty, never a wildcard, never a NUL (a broker hangs up on any of those)
+const goodTopic = (t) => typeof t === 'string' && t.length > 0 && t.length < 512 && !/[+#\u0000]/.test(t);
 
 class MqttSocket {
   constructor(url, { clientId, will, onMessage, onClose }) {
@@ -62,6 +119,7 @@ class MqttSocket {
     this.buf = new Uint8Array(0);
     this.ready = false;
     this.nextId = 1;
+    this.lastRx = 0;
   }
 
   connect(timeoutMs = 8000) {
@@ -83,6 +141,7 @@ class MqttSocket {
         this.ws.send(packet(1, 0, body));
       };
       this.ws.onmessage = (ev) => {
+        this.lastRx = Date.now();
         const more = new Uint8Array(ev.data);
         const all = new Uint8Array(this.buf.length + more.length);
         all.set(this.buf); all.set(more, this.buf.length);
@@ -93,7 +152,11 @@ class MqttSocket {
             if (body[1] !== 0) { fail('refused (' + body[1] + ')'); return; }
             this.ready = true;
             settled = true;
-            this.ping = setInterval(() => this.#send(packet(12, 0, [])), (KEEPALIVE_S * 1000) / 2);
+            this.ping = setInterval(() => {
+              // a connection that has said nothing for a keep-alive and a half (pings included) is dead
+              if (Date.now() - this.lastRx > KEEPALIVE_S * 1500) { try { this.ws.close(); } catch (e) { /* closed */ } return; }
+              this.#send(packet(12, 0, []));
+            }, (KEEPALIVE_S * 1000) / 2);
             resolve(this);
           } else if (type === 3) { // PUBLISH
             const tl = (body[0] << 8) | body[1];
@@ -153,7 +216,9 @@ class MqttSocket {
   }
 
   publish(topic, payload, retain = false) {
+    if (!goodTopic(topic)) return;
     const p = typeof payload === 'string' ? enc.encode(payload) : payload;
+    if (p.length > MAX_PAYLOAD) return;
     this.#send(packet(3, retain ? 1 : 0, [...str(topic), ...p]));
   }
 
@@ -167,55 +232,83 @@ class MqttSocket {
 
 // ---- the room service ---------------------------------------------------------------------------------------------------
 /**
- * One connection to the room service (to every broker that answers). `version` keeps players of different builds apart:
- * they would not be able to play together anyway.
+ * One connection to the room service: to every broker that answers, each redialled when it drops. `version` keeps
+ * players of different builds apart (they could not play together anyway). `onChange` hears when the first broker
+ * comes up, when they are all down, and every reconnection (subscriptions are renewed by themselves).
  */
 export class RoomService {
   constructor({ version, brokers }) {
-    this.prefix = `fightnight/rooms1/v${version}`;
+    this.prefix = `fightnight/rooms2/v${version}`;
     this.brokers = brokers && brokers.length ? brokers : DEFAULT_BROKERS;
     this.id = randomId();
-    this.socks = [];
-    this.handlers = new Map(); // topic filter -> fn(topic, payload, retained)
+    this.socks = new Map(); // url -> MqttSocket (connected)
+    this.handlers = new Map(); // topic filter -> fn(topic, msg, retained)
     this.seen = new Map(); // message id -> time (the same message comes once from every broker)
     this.closed = false;
     this.will = null;
+    this.timers = new Set();
+    this.onChange = null;
   }
 
-  get connected() { return this.socks.some((s) => s.ready); }
+  get connected() { return [...this.socks.values()].some((s) => s.ready); }
 
-  /** Connect to every broker; resolves once at least one is up (rejects when none is). */
+  /**
+   * Connect to every broker. Resolves once one is up; rejects when none answered at first (they are still tried again
+   * in the background until stop(): onChange says when one comes up).
+   */
   start({ will } = {}) {
     this.will = will || null;
-    const tries = this.brokers.map((url) => {
-      const sock = new MqttSocket(url, {
-        clientId: 'fn-' + randomId(),
-        will: this.will,
-        onMessage: (topic, payload, retained) => this.#deliver(topic, payload, retained),
-        onClose: () => { this.socks = this.socks.filter((s) => s !== sock); this.onChange?.(); },
-      });
-      return sock.connect().then(() => {
-        if (this.closed) { sock.close(); return; }
-        this.socks.push(sock);
-        for (const filter of this.handlers.keys()) sock.subscribe(filter);
-        this.onChange?.();
-      });
-    });
     return new Promise((resolve, reject) => {
-      let left = tries.length;
-      if (!left) reject(new Error('no room service configured'));
-      for (const t of tries) {
-        t.then(() => resolve(this)).catch(() => { if (--left === 0 && !this.connected) reject(new Error('Could not reach the room service. Check your internet connection.')); });
+      let left = this.brokers.length;
+      if (!left) { reject(new Error('no room service configured')); return; }
+      for (const url of this.brokers) {
+        this.#dial(url, 0, (ok) => {
+          if (ok) resolve(this);
+          else if (--left === 0 && !this.connected) reject(new Error('Could not reach the room service. Check your internet connection.'));
+        });
       }
     });
   }
 
+  #dial(url, attempt, first) {
+    if (this.closed) return;
+    const sock = new MqttSocket(url, {
+      clientId: 'fn-' + randomId(),
+      will: this.will,
+      onMessage: (topic, payload, retained) => this.#deliver(topic, payload, retained),
+      onClose: () => {
+        if (this.socks.get(url) === sock) this.socks.delete(url);
+        this.onChange?.();
+        this.#later(() => this.#dial(url, 0), 1000);
+      },
+    });
+    sock.connect().then(() => {
+      if (this.closed) { sock.close(); return; }
+      this.socks.set(url, sock);
+      for (const filter of this.handlers.keys()) sock.subscribe(filter);
+      first?.(true);
+      this.onChange?.();
+    }).catch(() => {
+      first?.(false);
+      // try again later, less and less often
+      this.#later(() => this.#dial(url, attempt + 1), Math.min(30000, 2000 * 2 ** attempt));
+    });
+  }
+
+  #later(fn, ms) {
+    if (this.closed) return;
+    const t = setTimeout(() => { this.timers.delete(t); fn(); }, ms);
+    this.timers.add(t);
+  }
+
   #deliver(topic, payload, retained) {
+    if (payload.length > MAX_PAYLOAD) return;
     let msg = null;
     if (payload.length) {
       try { msg = JSON.parse(dec.decode(payload)); } catch (e) { return; }
-      if (msg && msg.id) {
-        const key = msg.id + (retained ? 'r' : '');
+      if (!msg || typeof msg !== 'object') return;
+      if (typeof msg.id === 'string') {
+        const key = msg.id.slice(0, 40) + (retained ? 'r' : '');
         if (this.seen.has(key)) return;
         this.seen.set(key, Date.now());
         if (this.seen.size > 500) for (const [k, t] of this.seen) if (Date.now() - t > 60000) this.seen.delete(k);
@@ -226,29 +319,31 @@ export class RoomService {
 
   on(filter, fn) {
     this.handlers.set(filter, fn);
-    for (const s of this.socks) if (s.ready) s.subscribe(filter);
+    for (const s of this.socks.values()) if (s.ready) s.subscribe(filter);
   }
 
   off(filter) {
     this.handlers.delete(filter);
-    for (const s of this.socks) if (s.ready) s.unsubscribe(filter);
+    for (const s of this.socks.values()) if (s.ready) s.unsubscribe(filter);
   }
 
   send(topic, obj, retain = false) {
     const body = obj ? JSON.stringify({ id: randomId(), ...obj }) : '';
-    for (const s of this.socks) if (s.ready) s.publish(topic, body, retain);
+    for (const s of this.socks.values()) if (s.ready) s.publish(topic, body, retain);
   }
 
   stop() {
     this.closed = true;
-    for (const s of this.socks) s.close();
-    this.socks = [];
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+    for (const s of this.socks.values()) s.close();
+    this.socks.clear();
     this.handlers.clear();
   }
 
-  roomTopic(code) { return `${this.prefix}/rooms/${code}`; }
-  hostTopic(code) { return `${this.prefix}/room/${code}/host`; }
-  guestTopic(code, guest) { return `${this.prefix}/room/${code}/to/${guest}`; }
+  listTopic(listing) { return `${this.prefix}/rooms/${listing}`; }
+  hostTopic(roomTopic) { return `${this.prefix}/room/${roomTopic}/host`; }
+  guestTopic(roomTopic, guest) { return `${this.prefix}/room/${roomTopic}/to/${guest}`; }
 }
 
 function matches(filter, topic) {
@@ -260,26 +355,38 @@ function matches(filter, topic) {
   return f.length === t.length;
 }
 
+/** A random id for a room's listing: the topic it is announced under says nothing about its code. */
+export function newListingId() { return randomId(); }
+
 // ---- hosting a room ---------------------------------------------------------------------------------------------------------
 /**
  * The host's side: keeps the room listed (when public) and answers join requests with WebRTC offers.
- * `onJoin(guestId, name)` must return a promise of an invite code (or null to turn them away);
- * `onAnswer(guestId, reply)` takes the guest's reply.
+ * `onJoin(guestId, name)` must return a promise of an invite code (or throw to turn them away);
+ * `onAnswer(guestId, reply)` takes the guest's reply. Call `await room.open()` once the service is started.
  */
 export class HostedRoom {
-  constructor(service, { code, info, onJoin, onAnswer }) {
+  constructor(service, { code, listing, info, onJoin, onAnswer }) {
     this.svc = service;
     this.code = code;
+    this.listing = listing;
     this.info = info; // { host, mode, map, players, max }
     this.public = true;
+    this.listed = false;
     this.onJoin = onJoin;
     this.onAnswer = onAnswer;
-    this.offers = new Map(); // guest id -> promise of the invite code
+    this.joins = new Map(); // guest id -> { key (shared with that guest), offer (promise of the invite code), answered }
     this.timer = 0;
+    this.closed = false;
   }
 
-  open() {
-    this.svc.on(this.svc.hostTopic(this.code), (topic, msg) => this.#request(msg));
+  async open() {
+    this.keys = await roomKeys(this.code);
+    this.pair = await keyPair();
+    if (this.closed) return;
+    this.svc.on(this.svc.hostTopic(this.keys.topic), (topic, msg) => { this.#request(msg).catch((e) => console.warn('room request', e)); });
+    const prev = this.svc.onChange;
+    // a broker that comes back has forgotten nothing it keeps, but say it again at once anyway
+    this.svc.onChange = () => { prev?.(); if (this.svc.connected) this.#announce(); };
     this.#announce();
     this.timer = setInterval(() => this.#announce(), REFRESH_MS);
   }
@@ -296,69 +403,89 @@ export class HostedRoom {
   }
 
   #announce() {
-    const topic = this.svc.roomTopic(this.code);
-    if (this.public && !this.closed) this.svc.send(topic, { code: this.code, t: Date.now(), ...this.info }, true);
-    else this.svc.send(topic, null, true); // an empty retained message takes the room off the list
+    if (!this.keys) return;
+    const topic = this.svc.listTopic(this.listing);
+    if (this.public && !this.closed) {
+      this.svc.send(topic, { code: this.code, hpub: this.pair.pub, t: Date.now(), ...this.info }, true);
+      this.listed = true;
+    } else if (this.listed) {
+      // an empty kept message takes the room off the list (a private room that was never listed sends nothing at all)
+      this.svc.send(topic, null, true);
+      this.listed = false;
+    }
   }
 
-  async #request(msg) {
-    if (!msg || !msg.from || this.closed) return;
-    const to = this.svc.guestTopic(this.code, msg.from);
+  async #request(env) {
+    if (!env || this.closed || !this.keys) return;
+    const msg = await unseal(this.keys.key, env.box);
+    if (!msg || typeof msg.from !== 'string' || !ID_RE.test(msg.from)) return;
+    const to = this.svc.guestTopic(this.keys.topic, msg.from);
+    const reply = async (j, obj) => this.svc.send(to, { box: await seal(this.keys.key, { hpub: this.pair.pub, data: await seal(j.key, obj) }) });
     if (msg.t === 'join') {
-      if (!this.offers.has(msg.from)) {
-        this.offers.set(msg.from, Promise.resolve(this.onJoin(msg.from, String(msg.name || 'Player').slice(0, 16))).catch((e) => ({ refuse: e.message || String(e) })));
-      }
-      const offer = await this.offers.get(msg.from);
+      let j = this.joins.get(msg.from);
+      if (!j) {
+        let key;
+        try { key = await sharedKey(this.pair.priv, msg.gpub); } catch (e) { return; }
+        j = { key, gpub: msg.gpub, answered: false };
+        j.offer = Promise.resolve().then(() => this.onJoin(msg.from, String(msg.name || 'Player').slice(0, 16))).catch((e) => ({ refuse: e.message || String(e) }));
+        this.joins.set(msg.from, j);
+      } else if (j.gpub !== msg.gpub) return; // somebody else using that guest's id
+      const offer = await j.offer;
       if (!offer || offer.refuse) {
-        this.offers.delete(msg.from);
-        this.svc.send(to, { t: 'refused', why: (offer && offer.refuse) || 'The room is full.' });
-      } else this.svc.send(to, { t: 'offer', code: offer });
-    } else if (msg.t === 'answer' && this.offers.has(msg.from)) {
-      this.onAnswer(msg.from, msg.code);
+        this.joins.delete(msg.from);
+        await reply(j, { t: 'refused', why: (offer && offer.refuse) || 'The room is full.' });
+      } else await reply(j, { t: 'offer', code: offer });
+    } else if (msg.t === 'answer') {
+      const j = this.joins.get(msg.from);
+      if (!j || j.answered) return;
+      const inner = await unseal(j.key, msg.data);
+      if (!inner || typeof inner.code !== 'string') return; // not from the guest who asked (only they share j.key)
+      j.answered = true;
+      this.onAnswer(msg.from, inner.code);
     }
   }
 
   /** Forget a guest (they left or never finished joining) so they can join again. */
-  forget(guestId) { this.offers.delete(guestId); }
+  forget(guestId) { this.joins.delete(guestId); }
 
   close() {
     this.closed = true;
     clearInterval(this.timer);
-    this.svc.off(this.svc.hostTopic(this.code));
-    this.svc.send(this.svc.roomTopic(this.code), null, true);
+    if (this.keys) this.svc.off(this.svc.hostTopic(this.keys.topic));
+    this.#announce();
   }
 }
 
 // ---- the room list and joining ---------------------------------------------------------------------------------------------
-/** Watch the list of public rooms: `onList(rooms)` gets the open ones, newest first, whenever it changes. */
+/** Watch the list of public rooms: `onList(rooms)` gets the open ones whenever it changes. */
 export function watchRooms(service, onList) {
-  const rooms = new Map(); // code -> { info, at }
+  const rooms = new Map(); // listing -> { info, at, first }
   const filter = `${service.prefix}/rooms/+`;
   const emit = () => {
     const now = Date.now();
-    const live = [...rooms.values()].filter((r) => now - r.at < STALE_MS).map((r) => r.info);
-    live.sort((a, b) => (b.t || 0) - (a.t || 0));
+    for (const [k, r] of rooms) if (now - r.at > STALE_MS) rooms.delete(k);
+    const live = [...rooms.values()].sort((a, b) => a.first - b.first).map((r) => r.info);
     onList(live.slice(0, MAX_LISTED));
   };
-  service.on(filter, (topic, msg) => {
-    const code = topic.split('/').pop();
-    if (!msg) rooms.delete(code);
-    else {
-      // an announcement kept by the broker from long ago is a room that is gone (its host never said goodbye)
-      // (anyone can publish here: keep only what a room announcement can hold)
-      const age = Math.abs(Date.now() - (Number(msg.t) || 0));
-      const info = {
-        code,
-        t: Number(msg.t) || 0,
-        host: String(msg.host || 'Player').slice(0, 16),
-        mode: String(msg.mode || ''),
-        map: String(msg.map || ''),
-        players: Math.max(1, Math.min(99, Math.floor(Number(msg.players)) || 1)),
-        max: Math.max(1, Math.min(99, Math.floor(Number(msg.max)) || 8)),
-      };
-      if (age < STALE_MS && cleanCode(code) === code && code.length === CODE_LENGTH) rooms.set(code, { info, at: Date.now() - Math.min(age, STALE_MS) });
-      else rooms.delete(code);
-    }
+  service.on(filter, (topic, msg, retained) => {
+    const listing = topic.split('/').pop();
+    if (!msg) { rooms.delete(listing); emit(); return; }
+    // (anyone can publish here: keep only what a room announcement can hold)
+    if (!isCode(msg.code) || typeof msg.hpub !== 'string' || msg.hpub.length > 200) return;
+    // a kept announcement from long ago is a room whose host never said goodbye; a live one is fresh whatever the
+    // clocks of the two machines say
+    if (retained && Math.abs(Date.now() - (Number(msg.t) || 0)) > RETAINED_MAX_AGE_MS) { rooms.delete(listing); emit(); return; }
+    const info = {
+      code: msg.code,
+      hpub: msg.hpub,
+      host: String(msg.host || 'Player').slice(0, 16),
+      mode: String(msg.mode || '').slice(0, 20),
+      map: String(msg.map || '').slice(0, 20),
+      players: Math.max(1, Math.min(99, Math.floor(Number(msg.players)) || 1)),
+      max: Math.max(1, Math.min(99, Math.floor(Number(msg.max)) || 8)),
+    };
+    const old = rooms.get(listing);
+    rooms.set(listing, { info, at: Date.now(), first: old ? old.first : Date.now() });
     emit();
   });
   const timer = setInterval(emit, 2000);
@@ -367,37 +494,62 @@ export function watchRooms(service, onList) {
 
 /**
  * Ask to join the room `code`. `onOffer(inviteCode)` must return a promise of the reply code (net.js Link.acceptInvite).
- * Resolves when the reply has been sent; rejects if the room does not answer or turns us away.
+ * `hpub` is the host's key from the room list, when the room was picked there: then only that host can answer.
+ * Resolves when the reply has been sent; rejects if the room does not answer, turns us away, or `signal` aborts.
  */
-export function requestJoin(service, code, name, onOffer, timeoutMs = 12000) {
+export async function requestJoin(service, code, name, onOffer, { hpub = null, timeoutMs = 15000, signal = null } = {}) {
+  if (!isCode(code)) throw new Error(`A room code has ${CODE_LENGTH} letters and digits.`);
+  const keys = await roomKeys(code);
+  const mine = await keyPair();
+  const myTopic = service.guestTopic(keys.topic, service.id);
   return new Promise((resolve, reject) => {
-    const mine = service.guestTopic(code, service.id);
     let done = false;
     let answered = false;
+    let retry = 0, timer = 0;
     const finish = (err) => {
       if (done) return;
       done = true;
       clearInterval(retry);
       clearTimeout(timer);
-      if (err) { service.off(mine); reject(err); } else resolve();
+      service.off(myTopic);
+      signal?.removeEventListener('abort', onAbort);
+      if (err) reject(err); else resolve();
     };
-    service.on(mine, async (topic, msg) => {
-      if (!msg || done) return;
-      if (msg.t === 'refused') finish(new Error(msg.why || 'The host turned the request down.'));
-      else if (msg.t === 'offer' && !answered) {
+    const onAbort = () => finish(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+    if (signal?.aborted) { onAbort(); return; }
+    signal?.addEventListener('abort', onAbort);
+    service.on(myTopic, async (topic, env) => {
+      if (!env || done || answered) return;
+      const outer = await unseal(keys.key, env.box);
+      if (!outer || typeof outer.hpub !== 'string' || (hpub && outer.hpub !== hpub)) return;
+      let key;
+      try { key = await sharedKey(mine.priv, outer.hpub); } catch (e) { return; }
+      const msg = await unseal(key, outer.data);
+      if (!msg || done || answered) return;
+      if (msg.t === 'refused') finish(new Error(String(msg.why || 'The host turned the request down.').slice(0, 120)));
+      else if (msg.t === 'offer' && typeof msg.code === 'string') {
         answered = true;
         clearInterval(retry);
+        clearTimeout(timer); // (making the answer takes a few seconds of its own)
         try {
           const reply = await onOffer(msg.code);
-          service.send(service.hostTopic(code), { t: 'answer', from: service.id, code: reply });
+          if (done) return;
+          const box = await seal(keys.key, { t: 'answer', from: service.id, data: await seal(key, { code: reply }) });
+          service.send(service.hostTopic(keys.topic), { box });
           finish();
         } catch (e) { finish(e); }
       }
     });
-    const ask = () => service.send(service.hostTopic(code), { t: 'join', from: service.id, name });
+    const ask = async () => {
+      const box = await seal(keys.key, { t: 'join', from: service.id, name: String(name || 'Player').slice(0, 16), gpub: mine.pub });
+      if (!done) service.send(service.hostTopic(keys.topic), { box });
+    };
     ask();
     // (a message can be lost on the way: ask again until the host answers)
-    const retry = setInterval(ask, 3000);
-    const timer = setTimeout(() => finish(new Error('No room with that code answered. Check the code, and that the host is still in the room.')), timeoutMs);
+    retry = setInterval(ask, 3000);
+    timer = setTimeout(() => finish(new Error('No room with that code answered. Check the code, and that the host is still in the room.')), timeoutMs);
   });
 }
+
+/** For the tests (tools/rooms_unit.mjs): what someone who knows a room's code can make. */
+export const __test = { roomKeys, seal };
