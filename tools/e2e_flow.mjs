@@ -110,6 +110,10 @@ check('Quit returns to the menu', (await settles(page, () => window.__game.state
 await page.keyboard.press('Enter');
 await until(page, () => window.__game.state === 'playing');
 check('Enter on the bare menu starts a match', true);
+// The first page is done (its console log is checked at the end). Every page renders through the browser's one GPU
+// process, and with software WebGPU a page left running a match keeps it saturated: the next page then needed about
+// 110 s instead of 5 s to reach its menu, and the Battle Bus page below never finished loading. Close it.
+await page.close();
 
 // ---- no pointer lock available: the match waits behind the "click to play" hint --------------------------------
 const p2 = await context.newPage();
@@ -119,7 +123,10 @@ await p2.goto(url + 'index.html?opts=' + OPTS);
 await until(p2, () => window.__game && window.__game.state === 'menu');
 await p2.click('#btn-play');
 await until(p2, () => window.__game.state === 'playing');
-await p2.waitForTimeout(1500);
+// The page gives the browser 400 ms to answer the lock request and holds the match on the first frame after that.
+// Wait out that grace period, then for frames rather than a fixed time: a software-rendered frame can take seconds.
+await p2.waitForTimeout(500);
+await frames(p2, 2);
 const hintShown = await ev(p2, () => getComputedStyle(document.getElementById('click-to-play')).display !== 'none');
 const t0 = JSON.parse(await ev(p2, () => window.__game.fn.debug('state'))).t;
 await frames(p2, 3);
