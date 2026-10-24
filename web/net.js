@@ -24,9 +24,24 @@ const b64 = {
   },
 };
 
-async function pipe(bytes, stream) {
-  const out = new Blob([bytes]).stream().pipeThrough(stream);
-  return new Uint8Array(await new Response(out).arrayBuffer());
+const MAX_CODE = 16 * 1024; // an invite or a reply is a few kilobytes; anything much bigger is not one
+const MAX_UNPACKED = 64 * 1024;
+
+async function pipe(bytes, stream, limit = Infinity) {
+  const reader = new Blob([bytes]).stream().pipeThrough(stream).getReader();
+  const parts = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) { reader.cancel().catch(() => {}); throw new Error('That is not an invite code.'); }
+    parts.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
 }
 
 export async function packCode(obj) {
@@ -36,10 +51,16 @@ export async function packCode(obj) {
 
 export async function unpackCode(code) {
   const text = String(code || '').replace(/\s+/g, '');
-  if (text.startsWith('FN0.')) return JSON.parse(new TextDecoder().decode(b64.dec(text.slice(4))));
-  if (!text.startsWith(CODE_PREFIX)) throw new Error('That is not an invite code.');
-  const raw = await pipe(b64.dec(text.slice(CODE_PREFIX.length)), new DecompressionStream('deflate-raw'));
-  return JSON.parse(new TextDecoder().decode(raw));
+  if (text.length > MAX_CODE) throw new Error('That is not an invite code.');
+  let o;
+  if (text.startsWith('FN0.')) o = JSON.parse(new TextDecoder().decode(b64.dec(text.slice(4))));
+  else {
+    if (!text.startsWith(CODE_PREFIX)) throw new Error('That is not an invite code.');
+    const raw = await pipe(b64.dec(text.slice(CODE_PREFIX.length)), new DecompressionStream('deflate-raw'), MAX_UNPACKED);
+    o = JSON.parse(new TextDecoder().decode(raw));
+  }
+  if (!o || typeof o.sdp !== 'string' || o.sdp.length > MAX_UNPACKED) throw new Error('That is not an invite code.');
+  return o;
 }
 
 function gathered(pc) {

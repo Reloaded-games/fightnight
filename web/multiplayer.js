@@ -2,7 +2,7 @@
 // the hand-copied invite/reply exchange kept for when that service cannot be reached, and the per-frame pump between the
 // wasm game and the WebRTC links (see net.js). game.js owns the match itself; this owns the room around it.
 import { Link, flush } from './net.js';
-import { RoomService, HostedRoom, watchRooms, requestJoin, randomCode, cleanCode, CODE_LENGTH } from './rooms.js';
+import { RoomService, HostedRoom, watchRooms, requestJoin, randomCode, cleanCode, newListingId, CODE_LENGTH } from './rooms.js';
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 250;
@@ -26,6 +26,8 @@ export function createMultiplayer(ctx) {
   let room = null; // host: the room we keep open
   let stopWatching = null; // guest: stops the room list
   let joining = false; // guest: a join is under way
+  let joinSeq = 0; // guest: which join attempt is the current one
+  let joinAbort = null; // guest: cancels the join under way
   const guestLinks = new Map(); // host: room-service guest id -> its Link
 
   const route = (peer) => links.get(peer);
@@ -87,27 +89,39 @@ export function createMultiplayer(ctx) {
   /** Put the room on the room service: listed (public) or found by its code only (private). */
   function openRoom() {
     const code = randomCode();
+    const listing = newListingId();
     $('room-code').textContent = code;
     service = new RoomService({ version: fn.net_version(), brokers: BROKERS });
     const svc = service;
     room = new HostedRoom(svc, {
       code,
+      listing,
       info: roomInfo(),
       onJoin: (guest, name) => admit(guest, name),
       onAnswer: (guest, reply) => {
         const link = guestLinks.get(guest);
-        if (link) link.acceptReply(reply).catch((e) => console.warn('join reply', e));
+        if (link) link.acceptReply(reply).catch((e) => { console.warn('join reply', e); link.close(); });
       },
     });
     room.public = $('lb-visibility').querySelector('button.on')?.dataset.v !== 'private';
     setVisibility(room.public);
-    // when the host's page goes away the broker takes the room off the list by itself
-    svc.start({ will: { topic: svc.roomTopic(code), payload: '', retain: true } })
-      .then(() => { if (room && service === svc) room.open(); })
+    const showService = () => {
+      if (service !== svc) return;
+      const st = $('room-status');
+      st.textContent = svc.connected ? 'Room service connected: players can find this room.' : 'Connecting to the room service...';
+      st.classList.toggle('bad', !svc.connected);
+    };
+    svc.onChange = showService;
+    showService();
+    // (the room works as soon as a broker answers, and again after any of them comes back)
+    room.open().catch((e) => console.warn('room', e));
+    // when the host's page goes away the broker takes the room off the list by itself (a private room is never on it)
+    svc.start({ will: { topic: svc.listTopic(listing), payload: '', retain: true } })
+      .then(() => { if (service === svc) msg('You created this room. Your browser hosts the game and chooses the mode. Keep this tab open while everyone plays.'); })
       .catch((e) => {
         if (service !== svc) return;
-        $('room-code').textContent = '------';
-        msg(e.message + ' You can still invite friends with copied codes below.', true);
+        showService();
+        msg(e.message + ' Still trying. Meanwhile you can invite friends with copied codes below.', true);
         $('manual-host').open = true;
         if (!invites) addInvite();
       });
@@ -123,23 +137,35 @@ export function createMultiplayer(ctx) {
     if (starting) throw new Error('The match has already started.');
     if ((status().names || []).length + [...guestLinks.values()].filter((l) => !l.opened && !l.closed).length >= MAX_PLAYERS) throw new Error('The room is full.');
     const peer = nextPeer++;
-    const link = new Link({
+    let link = null;
+    // whatever ends this join (it failed, the guest left, nobody finished it) frees the seat and lets them try again
+    const drop = () => {
+      links.delete(peer);
+      if (guestLinks.get(guest) === link) guestLinks.delete(guest);
+      room?.forget(guest);
+    };
+    link = new Link({
       open() { fn.net_connected(peer); },
       close() {
-        links.delete(peer);
-        guestLinks.delete(guest);
-        room?.forget(guest);
+        drop();
         try { fn.net_disconnected(peer); } catch (e) { /* the page is shutting down */ }
       },
       message(bytes) { try { fn.net_receive(peer, bytes); } catch (e) { console.error(e); } },
     });
+    link.drop = drop;
     links.set(peer, link);
     guestLinks.get(guest)?.close();
     guestLinks.set(guest, link);
     // a request nobody finishes (the guest closed the page) must not hold a seat for ever
-    setTimeout(() => { if (!link.opened && !link.closed) link.close(); }, 30000);
+    setTimeout(() => { if (!link.opened && !link.closed) { link.close(); drop(); } }, 30000);
     console.info(`room: ${name} is joining`);
-    return link.createInvite();
+    try {
+      return await link.createInvite();
+    } catch (e) {
+      link.close();
+      drop();
+      throw e;
+    }
   }
 
   function setVisibility(pub) {
@@ -154,7 +180,7 @@ export function createMultiplayer(ctx) {
   function closeRoom() {
     room?.close();
     room = null;
-    for (const l of guestLinks.values()) if (!l.opened) l.close();
+    for (const l of [...guestLinks.values()]) if (!l.opened) { l.close(); l.drop?.(); }
     guestLinks.clear();
     const svc = service;
     service = null;
@@ -215,6 +241,7 @@ export function createMultiplayer(ctx) {
     $('join-code').value = '';
     $('manual-guest').open = false;
     $('join-pick').classList.remove('hidden');
+    renderRoomsDisabled(false);
     $('lobby-players').innerHTML = '';
     msg('');
     findRooms();
@@ -225,19 +252,24 @@ export function createMultiplayer(ctx) {
   function findRooms() {
     joining = false;
     shownRooms = '';
-    renderRooms([]);
-    const st = $('rooms-status');
-    st.textContent = 'Looking for rooms...';
-    st.classList.remove('bad');
     service = new RoomService({ version: fn.net_version(), brokers: BROKERS });
     const svc = service;
-    svc.start().then(() => {
+    let latest = [];
+    const st = $('rooms-status');
+    const showService = () => {
       if (service !== svc) return;
-      stopWatching = watchRooms(svc, (rooms) => { if (service === svc) renderRooms(rooms); });
-    }).catch((e) => {
+      if (!svc.connected) { st.textContent = svc.failed ? 'Cannot reach the room service. Still trying...' : 'Looking for rooms...'; st.classList.toggle('bad', !!svc.failed); }
+      else st.classList.remove('bad');
+      renderRooms(latest);
+    };
+    svc.onChange = showService;
+    showService();
+    // (the list fills in as soon as a broker answers, and again after any of them comes back)
+    stopWatching = watchRooms(svc, (rooms) => { latest = rooms; if (service === svc) renderRooms(rooms); });
+    svc.start().catch(() => {
       if (service !== svc) return;
-      st.textContent = e.message;
-      st.classList.add('bad');
+      svc.failed = true;
+      showService();
       $('manual-guest').open = true;
     });
   }
@@ -276,42 +308,62 @@ export function createMultiplayer(ctx) {
       go.className = 'btn small join';
       go.innerHTML = '<span>Join</span>';
       go.disabled = full || joining;
-      go.addEventListener('click', () => { ctx.click(); joinRoom(r.code); });
+      go.addEventListener('click', () => { ctx.click(); joinRoom(r.code, r.hpub); });
       row.append(who, what, count, go);
       list.appendChild(row);
     }
   }
 
-  /** Join the room with this code: the room service carries the connection set-up, then the two pages talk directly. */
-  async function joinRoom(code) {
+  /**
+   * Join the room with this code: the room service carries the connection set-up, then the two pages talk directly.
+   * `hpub` (from the room list) makes sure it is that room's host who answers.
+   */
+  async function joinRoom(code, hpub = null) {
     code = cleanCode(code);
     if (code.length !== CODE_LENGTH) { msg(`A room code has ${CODE_LENGTH} letters and digits.`, true); return; }
     if (joining) return;
     if (!service || !service.connected) { msg('Not connected to the room service yet. Try again in a moment.', true); return; }
     joining = true;
+    const attempt = ++joinSeq;
+    const abort = new AbortController();
+    joinAbort = abort;
+    const current = () => attempt === joinSeq && !abort.signal.aborted;
     renderRoomsDisabled(true);
     msg(`Joining room ${code}...`);
-    links.get(0)?.close();
+    if (links.get(0)) { links.get(0).close(); links.delete(0); }
     const link = guestLink(() => msg('Connected. Waiting for the host to start the match...'));
     links.set(0, link);
     try {
-      await requestJoin(service, code, ctx.name(), (offer) => link.acceptInvite(offer));
+      await requestJoin(service, code, ctx.name(), (offer) => link.acceptInvite(offer), { hpub, signal: abort.signal });
+      if (!current()) return;
       msg('Connecting to the host...');
       // the connection opens by itself now; give it a little time
       const t0 = performance.now();
-      while (!link.opened && !link.closed && performance.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 100));
+      while (!link.opened && !link.closed && current() && performance.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 100));
+      if (!current()) return;
       if (!link.opened) throw new Error(link.closed ? 'The connection to the host failed.' : 'The host did not connect. Try again.');
       $('join-pick').classList.add('hidden');
       // the room service is no longer needed: from here on the host and this page talk directly
       stopWatching?.(); stopWatching = null;
       const svc = service; service = null; svc?.stop();
     } catch (e) {
-      links.delete(0);
+      if (links.get(0) === link) links.delete(0);
       link.close();
+      if (!current() || e.name === 'AbortError') return;
       joining = false;
       renderRoomsDisabled(false);
       msg(e.message || String(e), true);
+    } finally {
+      if (joinAbort === abort) joinAbort = null;
     }
+  }
+
+  /** Give up a join that is still under way (leaving the screen, or joining another way). */
+  function cancelJoin() {
+    joinSeq++;
+    joinAbort?.abort();
+    joinAbort = null;
+    joining = false;
   }
 
   function renderRoomsDisabled(on) {
@@ -336,6 +388,8 @@ export function createMultiplayer(ctx) {
   async function guestContinue() {
     const code = $('join-invite').value.trim();
     if (!code) { msg('Paste the invite code your host sent you.', true); return; }
+    cancelJoin();
+    renderRoomsDisabled(false);
     msg('Making a reply code...');
     links.get(0)?.close();
     const link = guestLink(() => msg('Connected. Waiting for the host to start the match...'));
@@ -426,8 +480,8 @@ export function createMultiplayer(ctx) {
   // ---- leaving -----------------------------------------------------------------------------------------------------------
   function leaveQuietly() {
     clearInterval(pollTimer);
+    cancelJoin();
     stopWatching?.(); stopWatching = null;
-    joining = false;
     closeRoom();
     if (role) {
       try { fn.net_reset(); } catch (e) { /* ignore */ }
