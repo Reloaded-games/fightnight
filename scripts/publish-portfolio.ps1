@@ -34,6 +34,12 @@ function Get-Sha256([string] $Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Read-ProductionText([string] $Path) {
+    # Git normalizes text to LF on the Linux deployment host. Hash and package
+    # that same representation so the release manifest stays valid after push.
+    return [IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
 function Get-TextSha256([string] $Text) {
     $algorithm = [Security.Cryptography.SHA256]::Create()
     try {
@@ -89,14 +95,14 @@ foreach ($relativePath in $runtimeFiles) {
 
 $manifestPath = Join-Path $sourceRoot 'assets/cartoon/manifest.json'
 $assetManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if (@($assetManifest.meshes.PSObject.Properties).Count -ne 37 -or
+if (@($assetManifest.meshes.PSObject.Properties).Count -ne 45 -or
     @($assetManifest.animations).Count -ne 9 -or
     $assetManifest.animations -notcontains 'Aim' -or
     $assetManifest.animations -notcontains 'Fire' -or
     $assetManifest.weapons -notcontains 'AK-47' -or
     $assetManifest.vehicles -notcontains 'Island Buggy' -or
     $assetManifest.vehicles -notcontains 'Island Roadster') {
-    throw 'The Blender asset manifest must contain the current 37 meshes, 9 animation clips, AK-47 and both vehicles.'
+    throw 'The Blender asset manifest must contain the current 45 meshes, 9 animation clips, AK-47 and both vehicles.'
 }
 foreach ($mesh in $assetManifest.meshes.PSObject.Properties) {
     if ($mesh.Value.vertices -le 0 -or $mesh.Value.vertices -ge 5000) {
@@ -120,7 +126,7 @@ if ((Get-Item -LiteralPath $wasmPath).LastWriteTimeUtc -lt
     throw 'The WASM build predates the Blender asset manifest. Rebuild before packaging.'
 }
 
-$indexHtml = [IO.File]::ReadAllText((Join-Path $distRoot 'index.html'))
+$indexHtml = Read-ProductionText (Join-Path $distRoot 'index.html')
 if ($indexHtml -notmatch '(?i)<head(?:\s[^>]*)?>') {
     throw 'Production index.html has no head element.'
 }
@@ -133,14 +139,18 @@ $fileHashes = [ordered]@{}
 foreach ($relativePath in $runtimeFiles) {
     $fileHashes[$relativePath] = if ($relativePath -eq 'index.html') {
         Get-TextSha256 $indexHtml
-    } else {
+    } elseif ($relativePath.EndsWith('.wasm')) {
         Get-Sha256 (Join-Path $distRoot $relativePath)
+    } else {
+        Get-TextSha256 (Read-ProductionText (Join-Path $distRoot $relativePath))
     }
 }
 
 $features = [ordered]@{
     worldSize = Read-IntegerConstant 'crates/fn-core/src/world/mod.rs' 'WORLD_SIZE'
     modes = @('battle-royale', 'zero-build', 'lego')
+    maps = @('island', 'chapter1', 'chapter2')
+    rooms = @('public-list', 'private-code', 'manual-invite')
     multiplayerHost = 'room-creator'
     vehicles = @($assetManifest.vehicles)
     weapons = @($assetManifest.weapons)
@@ -169,8 +179,10 @@ if (Test-Path -LiteralPath $releaseRoot) {
         $destinationPath = Join-Path $releaseRoot $relativePath
         if ($relativePath -eq 'index.html') {
             [IO.File]::WriteAllText($destinationPath, $indexHtml, $utf8)
-        } else {
+        } elseif ($relativePath.EndsWith('.wasm')) {
             Copy-Item -LiteralPath (Join-Path $distRoot $relativePath) -Destination $destinationPath
+        } else {
+            [IO.File]::WriteAllText($destinationPath, (Read-ProductionText (Join-Path $distRoot $relativePath)), $utf8)
         }
         if ((Get-Sha256 $destinationPath) -ne $fileHashes[$relativePath]) {
             throw "Published $relativePath does not match the validated production build."

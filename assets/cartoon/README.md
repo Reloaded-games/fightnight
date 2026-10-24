@@ -18,7 +18,9 @@ All assets are covered by this repository's MIT license.
   The game animates the steering, wheel rotation and chassis lean; both bodies
   share the checked driver seat, footwell and axle pivots.
 - `foliage.glb`: named trees, bush and curved grass assemblies.
-- `meshes/*.fnmesh`: 37 meshes baked to the existing GPU vertex layout.
+- `environment.glb`: eight island props: three rock clusters, boulder, stump,
+  hay bale, barrel and wooden crate, also embedded in the live game.
+- `meshes/*.fnmesh`: 45 meshes baked to the existing GPU vertex layout.
 - `locomotion.fnmotion`: cyclic keyframes shared by the Blender walk/sprint actions
   and the live gameplay rig. Runtime weapon IK, physics and action blends remain active.
 - `manifest.json`: generator version, triangle counts and byte budgets.
@@ -35,8 +37,8 @@ python tools/assetgen/verify_assets.py
 scripts/build.ps1
 ```
 
-The generator is split into character, animation, weapon and vehicle modules.
-`render_assets.py -- characters|weapons|vehicles` renders the exact baked FNM
+The generator is split into character, animation, weapon, vehicle and environment modules.
+`render_assets.py -- characters|weapons|vehicles|environment` renders the exact baked FNM
 buffers with their game tints for geometry QA. The studio lighting differs
 from gameplay; `docs/screenshots/models-*.png` and gameplay screenshots show
 both views. `test_vehicle_models.py` checks the cockpit clearance in Blender.
@@ -46,3 +48,8 @@ FNM1: magic + little-endian u32 vertex/index counts, then 32-byte vertices
 and u32 indices. Coordinates are metres, Y up, forward -Z. FNA1 stores a count
 followed by six f32 channels per cyclic sample. Both formats are embedded into
 WASM, avoiding extra model downloads during play. GLBs use standard glTF 2.0.
+
+The [complete free model library](../generated/README.md) exports the rest of the
+game's geometry too: buildings, construction pieces, equipment, vegetation LODs,
+brick-mode models and a static island scene. It includes current web research on
+free generation services and a repeatable ZIP packaging workflow.

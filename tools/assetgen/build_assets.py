@@ -17,6 +17,7 @@ import character_models
 import character_animations
 import weapon_models
 import vehicle_models
+import environment_models
 from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -384,7 +385,7 @@ def export_roster(rig,objects):
 
 def export_libraries():
     """Named prop assemblies remain independently editable in Blender and glTF."""
-    for pack,names,spacing in [('items',[n for n in groups if n.startswith(('Wpn','Item')) or n in ('Pickaxe','AmmoBox','ChestBase','ChestLid')],1.6),('foliage',['Pine0','Oak0','Birch0','Bush0','GrassTuft'],7.0),('vehicles',[n for n in groups if n.startswith('Vehicle')],5.0)]:
+    for pack,names,spacing in [('items',[n for n in groups if n.startswith(('Wpn','Item')) or n in ('Pickaxe','AmmoBox','ChestBase','ChestLid')],1.6),('foliage',['Pine0','Oak0','Birch0','Bush0','GrassTuft'],7.0),('vehicles',[n for n in groups if n.startswith('Vehicle')],5.0),('environment',environment_models.GROUPS,5.0)]:
         bpy.ops.object.select_all(action='DESELECT')
         for i,name in enumerate(names):
             parent=bpy.data.objects.new(name,None)
@@ -409,6 +410,7 @@ def main():
     character_models.build(globals())
     weapon_models.build(globals())
     vehicle_models.build(globals())
+    environment_models.build(globals())
     supplies();foliage()
     stats=export_meshes()
     samples=[motion(i*math.tau/64) for i in range(64)]

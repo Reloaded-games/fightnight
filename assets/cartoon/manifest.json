@@ -158,6 +158,46 @@
       "triangles": 1920,
       "bytes": 88332
     },
+    "Crate": {
+      "vertices": 3488,
+      "triangles": 1764,
+      "bytes": 132796
+    },
+    "Barrel": {
+      "vertices": 704,
+      "triangles": 780,
+      "bytes": 31900
+    },
+    "HayBale": {
+      "vertices": 760,
+      "triangles": 1396,
+      "bytes": 41084
+    },
+    "Stump": {
+      "vertices": 302,
+      "triangles": 552,
+      "bytes": 16300
+    },
+    "Rock0": {
+      "vertices": 782,
+      "triangles": 360,
+      "bytes": 29356
+    },
+    "Rock1": {
+      "vertices": 782,
+      "triangles": 360,
+      "bytes": 29356
+    },
+    "Rock2": {
+      "vertices": 1022,
+      "triangles": 440,
+      "bytes": 37996
+    },
+    "Boulder": {
+      "vertices": 1022,
+      "triangles": 440,
+      "bytes": 37996
+    },
     "ItemShieldMini": {
       "vertices": 674,
       "triangles": 676,

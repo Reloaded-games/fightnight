@@ -49,6 +49,14 @@ pub fn mesh(id: MeshId) -> Option<MeshData> {
         VehicleBody => asset!("VehicleBody"),
         VehicleWheel => asset!("VehicleWheel"),
         VehicleSport => asset!("VehicleSport"),
+        Rock0 => asset!("Rock0"),
+        Rock1 => asset!("Rock1"),
+        Rock2 => asset!("Rock2"),
+        Boulder => asset!("Boulder"),
+        Stump => asset!("Stump"),
+        HayBale => asset!("HayBale"),
+        Barrel => asset!("Barrel"),
+        Crate => asset!("Crate"),
         _ => return None,
     };
     Some(decode(bytes))
@@ -129,7 +137,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(count, 37, "an exported mesh was omitted from the runtime");
+        assert_eq!(count, 45, "an exported mesh was omitted from the runtime");
     }
 
     #[test]

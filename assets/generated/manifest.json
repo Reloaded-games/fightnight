@@ -1,0 +1,892 @@
+{
+  "generator": "Fightnight / Blender + Rust + Python",
+  "cost_usd": 0,
+  "license": "MIT",
+  "units": "metres; Y up; character forward -Z",
+  "method": "Procedural local generation; no cloud AI generation or Fortnite assets.",
+  "seed": 1234,
+  "files": [
+    {
+      "file": "primitives/UnitBox.glb",
+      "bytes": 4312,
+      "nodes": 1,
+      "sha256": "c3ce4ca5d071d6c1b94a089fa8c9134e215a70d9b2ee0b3561c9b91878ae672b"
+    },
+    {
+      "file": "primitives/UnitSphere1.glb",
+      "bytes": 5880,
+      "nodes": 1,
+      "sha256": "0abd5a548986c44ee752193a33196a899fa96d5967c2b6ac8552440aff1bacbb"
+    },
+    {
+      "file": "primitives/UnitSphere2.glb",
+      "bytes": 13088,
+      "nodes": 1,
+      "sha256": "b9a1a4d713b0acd534ddd8354d3cd219cb3214944a7a8a62c6e4ebd9903b7e25"
+    },
+    {
+      "file": "primitives/UnitCylinder.glb",
+      "bytes": 6108,
+      "nodes": 1,
+      "sha256": "4575e85eafe078e162b96f39906985919978a17aa6e6aaee51b39c531225de1d"
+    },
+    {
+      "file": "primitives/UnitCone.glb",
+      "bytes": 5224,
+      "nodes": 1,
+      "sha256": "366ecf396228cf47b101c86ffbecbf5181d3ad5a604371889a9daae7a9dc9559"
+    },
+    {
+      "file": "environment/Pine0.glb",
+      "bytes": 119260,
+      "nodes": 1,
+      "sha256": "406897407c4eee02b21525ccb0598466738ca590768d1bbdbf1604eebf779ddb"
+    },
+    {
+      "file": "environment/Pine1.glb",
+      "bytes": 6520,
+      "nodes": 1,
+      "sha256": "419822bde3a159ba0a67432e3ed51d105f8349ffa6070648f3b130829fc7011c"
+    },
+    {
+      "file": "environment/Oak0.glb",
+      "bytes": 74540,
+      "nodes": 1,
+      "sha256": "f5ef1c3f2f0d9ce6389435ec905ea30839b0f3b605acced549e194c47be023f7"
+    },
+    {
+      "file": "environment/Oak1.glb",
+      "bytes": 6072,
+      "nodes": 1,
+      "sha256": "1b8f16d9bd22654def9bfe750436a59c1c29717656029cab630d776a0b348f5d"
+    },
+    {
+      "file": "environment/Birch0.glb",
+      "bytes": 74548,
+      "nodes": 1,
+      "sha256": "63d96a2583d03bc1bdb341e4c1401aa735e37ab3ecd872a483d9ee1fbb68c49f"
+    },
+    {
+      "file": "environment/Birch1.glb",
+      "bytes": 5412,
+      "nodes": 1,
+      "sha256": "68fbb7de71274e028e039c1208af7d49b3c751fe0bd6568167786deb8f6db7d5"
+    },
+    {
+      "file": "environment/Palm0.glb",
+      "bytes": 52004,
+      "nodes": 1,
+      "sha256": "fc35d36bda9c913296e62aa1c85e37f6a0d157fd5e349d4eadd3a2761095ebe3"
+    },
+    {
+      "file": "environment/Palm1.glb",
+      "bytes": 11556,
+      "nodes": 1,
+      "sha256": "37c4afed9cfffa43b92ff5d8638a8c1d51b69a70bdb8881be4026380e2a8b6ed"
+    },
+    {
+      "file": "environment/Bush0.glb",
+      "bytes": 47328,
+      "nodes": 1,
+      "sha256": "8486689043dd6b6953660f6a9754a62e6cd4febd47f38dc17eff5fc1a407bcf5"
+    },
+    {
+      "file": "environment/Bush1.glb",
+      "bytes": 4740,
+      "nodes": 1,
+      "sha256": "bda1180648e0eb58e4374c3f275e04907a85af9c7730aaa64270a4ab06157ca7"
+    },
+    {
+      "file": "environment/Rock0.glb",
+      "bytes": 36088,
+      "nodes": 1,
+      "sha256": "b090e3726163ef744025d7ae3a946219b68ef719ee2ae3783f74086329410cde"
+    },
+    {
+      "file": "environment/Rock1.glb",
+      "bytes": 36088,
+      "nodes": 1,
+      "sha256": "c5315f5839d0957b0f60555d4f843a65b49d93295cdf53a7aa7ae701a2519fb2"
+    },
+    {
+      "file": "environment/Rock2.glb",
+      "bytes": 45692,
+      "nodes": 1,
+      "sha256": "2a2dfb8f8d6132918b52408c8ede69eaf3b8ab4207831a96a64a0a5ba6156fd8"
+    },
+    {
+      "file": "environment/Boulder.glb",
+      "bytes": 45696,
+      "nodes": 1,
+      "sha256": "c6e264fa1fb6f5101c0d3e0c2d8f1fbf1d939582cfd9db6b38c8916c51adb101"
+    },
+    {
+      "file": "environment/FlowerClump.glb",
+      "bytes": 10892,
+      "nodes": 1,
+      "sha256": "34bb299fdacc2fc3e8e1173587d8c5bf5031a9833ef45c2bc984cfbaa9cdedb7"
+    },
+    {
+      "file": "environment/GrassTuft.glb",
+      "bytes": 17124,
+      "nodes": 1,
+      "sha256": "3fcd6add8170992dd5874b897a262c8bd5f533a5ec11312906e3a3c5d96a0584"
+    },
+    {
+      "file": "environment/Stump.glb",
+      "bytes": 21112,
+      "nodes": 1,
+      "sha256": "5c7f0c1df4080e1a6fa1a1d1154f52d39eb5239d76d2741732886b6e79743d1c"
+    },
+    {
+      "file": "environment/HayBale.glb",
+      "bytes": 47524,
+      "nodes": 1,
+      "sha256": "98b1c5922290bfd4261125c34fbde05b66d141b2310f0102e2465bb39a94b0e7"
+    },
+    {
+      "file": "environment/Barrel.glb",
+      "bytes": 38320,
+      "nodes": 1,
+      "sha256": "fbf980554dfd8116df79e93b2932d88711066d32179bda4c444dce34223d5028"
+    },
+    {
+      "file": "environment/Crate.glb",
+      "bytes": 150344,
+      "nodes": 1,
+      "sha256": "0d9200caf47e31220be87ea416b4ee3bb75c0170ea32e7c4c2432a0bf91fcbdf"
+    },
+    {
+      "file": "environment/WindmillBlades.glb",
+      "bytes": 32656,
+      "nodes": 1,
+      "sha256": "6291d60e7073a4c9ea1c3cfb0fb99c2603283cade9ebf58a2154111049aada9a"
+    },
+    {
+      "file": "character-parts/CharTorso.glb",
+      "bytes": 57316,
+      "nodes": 1,
+      "sha256": "bba23016e3fd84a06c8fd744ed2a9b82bb07feaa2c75ba5a538bf55ca8197a05"
+    },
+    {
+      "file": "character-parts/CharTrim.glb",
+      "bytes": 33704,
+      "nodes": 1,
+      "sha256": "a7425f23b5d149d5e51284f39e4e2677ee3540b31b12dfac2d7d92fa84435492"
+    },
+    {
+      "file": "character-parts/CharPelvis.glb",
+      "bytes": 61240,
+      "nodes": 1,
+      "sha256": "8f2f195d012dda8a2a2e5d6699916698084f419e584d386f3b56d945611201a8"
+    },
+    {
+      "file": "character-parts/CharHead.glb",
+      "bytes": 87456,
+      "nodes": 1,
+      "sha256": "42eee0675f50f0a7f3a3e6a9f523ea01d990003f392e759427d841f84ac882cd"
+    },
+    {
+      "file": "character-parts/Hair1.glb",
+      "bytes": 35068,
+      "nodes": 1,
+      "sha256": "1b73e309d21e1dbe593da0312e40603230eee8be90d6196b9683fbabd15ad5fe"
+    },
+    {
+      "file": "character-parts/Hair2.glb",
+      "bytes": 42912,
+      "nodes": 1,
+      "sha256": "4145d9101f5084d7cae04b738d11718ee11179f5aea518d45d91c81e19ce6010"
+    },
+    {
+      "file": "character-parts/Hair3.glb",
+      "bytes": 27788,
+      "nodes": 1,
+      "sha256": "553d560e72d83a97797f900e1e9caa9762183bc4c28bbbb95b49a3acac3cffdb"
+    },
+    {
+      "file": "character-parts/Cap.glb",
+      "bytes": 21348,
+      "nodes": 1,
+      "sha256": "0e0c7001107c537bd533a496807f23b2fedba0b0e8aab44ca71e7151a6b7c910"
+    },
+    {
+      "file": "character-parts/Beanie.glb",
+      "bytes": 45704,
+      "nodes": 1,
+      "sha256": "fc74c2d9949be515afb162a716b3f7f4b3847033cc05d7c80a85638fcad00ab6"
+    },
+    {
+      "file": "character-parts/Helmet.glb",
+      "bytes": 39348,
+      "nodes": 1,
+      "sha256": "87be603946c3db879aefa8fb3789156e9e3a1c28e1badbb19a3de17f7f1e44e8"
+    },
+    {
+      "file": "character-parts/Hat.glb",
+      "bytes": 17204,
+      "nodes": 1,
+      "sha256": "84418eca039fbbff9428183c5062f9de3087548d33f5edd8fb48a5b4b6fc36f2"
+    },
+    {
+      "file": "character-parts/CharArmUp.glb",
+      "bytes": 25428,
+      "nodes": 1,
+      "sha256": "b1404c89200b9a8f7c0be85cc10b6cb714a8658fd108ef49ddaa83cba5f9bceb"
+    },
+    {
+      "file": "character-parts/CharArmLow.glb",
+      "bytes": 26608,
+      "nodes": 1,
+      "sha256": "9d90862df659ba22bb443845f2a8738f6ebddcce1d1d65ac623ce9de78bfe330"
+    },
+    {
+      "file": "character-parts/CharHand.glb",
+      "bytes": 22864,
+      "nodes": 1,
+      "sha256": "7e40b8b9632bad62275fc541608533d29027a0a2e50c03b47bb5b0abd0b81391"
+    },
+    {
+      "file": "character-parts/CharLegUp.glb",
+      "bytes": 50956,
+      "nodes": 1,
+      "sha256": "46973383611d73d7752ef0a72b36d16d3ec6b193bacdf6efd121659714b7e615"
+    },
+    {
+      "file": "character-parts/CharLegLow.glb",
+      "bytes": 36772,
+      "nodes": 1,
+      "sha256": "cf9207ce371ea3a5de5c3641ffcb8e8a3230179d4c6899984934e1fde6bd8af7"
+    },
+    {
+      "file": "character-parts/CharBoot.glb",
+      "bytes": 31560,
+      "nodes": 1,
+      "sha256": "badeb55049dcfca5f36da8d6167b1893b46cabc5d60bb392775e7e3c2418d821"
+    },
+    {
+      "file": "character-parts/CharBackpack.glb",
+      "bytes": 84992,
+      "nodes": 1,
+      "sha256": "9a0952644848e71886c02e9d34e57618424949a06b273fe0835fd2394ee7b740"
+    },
+    {
+      "file": "equipment/Glider.glb",
+      "bytes": 40576,
+      "nodes": 1,
+      "sha256": "6a1ecc592d593061877fdfaa422163290310ade3172011e7b5b34c59081868e6"
+    },
+    {
+      "file": "weapons/WpnPistol.glb",
+      "bytes": 70352,
+      "nodes": 1,
+      "sha256": "9fb94cefaf6ec151b8fec7b1a122ce6b01c98cd9a0093af4c8549a30e9d3f163"
+    },
+    {
+      "file": "weapons/WpnSmg.glb",
+      "bytes": 140904,
+      "nodes": 1,
+      "sha256": "e6f358add700ac9d84f8e25111d8a8db46e19806b6d15717bef1bc3f41fb193f"
+    },
+    {
+      "file": "weapons/WpnAr.glb",
+      "bytes": 160460,
+      "nodes": 1,
+      "sha256": "e13fa059cbcfaa3256b3658aade3ebc09be66f3d99a52c39c9c27baa3f50b646"
+    },
+    {
+      "file": "weapons/WpnShotgun.glb",
+      "bytes": 102504,
+      "nodes": 1,
+      "sha256": "f43853be27a00718dfe6824cfab691b2a40f3b278e1dc6aef7765f954349946c"
+    },
+    {
+      "file": "weapons/WpnSniper.glb",
+      "bytes": 86660,
+      "nodes": 1,
+      "sha256": "c9474df00ae009bdda9463a1dc46b31174d7c742580e927a91affcf575b23ed7"
+    },
+    {
+      "file": "weapons/WpnRocket.glb",
+      "bytes": 82108,
+      "nodes": 1,
+      "sha256": "bba6b6c315ab8ff9edb654052aa7ff6e7b7a302b8bd9ee7e79a86d667b82b78d"
+    },
+    {
+      "file": "weapons/Pickaxe.glb",
+      "bytes": 25284,
+      "nodes": 1,
+      "sha256": "4a9e3547ee3747947fba6867b0c3a9d470f6f253f50e67e780e5366db19e0a31"
+    },
+    {
+      "file": "weapons/AmmoBox.glb",
+      "bytes": 44812,
+      "nodes": 1,
+      "sha256": "5377e1fa242a214a6c8f513138b632ac21e98443e6d19f64458a3036ed42fbd9"
+    },
+    {
+      "file": "equipment/ItemBandage.glb",
+      "bytes": 15760,
+      "nodes": 1,
+      "sha256": "5fa9ae88376a15d139f3c2d52bcdc6d84d7fa4e491ea8bbbd058fa933a81b0a5"
+    },
+    {
+      "file": "equipment/ItemMedkit.glb",
+      "bytes": 39904,
+      "nodes": 1,
+      "sha256": "35bd7cbde02acfc01e0e700b1d9ee4116bcad18b5fda7f409d1127bfff75d854"
+    },
+    {
+      "file": "equipment/ItemShieldMini.glb",
+      "bytes": 36224,
+      "nodes": 1,
+      "sha256": "196134bd7c8c744cc8c7c4ef64ca98b00e756c3f90c7f7c92540ebacb3e6d412"
+    },
+    {
+      "file": "equipment/ItemShieldBig.glb",
+      "bytes": 36224,
+      "nodes": 1,
+      "sha256": "4efa1254bae826d8c43bebb333049f3171f2dd579dc1241137ef827084643f43"
+    },
+    {
+      "file": "equipment/ItemChug.glb",
+      "bytes": 36200,
+      "nodes": 1,
+      "sha256": "44036efd220f1a0d2745130c60a1d3653c40d52640a84c39603808eb3072cf15"
+    },
+    {
+      "file": "equipment/ChestBase.glb",
+      "bytes": 77220,
+      "nodes": 1,
+      "sha256": "5618b88aaf0a1edfe5254aa9d8339e1285d8b6eb5e29ff925d37a694fa92bcf5"
+    },
+    {
+      "file": "equipment/ChestLid.glb",
+      "bytes": 30828,
+      "nodes": 1,
+      "sha256": "900b128b20e29a6a81637f98192507b2a04273a266800f57e81c803bbbbde6d4"
+    },
+    {
+      "file": "equipment/SupplyCrate.glb",
+      "bytes": 54244,
+      "nodes": 1,
+      "sha256": "1aae86006a5b75f94b2355cc16a3dfbf361671ec92d684272c516d041e382d2c"
+    },
+    {
+      "file": "equipment/SupplyChute.glb",
+      "bytes": 29352,
+      "nodes": 1,
+      "sha256": "21ee561a9861bfb294306d7ddd21c6df4f9bbd7e965b71445a9e10a33ae13fa3"
+    },
+    {
+      "file": "vehicles/Bus.glb",
+      "bytes": 83672,
+      "nodes": 1,
+      "sha256": "8da4056de939c832829fe7cc04f5f59da51652de55fd4a6e0fce4d7413732c1e"
+    },
+    {
+      "file": "weapons/Missile.glb",
+      "bytes": 12812,
+      "nodes": 1,
+      "sha256": "d53ed3b3d65eb07c539954a16c5ea599ae6209009f22c33556cd469b2d8d1272"
+    },
+    {
+      "file": "construction/PieceWall.glb",
+      "bytes": 10424,
+      "nodes": 1,
+      "sha256": "a59ab80c30d78365115a6860616d17a507a348b39dab1738d85998c862709a83"
+    },
+    {
+      "file": "construction/PieceFloor.glb",
+      "bytes": 8392,
+      "nodes": 1,
+      "sha256": "08a1396827442b93d451cbd90a672c9de74101ea41306ea1a6ffa9e75eaf5903"
+    },
+    {
+      "file": "construction/PieceRoof.glb",
+      "bytes": 11412,
+      "nodes": 1,
+      "sha256": "e98436f348bd10ece41dc31299241ee2567e525698c27642e523f6a4da6b8337"
+    },
+    {
+      "file": "construction/PieceRamp.glb",
+      "bytes": 14204,
+      "nodes": 1,
+      "sha256": "f0a60bb4957545a6d864560d065ce20351f67ec58a92cd0d37c99925a92ad698"
+    },
+    {
+      "file": "brick/LegoTorso.glb",
+      "bytes": 6596,
+      "nodes": 1,
+      "sha256": "2f196391b3428f7f397d8a91e8b3e62507a0ab5ec5d1c1ac2391312ba3e673f4"
+    },
+    {
+      "file": "brick/LegoTrim.glb",
+      "bytes": 11184,
+      "nodes": 1,
+      "sha256": "646d173553960f1fb3bb2d0f74496889f3baa649ded81fe16636f67260fc7e96"
+    },
+    {
+      "file": "brick/LegoPelvis.glb",
+      "bytes": 7808,
+      "nodes": 1,
+      "sha256": "c9e0e65e68aef8283879f85147a3c0949f76a8e9d29d35c3d0c70abac8c6ca3e"
+    },
+    {
+      "file": "brick/LegoHead.glb",
+      "bytes": 14800,
+      "nodes": 1,
+      "sha256": "b008e69d38c3ad72ef0738237c9aa959336fe0e3f91f75393121b681885c3085"
+    },
+    {
+      "file": "brick/LegoArmUp.glb",
+      "bytes": 6024,
+      "nodes": 1,
+      "sha256": "78c3032d241fa5a44b7d026ae5cf678b463642e973349968cbdada49d19a14ec"
+    },
+    {
+      "file": "brick/LegoArmLow.glb",
+      "bytes": 6028,
+      "nodes": 1,
+      "sha256": "d8bf7fbdd22f844e6bf9fd7b0bed78973d114b868efafb07ae076d9b9bbaf461"
+    },
+    {
+      "file": "brick/LegoHand.glb",
+      "bytes": 6432,
+      "nodes": 1,
+      "sha256": "12050da0e513571bd133a3e0ebb92484dffafa29adbb78e09108edb4a4af5935"
+    },
+    {
+      "file": "brick/LegoLegUp.glb",
+      "bytes": 6024,
+      "nodes": 1,
+      "sha256": "7148c792f6bcd4a72c3141d8fc78bd2ee81b21107ca0abe5cd6b9e70284e895a"
+    },
+    {
+      "file": "brick/LegoLegLow.glb",
+      "bytes": 6024,
+      "nodes": 1,
+      "sha256": "d7b616ac37cf3505c2b545c7e6b44c9164bb67151d8f539e8e8d259d64a6026a"
+    },
+    {
+      "file": "brick/LegoBoot.glb",
+      "bytes": 7800,
+      "nodes": 1,
+      "sha256": "edfae9bd12abea451b4f7ebcdabaa798ae0934ce4441bbe9ce234baf5dbf13a0"
+    },
+    {
+      "file": "brick/LegoBackpack.glb",
+      "bytes": 7808,
+      "nodes": 1,
+      "sha256": "f2cf5d28af48b278a75385f08172734547aa97f0047527cbc39fd6d80c962d6a"
+    },
+    {
+      "file": "brick/LegoHair.glb",
+      "bytes": 10180,
+      "nodes": 1,
+      "sha256": "a8c8a52a4d95fb21887d281ea87e963b112bcd649624a3cd987203e745b229f9"
+    },
+    {
+      "file": "brick/LegoHat.glb",
+      "bytes": 11184,
+      "nodes": 1,
+      "sha256": "14a2b2862f9c37b877cbab787fe05ba0347404b2c35ff0550e6347914a8dab07"
+    },
+    {
+      "file": "brick/LegoPistol.glb",
+      "bytes": 11616,
+      "nodes": 1,
+      "sha256": "2e2776ebad8c4d7171fd30fa7cd09570aa294fdb03967ab192a0412d2c08bf78"
+    },
+    {
+      "file": "brick/LegoSmg.glb",
+      "bytes": 13792,
+      "nodes": 1,
+      "sha256": "fe3cdcf92dadb577309ba8323631d32f94ba647d446429f40010610fdb990d4a"
+    },
+    {
+      "file": "brick/LegoAr.glb",
+      "bytes": 13788,
+      "nodes": 1,
+      "sha256": "8149995abddf695787da71562b30110485e4932d0f27bfeda166588ef48bf3e1"
+    },
+    {
+      "file": "brick/LegoShotgun.glb",
+      "bytes": 11600,
+      "nodes": 1,
+      "sha256": "9a03b93af111254944298477135228a5756b31d8c1319c806b1831d2e41f95ef"
+    },
+    {
+      "file": "brick/LegoSniper.glb",
+      "bytes": 13208,
+      "nodes": 1,
+      "sha256": "d4518c26913be172ec62fc7a87052f735b30aeb3405d272fdfa0ac5be97459cc"
+    },
+    {
+      "file": "brick/LegoRocket.glb",
+      "bytes": 11596,
+      "nodes": 1,
+      "sha256": "a1d6fe63fe9bed43fe68ec86b81d031edced0f132fe556833eb15127111b8935"
+    },
+    {
+      "file": "brick/LegoPickaxe.glb",
+      "bytes": 11376,
+      "nodes": 1,
+      "sha256": "59c2c87ea6ad7d13d630b710dfdbef1a3a9727afacc247420176f3fd414182c1"
+    },
+    {
+      "file": "brick/LegoAmmo.glb",
+      "bytes": 11532,
+      "nodes": 1,
+      "sha256": "9cbd7d87b1aaae72c088b7bc7fe210f9eedbaae0b2d40f5af6d17ba28066d72d"
+    },
+    {
+      "file": "brick/LegoBandage.glb",
+      "bytes": 13556,
+      "nodes": 1,
+      "sha256": "85f8c38ef7ae56dd52552bc23d55c25cc6cc9ce81ae1de83a7b28483b6662db5"
+    },
+    {
+      "file": "brick/LegoMedkit.glb",
+      "bytes": 13524,
+      "nodes": 1,
+      "sha256": "5e487d3e291b37734b72ab51f1466277498654e3fe3dd85b95fe8220e2d1f05f"
+    },
+    {
+      "file": "brick/LegoShieldMini.glb",
+      "bytes": 11380,
+      "nodes": 1,
+      "sha256": "f409ce2553ef63af01697e75e031acbccaea9972634e6c7d440dc6e588c69713"
+    },
+    {
+      "file": "brick/LegoShieldBig.glb",
+      "bytes": 11372,
+      "nodes": 1,
+      "sha256": "6ab3e394706b4d81ddeed90645e92d4243b16b2fc2d07932c62316d78ef0cb00"
+    },
+    {
+      "file": "brick/LegoChug.glb",
+      "bytes": 11368,
+      "nodes": 1,
+      "sha256": "7acd4919ebdd7147d72b7df180c7d750f9bbee383e44a30775a3afec6e6df74c"
+    },
+    {
+      "file": "brick/LegoChestBase.glb",
+      "bytes": 16944,
+      "nodes": 1,
+      "sha256": "b158b1a387e0fb47b959c3fc2375114d658daa6d8783dda592d3e2f23ab554a2"
+    },
+    {
+      "file": "brick/LegoChestLid.glb",
+      "bytes": 13916,
+      "nodes": 1,
+      "sha256": "1ed3f9ddbb25f09e4427d40fa324a1509601850b48dc45b4136232e2c881880a"
+    },
+    {
+      "file": "brick/LegoWall.glb",
+      "bytes": 61308,
+      "nodes": 1,
+      "sha256": "6505152efd68d0ef9de262f0e620a861792f44730f094eec9781f9fc99a61e69"
+    },
+    {
+      "file": "brick/LegoFloor.glb",
+      "bytes": 80404,
+      "nodes": 1,
+      "sha256": "2bf33582c86439bf97f7180c7cfb12f624fa6675ea8cca680450219312485d49"
+    },
+    {
+      "file": "brick/LegoRoof.glb",
+      "bytes": 80396,
+      "nodes": 1,
+      "sha256": "0f4ee430955de20d438112cb895726f5200cb1e657c1828043fdfdecc9462669"
+    },
+    {
+      "file": "brick/LegoRamp.glb",
+      "bytes": 80120,
+      "nodes": 1,
+      "sha256": "611094d91d33cfdfda955eaa27b4ac7e5e15e10ce79668593a8d691c08614128"
+    },
+    {
+      "file": "brick/LegoPine.glb",
+      "bytes": 64096,
+      "nodes": 1,
+      "sha256": "161c2477b489950172db10a9669af43ed8cb18e421274ca00dfbcfcb897e0033"
+    },
+    {
+      "file": "brick/LegoOak.glb",
+      "bytes": 40656,
+      "nodes": 1,
+      "sha256": "0a7b7ddc1b1a9bb8ff3b171e744a6a9df6d5f32734a3ca53f40a540097cbf9a8"
+    },
+    {
+      "file": "brick/LegoBirch.glb",
+      "bytes": 40660,
+      "nodes": 1,
+      "sha256": "11db94a72c16481b213efe212457ff14f08b0cba61d0d7472ca4dd253899a472"
+    },
+    {
+      "file": "brick/LegoPalm.glb",
+      "bytes": 57152,
+      "nodes": 1,
+      "sha256": "59a71c4333be2a45c593a36af256f3524c4adfa399e7c9ed4d1ca6745ad0684b"
+    },
+    {
+      "file": "brick/LegoBush.glb",
+      "bytes": 20852,
+      "nodes": 1,
+      "sha256": "8c3a885bc8006bbe7e204bb45f7ec0b238b20af80ce5d4426cc05d097153cf85"
+    },
+    {
+      "file": "brick/LegoRock.glb",
+      "bytes": 20828,
+      "nodes": 1,
+      "sha256": "8a83c23c57bc3ba8e1785d9852f9ef4c972fc02f98d3fbd4316db2393ec0f580"
+    },
+    {
+      "file": "brick/LegoGrass.glb",
+      "bytes": 6416,
+      "nodes": 1,
+      "sha256": "71c453022252058db21f9e5c1629296c121105c4a843f4c807441171422c86c6"
+    },
+    {
+      "file": "brick/LegoFlowers.glb",
+      "bytes": 13016,
+      "nodes": 1,
+      "sha256": "ad74856ffb115faf05f0f0166be5bd316901f932fa21114aa6d31d00dfe216ae"
+    },
+    {
+      "file": "brick/LegoStump.glb",
+      "bytes": 9160,
+      "nodes": 1,
+      "sha256": "4f117e75a35c3a133521e39cf51d299e6bec28fdc25f092648e95be04daa7907"
+    },
+    {
+      "file": "brick/LegoCrate.glb",
+      "bytes": 16060,
+      "nodes": 1,
+      "sha256": "622a7f7805c79cf751570fb52627f8b2340cf6c26f57f5889f0481e077bc116a"
+    },
+    {
+      "file": "brick/LegoBarrel.glb",
+      "bytes": 16060,
+      "nodes": 1,
+      "sha256": "b16be633080636db7968aa6fa5ba7ed2ccff1c11ca2e78d142f5cc01db071e68"
+    },
+    {
+      "file": "brick/LegoHay.glb",
+      "bytes": 16056,
+      "nodes": 1,
+      "sha256": "d6bd6c821026b677171a4f51578c7f8a401134d9d110220e9998a30943b67250"
+    },
+    {
+      "file": "vehicles/VehicleBody.glb",
+      "bytes": 165868,
+      "nodes": 1,
+      "sha256": "01345a84e84a4982ddb983bc1b677b267e02026d7c2475f0538242bb888312c6"
+    },
+    {
+      "file": "vehicles/VehicleWheel.glb",
+      "bytes": 100120,
+      "nodes": 1,
+      "sha256": "0142d62ec6ea33737ba3d4f95e5cf4ba3393bde67e942c65f6a5b3ab14d85545"
+    },
+    {
+      "file": "environment/Pine2.glb",
+      "bytes": 27788,
+      "nodes": 1,
+      "sha256": "1f93342ff743d46d5d082538d613180eb2de80eeeadb472e18625c46614b99da"
+    },
+    {
+      "file": "environment/Pine3.glb",
+      "bytes": 6548,
+      "nodes": 1,
+      "sha256": "3babd5b64c6635e550d04c0819808ca1d160d18354b4ab4c29733ffc60aa2588"
+    },
+    {
+      "file": "environment/Oak2.glb",
+      "bytes": 29984,
+      "nodes": 1,
+      "sha256": "b344c770920692d0748d758d119c043dbc37826816314ff3b7e2b16f4443c5e7"
+    },
+    {
+      "file": "environment/Oak3.glb",
+      "bytes": 6076,
+      "nodes": 1,
+      "sha256": "39e8f10526a7df9f82cdb79950f551b7a1de49e2225ba2e04e23d30ce1d7b4db"
+    },
+    {
+      "file": "environment/Birch2.glb",
+      "bytes": 28128,
+      "nodes": 1,
+      "sha256": "e89c29298f66a39e3f529928ab8baaed0405cf589a2dead8074b82dc103f1a38"
+    },
+    {
+      "file": "environment/Birch3.glb",
+      "bytes": 5412,
+      "nodes": 1,
+      "sha256": "075fa262e6e0ac03f76294045e085178ac9019967f42f2fcaeb19471be067712"
+    },
+    {
+      "file": "environment/Bush2.glb",
+      "bytes": 26728,
+      "nodes": 1,
+      "sha256": "9d5104c03a364df53fa558345346932eb46d0bb05cf968fccbffb34f2610f8b5"
+    },
+    {
+      "file": "environment/Bush3.glb",
+      "bytes": 9660,
+      "nodes": 1,
+      "sha256": "b647353f0ca65c2d7f097485dee02b376e8ec1a33e83a70d996ede3005d3eca2"
+    },
+    {
+      "file": "vehicles/VehicleSport.glb",
+      "bytes": 147316,
+      "nodes": 1,
+      "sha256": "42b89000986d61904d9c8a4f398658e7f745d8710fdd69663ecca7b7c9c706be"
+    },
+    {
+      "file": "buildings/House.glb",
+      "bytes": 187380,
+      "nodes": 1,
+      "sha256": "4dda95e04a4fcd4dd56011346ecd93a35d04f0e90a20ac9381c3c985d6f595a2"
+    },
+    {
+      "file": "buildings/HouseTwoStory.glb",
+      "bytes": 215408,
+      "nodes": 1,
+      "sha256": "bda234364ccaf3878d2be44440e7ce816381c752c67458befb55ec58b4218851"
+    },
+    {
+      "file": "buildings/Cabin.glb",
+      "bytes": 189396,
+      "nodes": 1,
+      "sha256": "4775a9999ef86e93811003b4b1d6a14b1bb188f2de420e79f1ccfba5d4459e4b"
+    },
+    {
+      "file": "buildings/Shop.glb",
+      "bytes": 260776,
+      "nodes": 1,
+      "sha256": "66713930fe99762f923f546c431151f54ba343f48ce437f1a8d3ee71fc29babd"
+    },
+    {
+      "file": "buildings/Barn.glb",
+      "bytes": 122040,
+      "nodes": 1,
+      "sha256": "d1472147300a9d794d2ec971613256be2d8cd2fd38fa8f754bc7b1983201bacc"
+    },
+    {
+      "file": "buildings/Windmill.glb",
+      "bytes": 22676,
+      "nodes": 1,
+      "sha256": "0017a366d2f2104cf13ab4f86f8ef9d1e3fad91fd7bfee724e81080c91f17a36"
+    },
+    {
+      "file": "buildings/Lighthouse.glb",
+      "bytes": 45484,
+      "nodes": 1,
+      "sha256": "018daebe79d862a18a43b67bdf4a978aa369983a119737ab4482237c3e473f27"
+    },
+    {
+      "file": "buildings/WaterTower.glb",
+      "bytes": 80180,
+      "nodes": 1,
+      "sha256": "7c62661aab8272be8a09c67544d0d17b308a9f9a3977bbb20cb75a60ac9f0b78"
+    },
+    {
+      "file": "buildings/Silo.glb",
+      "bytes": 49740,
+      "nodes": 1,
+      "sha256": "1bcfd9920f423807a0416298cdd9b7487a7479d2cb60cfb1f318970df61ac8bb"
+    },
+    {
+      "file": "buildings/GasCanopy.glb",
+      "bytes": 32264,
+      "nodes": 1,
+      "sha256": "baf128027b352d84bda57bc3cbd2846735043942b088c458743d298e4654a185"
+    },
+    {
+      "file": "buildings/Fountain.glb",
+      "bytes": 80868,
+      "nodes": 1,
+      "sha256": "30c1e59bfaa8ed0925de439d45880d5c2c142d9159c6813438c52565eeaee31c"
+    },
+    {
+      "file": "buildings/Well.glb",
+      "bytes": 21236,
+      "nodes": 1,
+      "sha256": "b14ea2a1f8ddd2d5f4729b9872cb99015145f3efceaa36b3a0f50a715fda54e8"
+    },
+    {
+      "file": "buildings/LampPost.glb",
+      "bytes": 14196,
+      "nodes": 1,
+      "sha256": "8ceec1f0f77e1b897218d8d104f651378e974394753e18d6323ac1ab8b3fdf99"
+    },
+    {
+      "file": "buildings/Bench.glb",
+      "bytes": 20736,
+      "nodes": 1,
+      "sha256": "77add9c90872b4fe7d61ddde2400af10520ae550361376ac98ab11a19c3fa667"
+    },
+    {
+      "file": "buildings/Planter.glb",
+      "bytes": 20128,
+      "nodes": 1,
+      "sha256": "f521df6025f8f95bbf62dbe23125924a841ab4fc4c43e345e07e66a5b7547590"
+    },
+    {
+      "file": "buildings/Dock.glb",
+      "bytes": 16488,
+      "nodes": 1,
+      "sha256": "529800c42bec51797c05bc2cdabc519224f2fc9715b2dcf89803389504943fd5"
+    },
+    {
+      "file": "buildings/Fence.glb",
+      "bytes": 19516,
+      "nodes": 1,
+      "sha256": "cdda931b3cd46d31dc8ea122c31ff539ab64f07cec7000a83943619abcbf61d4"
+    },
+    {
+      "file": "characters/scout.glb",
+      "bytes": 1068132,
+      "rigged": true,
+      "animation_clips": 9,
+      "sha256": "5818079dd73986fbddb6ad27f671315e62ff6f7122a4cc123ac3b82b1cb22be4"
+    },
+    {
+      "file": "characters/ranger.glb",
+      "bytes": 1068288,
+      "rigged": true,
+      "animation_clips": 9,
+      "sha256": "07c89df8945bdf300b38a8f91442321a4b5571942edf6f54d48bd2c1e51960f2"
+    },
+    {
+      "file": "characters/pilot.glb",
+      "bytes": 1068100,
+      "rigged": true,
+      "animation_clips": 9,
+      "sha256": "d222c78bc3d4e6ee448d24b5bbb581f6443861ce9812900f284bd3e6acdae37f"
+    },
+    {
+      "file": "characters/vanguard.glb",
+      "bytes": 1068416,
+      "rigged": true,
+      "animation_clips": 9,
+      "sha256": "f832accb4c04cfb31c82b07bed14c73071b8b568f0ec9a181f55521070f0ad68"
+    },
+    {
+      "file": "map/island.glb",
+      "bytes": 41486808,
+      "nodes": 10541,
+      "sha256": "c03ae0441fa87dbc5292d16b65343e8db5e62ee54436645f56f7a970c0f288ff"
+    }
+  ],
+  "individual_models": 144,
+  "island_instances": 10541,
+  "limitations": [
+    "Island is an editable static snapshot; terrain uses a 6m overview grid.",
+    "Procedural shader textures, wind, water animation and gameplay collisions are not encoded in GLB.",
+    "Four rigged outfits share one body design; standalone character parts use local rig pivots.",
+    "Map vegetation tint is quantized to a shared palette to reduce file size."
+  ]
+}
