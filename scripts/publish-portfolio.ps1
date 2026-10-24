@@ -89,14 +89,14 @@ foreach ($relativePath in $runtimeFiles) {
 
 $manifestPath = Join-Path $sourceRoot 'assets/cartoon/manifest.json'
 $assetManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if (@($assetManifest.meshes.PSObject.Properties).Count -ne 37 -or
+if (@($assetManifest.meshes.PSObject.Properties).Count -ne 45 -or
     @($assetManifest.animations).Count -ne 9 -or
     $assetManifest.animations -notcontains 'Aim' -or
     $assetManifest.animations -notcontains 'Fire' -or
     $assetManifest.weapons -notcontains 'AK-47' -or
     $assetManifest.vehicles -notcontains 'Island Buggy' -or
     $assetManifest.vehicles -notcontains 'Island Roadster') {
-    throw 'The Blender asset manifest must contain the current 37 meshes, 9 animation clips, AK-47 and both vehicles.'
+    throw 'The Blender asset manifest must contain the current 45 meshes, 9 animation clips, AK-47 and both vehicles.'
 }
 foreach ($mesh in $assetManifest.meshes.PSObject.Properties) {
     if ($mesh.Value.vertices -le 0 -or $mesh.Value.vertices -ge 5000) {
@@ -141,6 +141,8 @@ foreach ($relativePath in $runtimeFiles) {
 $features = [ordered]@{
     worldSize = Read-IntegerConstant 'crates/fn-core/src/world/mod.rs' 'WORLD_SIZE'
     modes = @('battle-royale', 'zero-build', 'lego')
+    maps = @('island', 'chapter1', 'chapter2')
+    rooms = @('public-list', 'private-code', 'manual-invite')
     multiplayerHost = 'room-creator'
     vehicles = @($assetManifest.vehicles)
     weapons = @($assetManifest.weapons)
