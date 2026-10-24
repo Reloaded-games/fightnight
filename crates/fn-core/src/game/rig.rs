@@ -568,6 +568,102 @@ pub fn pose(a: &Actor) -> Pose {
     }
 }
 
+/// How someone riding on the roof of the Battle Bus stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RiderPose {
+    /// Arms loose at the sides, swaying with the bus.
+    Relaxed,
+    /// Waving with the right hand.
+    Wave,
+    /// Both fists going up in turn, bouncing at the knees.
+    Cheer,
+    /// Hands on the hips.
+    Akimbo,
+}
+
+impl RiderPose {
+    pub const ALL: [RiderPose; 4] = [RiderPose::Relaxed, RiderPose::Wave, RiderPose::Cheer, RiderPose::Akimbo];
+}
+
+/// Pose of someone riding on the roof of the Battle Bus: standing with the feet at `root`'s origin and facing its -Z, the
+/// head turned toward where they look (`body_yaw` is the heading `root` gives the body). `time` drives the idle motion.
+pub fn bus_rider_pose(a: &Actor, root: Mat4, body_yaw: f32, style: RiderPose, time: f32) -> Pose {
+    let t = time + a.id as f32 * 0.73;
+    let sway = (t * 1.3).sin();
+    // cheering: a fist goes up on every beat and the knees give a little with it
+    let beat = t * 5.0;
+    let bounce = if style == RiderPose::Cheer { 0.5 - 0.5 * (2.0 * beat).cos() } else { 0.0 };
+    let (thigh, knee) = (0.04 + 0.18 * bounce, 0.08 + 0.36 * bounce);
+    let drop = THIGH * (1.0 - thigh.cos()) + SHIN * (1.0 - (knee - thigh).cos());
+    let pelvis_m = tr(Vec3::new(0.015 * sway, HIP_Y - drop, 0.0)) * rz(0.025 * sway);
+    let torso_m = pelvis_m * rx(-0.03 + 0.05 * bounce) * rz(-0.035 * sway);
+    let look = angle_diff(body_yaw, a.yaw).clamp(-1.0, 1.0);
+    let head_pitch = (a.pitch * 0.5).clamp(-0.35, 0.3) + if style == RiderPose::Cheer { 0.2 } else { 0.0 };
+    let head_m = torso_m * tr(Vec3::new(0.0, NECK_Y, 0.0)) * ry(look * 0.85) * rx(head_pitch);
+
+    let mut leg_up = [Mat4::IDENTITY; 2];
+    let mut leg_low = [Mat4::IDENTITY; 2];
+    let mut boot = [Mat4::IDENTITY; 2];
+    let mut arm_up = [Mat4::IDENTITY; 2];
+    let mut arm_low = [Mat4::IDENTITY; 2];
+    let mut hand = [Mat4::IDENTITY; 2];
+    for i in 0..2 {
+        let sx = if i == 0 { -1.0 } else { 1.0 };
+        // feet a little apart
+        let hip = pelvis_m * tr(Vec3::new(sx * HIP_X, -HIP_DROP, 0.0)) * rz(sx * 0.06) * rx(thigh);
+        let kn = hip * tr(Vec3::new(0.0, -THIGH, 0.0)) * rx(-knee);
+        leg_up[i] = hip;
+        leg_low[i] = kn;
+        boot[i] = kn * tr(Vec3::new(0.0, -SHIN, 0.0)) * rx(knee - thigh);
+
+        let sh_t = Vec3::new(sx * SHOULDER_X, SHOULDER_Y, 0.0);
+        if style == RiderPose::Akimbo {
+            let sh_w = torso_m.transform_point3(sh_t);
+            let target = torso_m.transform_point3(Vec3::new(sx * 0.21, 0.04, 0.03));
+            let pole = torso_m.transform_vector3(Vec3::new(sx * 0.7, 0.0, 0.6));
+            let (elbow, wrist) = solve_elbow(sh_w, target, pole, UPPER_ARM, FOREARM);
+            let hint = torso_m.transform_vector3(Vec3::new(sx, 0.0, 0.0)).cross(Vec3::Y).normalize_or_zero();
+            let hint = if hint == Vec3::ZERO { Vec3::Z } else { hint };
+            arm_up[i] = limb(sh_w, elbow, hint);
+            arm_low[i] = limb(elbow, wrist, hint);
+            hand[i] = limb(wrist, wrist + (wrist - elbow), hint);
+            continue;
+        }
+        // (forward swing, raise out to the side, elbow bend, forearm swing toward the head)
+        let (up_f, out, elbow, toward) = match style {
+            RiderPose::Wave if i == 1 => (0.15, 2.6, 0.1, 0.55 + 0.4 * (t * 9.0).sin()),
+            RiderPose::Cheer => {
+                let pump = 0.5 + 0.5 * (beat + if i == 0 { 0.0 } else { PI }).sin();
+                (2.25 + 0.6 * pump, 0.3 + 0.12 * (1.0 - pump), 0.5 + 0.9 * (1.0 - pump), 0.0)
+            }
+            _ => (0.04 + 0.05 * sway * sx, 0.12, 0.22, 0.0),
+        };
+        let sh_m = torso_m * tr(sh_t) * rz(sx * out) * rx(up_f);
+        let el_m = sh_m * tr(Vec3::new(0.0, -UPPER_ARM, 0.0)) * rz(sx * toward) * rx(elbow);
+        arm_up[i] = sh_m;
+        arm_low[i] = el_m;
+        hand[i] = el_m * tr(Vec3::new(0.0, -FOREARM, 0.0));
+    }
+
+    let to_world = |m: Mat4| root * m;
+    Pose {
+        torso: to_world(torso_m),
+        pelvis: to_world(pelvis_m),
+        head: to_world(head_m),
+        backpack: to_world(torso_m),
+        arm_up: arm_up.map(to_world),
+        arm_low: arm_low.map(to_world),
+        hand: hand.map(to_world),
+        leg_up: leg_up.map(to_world),
+        leg_low: leg_low.map(to_world),
+        boot: boot.map(to_world),
+        item: None,
+        glider: None,
+        muzzle: root.transform_point3(Vec3::new(0.0, 1.4, -0.5)),
+        head_pos: to_world(head_m).transform_point3(Vec3::new(0.0, HEAD_C, 0.0)),
+    }
+}
+
 // ---------------------------------------------------------------------------------------
 // Build pieces
 // ---------------------------------------------------------------------------------------
@@ -656,6 +752,45 @@ mod tests {
         assert!(lo.abs() < 0.04, "boots rest on the ground: {lo}");
         let head = p.head_pos.y - a.pos.y;
         assert!((1.6..1.7).contains(&head), "head centre height {head}");
+    }
+
+    #[test]
+    fn bus_riders_stand_on_the_roof_in_every_pose_and_look_where_they_look() {
+        let mut a = actor();
+        a.mode = MoveMode::Bus;
+        let root = Mat4::from_translation(Vec3::new(3.0, 286.2, -7.0)) * Mat4::from_rotation_y(0.6);
+        let hand_mesh = build_mesh(MeshId::CharHand);
+        for style in RiderPose::ALL {
+            for k in 0..24 {
+                let p = bus_rider_pose(&a, root, 0.6, style, k as f32 * 0.137);
+                assert!(finite(&p) && p.item.is_none() && p.glider.is_none(), "{style:?}");
+                let lo = lowest_boot_y(&p) - 286.2;
+                assert!(lo.abs() < 0.06, "{style:?}: boots {lo} off the roof");
+                let head = p.head_pos.y - 286.2;
+                assert!((1.45..1.72).contains(&head), "{style:?}: head centre at {head}");
+                // the body faces the way `root` does
+                let f = -p.torso.z_axis.truncate();
+                assert!(Vec3::new(f.x, 0.0, f.z).normalize().dot(yaw_forward(0.6)) > 0.95, "{style:?}");
+                // hands stay near the body: no arm flung out through a neighbour
+                for m in p.hand {
+                    for v in hand_mesh.verts.iter().step_by(7) {
+                        let off = m.transform_point3(Vec3::from(v.pos)) - root.transform_point3(Vec3::Y * 1.2);
+                        assert!(Vec3::new(off.x, 0.0, off.z).length() < 0.65, "{style:?}: a hand {off:?} from the body");
+                    }
+                }
+            }
+            let highest_hand = |p: &Pose| p.hand.iter().map(|m| m.transform_point3(Vec3::ZERO).y).fold(f32::MIN, f32::max) - 286.2;
+            let up = (0..24).map(|k| highest_hand(&bus_rider_pose(&a, root, 0.6, style, k as f32 * 0.137))).fold(f32::MIN, f32::max);
+            match style {
+                RiderPose::Wave | RiderPose::Cheer => assert!(up > 1.75, "{style:?}: a hand goes up ({up})"),
+                RiderPose::Relaxed | RiderPose::Akimbo => assert!(up < 1.1, "{style:?}: hands stay down ({up})"),
+            }
+        }
+        // the head turns toward where the rider looks, within reason
+        a.yaw = 0.6 + 0.8;
+        let p = bus_rider_pose(&a, root, 0.6, RiderPose::Relaxed, 0.0);
+        let face = -p.head.z_axis.truncate();
+        assert!(Vec3::new(face.x, 0.0, face.z).normalize().dot(yaw_forward(0.6 + 0.8 * 0.85)) > 0.97);
     }
 
     #[test]

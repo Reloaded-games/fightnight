@@ -117,6 +117,56 @@ pub fn fit_scale(half: Vec3, target: f32) -> f32 {
     (target / longest).clamp(0.25, 8.0)
 }
 
+/// Where the Battle Bus is drawn: on its route, bobbing and rocking a little under the balloon.
+pub fn bus_matrix(g: &Game) -> Mat4 {
+    let t = g.time;
+    Mat4::from_translation(g.bus.pos + Vec3::new(0.0, (t * 0.9).sin() * 0.25, 0.0)) * Mat4::from_rotation_y(yaw_of(g.bus.dir)) * Mat4::from_rotation_z((t * 0.7).sin() * 0.025) * Mat4::from_rotation_x((t * 0.5).sin() * 0.015)
+}
+
+/// How many riders fit on the roof of the bus: the player and eight rows of three. Anyone past that rides inside, out of
+/// sight, until they jump.
+pub const ROOF_RIDERS: usize = 25;
+
+/// Where someone riding the Battle Bus stands, in the bus's frame (see [`bus_matrix`]), and how.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RiderSpot {
+    /// Feet, on the roof.
+    pub pos: Vec3,
+    /// Turn away from facing the front of the bus.
+    pub yaw: f32,
+    pub pose: rig::RiderPose,
+}
+
+/// The local player stands on their own at the back of the roof, a little right of the middle: nearest the camera, which
+/// looks over the bus from behind and over the right shoulder. The others stand in rows of three in front of them, spread
+/// out to the front of the roof, in actor order, each with a little scatter and a pose of their own. Everyone keeps their
+/// spot until they jump, so nobody shuffles round when someone leaves.
+pub fn bus_rider_spot(g: &Game, i: usize) -> Option<RiderSpot> {
+    const COLS: [f32; 3] = [0.7, 0.0, -0.7];
+    let roof_y = crate::models::BUS_ROOF_Y;
+    if i >= g.actors.len() {
+        return None;
+    }
+    if i == g.local {
+        return Some(RiderSpot { pos: Vec3::new(0.3, roof_y, 3.3), yaw: 0.0, pose: rig::RiderPose::Relaxed });
+    }
+    // place among the others
+    let rank = if i < g.local { i } else { i - 1 };
+    let others = (g.actors.len() - 1).min(ROOF_RIDERS - 1);
+    if rank >= others {
+        return None;
+    }
+    let (back, front) = (2.45f32, -2.85f32);
+    let rows = others.div_ceil(COLS.len());
+    let gap = if rows > 1 { ((back - front) / (rows - 1) as f32).min(1.5) } else { 0.0 };
+    let (row, col) = (rank / COLS.len(), rank % COLS.len());
+    let h = (i as u32).wrapping_mul(0x9E37_79B9) ^ 0x5BD1_E995;
+    let u = |shift: u32| ((h >> shift) & 0xff) as f32 / 255.0 - 0.5;
+    let stagger = if row % 2 == 1 { 0.12 } else { 0.0 };
+    let pos = Vec3::new(COLS[col] + stagger + u(0) * 0.14, roof_y, back - row as f32 * gap + u(8) * 0.16);
+    Some(RiderSpot { pos, yaw: u(16) * 0.5, pose: rig::RiderPose::ALL[(h >> 24) as usize % rig::RiderPose::ALL.len()] })
+}
+
 impl Scene {
     pub fn new(meshes: &[MeshData]) -> Scene {
         let centers = meshes
@@ -208,7 +258,7 @@ impl Scene {
         self.clear();
         let fr = cam.frustum();
         let cp = cam.pos;
-        self.bus(g);
+        self.bus(g, &fr, cp);
         self.vehicles(g, &fr, cp);
         for a in &g.actors {
             if g.vehicle_for_actor(a.id).is_none() { self.character(a, &fr, cp); }
@@ -291,9 +341,13 @@ impl Scene {
         }
         let p = rig::pose(a);
         self.stats.characters += 1;
-        let o = &a.outfit;
         let flash = a.hit_flash * 0.35 + if a.alive { 0.0 } else { (1.0 - opacity) * 0.8 };
-        let params = [flash, opacity, 0.0, 0.0];
+        self.draw_pose(a, &p, [flash, opacity, 0.0, 0.0]);
+    }
+
+    /// Push every part of a posed character, what they hold and their glider, in the colours of their outfit.
+    fn draw_pose(&mut self, a: &Actor, p: &rig::Pose, params: [f32; 4]) {
+        let o = &a.outfit;
         let put = |s: &mut Scene, mesh: MeshId, m: Mat4, c: [f32; 4]| {
             let mut i = Instance::from_mat4(m, c);
             i.params = params;
@@ -336,14 +390,32 @@ impl Scene {
 
     // ---- bus --------------------------------------------------------------------------------------------------
 
-    fn bus(&mut self, g: &Game) {
+    /// The bus with its burner flame, and everyone still on board standing on its roof.
+    fn bus(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
         if !g.bus.active {
             return;
         }
-        let t = g.time;
-        let yaw = yaw_of(g.bus.dir);
-        let m = Mat4::from_translation(g.bus.pos + Vec3::new(0.0, (t * 0.9).sin() * 0.25, 0.0)) * Mat4::from_rotation_y(yaw) * Mat4::from_rotation_z((t * 0.7).sin() * 0.025) * Mat4::from_rotation_x((t * 0.5).sin() * 0.015);
+        let m = bus_matrix(g);
         self.push(MeshId::Bus, m, WHITE);
+        let t = g.time;
+        let flick = 0.85 + 0.15 * (t * 23.0).sin() * (t * 7.3).cos();
+        let flame = m.transform_point3(Vec3::new(0.0, 4.95, 0.0));
+        self.particles_add.push(Particle::billboard(flame, 1.5 * flick, [2.4 * flick, 1.1 * flick, 0.3 * flick, 0.5], shape::GLOW, 0.0, 0.3));
+        let deck = m.transform_point3(Vec3::Y * 2.0);
+        if deck.distance(cp) > 420.0 || !fr.intersects_sphere(deck, 6.5) {
+            return;
+        }
+        let yaw = yaw_of(g.bus.dir);
+        for (i, a) in g.actors.iter().enumerate() {
+            if !a.alive || a.mode != MoveMode::Bus {
+                continue;
+            }
+            let Some(spot) = bus_rider_spot(g, i) else { continue };
+            let root = m * Mat4::from_translation(spot.pos) * Mat4::from_rotation_y(spot.yaw);
+            let p = rig::bus_rider_pose(a, root, yaw + spot.yaw, spot.pose, t);
+            self.stats.characters += 1;
+            self.draw_pose(a, &p, [a.hit_flash * 0.35, 1.0, 0.0, 0.0]);
+        }
     }
 
     // ---- loose items -------------------------------------------------------------------------------------------------
@@ -659,6 +731,7 @@ mod tests {
     use super::super::testutil::game;
     use super::*;
     use crate::meshlib::build_all;
+    use crate::models::dims;
 
     #[test]
     fn nothing_with_a_nan_reaches_the_gpu() {
@@ -858,5 +931,85 @@ mod tests {
         scene.build(&g, &cam);
         assert!(scene.batches.iter().any(|b| b.mesh == MeshId::Missile as u16));
         assert!(!scene.particles_add.is_empty() && !scene.particles.is_empty());
+    }
+
+    /// World positions and forward directions of the torsos drawn.
+    fn torsos(scene: &Scene) -> Vec<(Vec3, Vec3)> {
+        let b = scene.batches.iter().find(|b| b.mesh == MeshId::CharTorso as u16);
+        b.map_or(vec![], |b| scene.instances[b.first as usize..(b.first + b.count) as usize].iter().map(|i| (Vec3::new(i.m0[3], i.m1[3], i.m2[3]), -Vec3::new(i.m0[2], i.m1[2], i.m2[2]))).collect())
+    }
+
+    #[test]
+    fn everyone_on_the_bus_stands_on_its_roof_facing_forward_with_the_player_at_the_back() {
+        let mut g = game(30, false);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        assert_eq!(g.phase, Phase::Bus);
+        assert!(g.actors.iter().all(|a| a.mode == MoveMode::Bus));
+        let meshes = build_all();
+        let mut scene = Scene::new(&meshes);
+        scene.build(&g, &g.camera(16.0 / 9.0));
+        // the roof holds the player and eight rows of three; the rest ride inside, out of sight
+        assert_eq!(scene.stats.characters as usize, ROOF_RIDERS);
+        let drawn = torsos(&scene);
+        assert_eq!(drawn.len(), ROOF_RIDERS);
+        let bus = bus_matrix(&g);
+        let to_bus = bus.inverse();
+        let fwd = Vec3::new(g.bus.dir.x, 0.0, g.bus.dir.y);
+        let roof = crate::models::BUS_ROOF_Y;
+        for (p, f) in &drawn {
+            let l = to_bus.transform_point3(*p);
+            assert!(l.x.abs() < 1.0 && (-3.2..3.6).contains(&l.z), "a rider off the roof deck at {l:?}");
+            assert!((l.y - roof - dims::HIP_Y).abs() < 0.2, "a rider not standing on the roof: pelvis {} above it", l.y - roof);
+            assert!(Vec3::new(f.x, 0.0, f.z).normalize().dot(fwd) > 0.8, "riders face the way the bus flies");
+        }
+        let spots: Vec<RiderSpot> = (0..g.actors.len()).filter_map(|i| bus_rider_spot(&g, i)).collect();
+        assert_eq!(spots.len(), ROOF_RIDERS);
+        for (k, a) in spots.iter().enumerate() {
+            for b in &spots[k + 1..] {
+                assert!(a.pos.distance(b.pos) > 0.55, "two riders on top of each other: {:?} {:?}", a.pos, b.pos);
+            }
+        }
+        // the player is the one at the very back, nearest the camera, and the camera sees them and the whole bus
+        let me = bus_rider_spot(&g, g.local).unwrap();
+        assert!(spots.iter().all(|s| s.pos.z <= me.pos.z), "the player stands at the back");
+        let cam = g.camera(16.0 / 9.0);
+        let head = bus.transform_point3(me.pos + Vec3::Y * 1.7);
+        assert!(drawn.iter().map(|(p, _)| p.distance(cam.pos)).fold(f32::MAX, f32::min) >= bus.transform_point3(me.pos + Vec3::Y * dims::HIP_Y).distance(cam.pos) - 0.3, "nobody stands nearer the camera than the player");
+        for (what, p) in [("the player", head), ("the front bumper", bus.transform_point3(Vec3::new(0.0, -1.0, -5.6))), ("the rear bumper", bus.transform_point3(Vec3::new(0.0, -1.0, 4.4))), ("the balloon's mouth", bus.transform_point3(Vec3::Y * 5.4))] {
+            let s = cam.project(p).unwrap_or(Vec3::splat(9.0));
+            assert!(s.x.abs() < 0.8 && s.y.abs() < 0.8, "{what} is off screen at {s:?}");
+        }
+        assert!((14.0..18.0).contains(&cam.pos.distance(g.bus.pos)), "the camera stays near the bus: {}", cam.pos.distance(g.bus.pos));
+    }
+
+    #[test]
+    fn a_rider_who_jumps_leaves_the_roof_and_the_others_keep_their_spots() {
+        let mut g = game(8, false);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let meshes = build_all();
+        let mut scene = Scene::new(&meshes);
+        let before: Vec<Option<RiderSpot>> = (0..g.actors.len()).map(|i| bus_rider_spot(&g, i)).collect();
+        assert!(before.iter().all(|s| s.is_some()), "nine riders all fit on the roof");
+        scene.build(&g, &g.camera(16.0 / 9.0));
+        assert_eq!(scene.stats.characters, 9);
+        g.update(1.0 / 60.0, &PlayerInput { exit_bus: true, ..Default::default() });
+        assert_eq!(g.actors[PLAYER].mode, MoveMode::Freefall);
+        let after: Vec<Option<RiderSpot>> = (0..g.actors.len()).map(|i| bus_rider_spot(&g, i)).collect();
+        assert_eq!(before, after, "the spots do not move when someone leaves");
+        scene.build(&g, &g.camera(16.0 / 9.0));
+        // the jumper is drawn falling where the simulation has them, the others still on the roof
+        assert_eq!(scene.stats.characters, 9);
+        let p = g.actors[PLAYER].pos;
+        let drawn = torsos(&scene);
+        assert!(drawn.iter().any(|(t, _)| t.distance(p + Vec3::Y) < 1.5), "the jumper in free fall at {p:?}");
+        let to_bus = bus_matrix(&g).inverse();
+        assert_eq!(drawn.iter().filter(|(t, _)| to_bus.transform_point3(*t).y > crate::models::BUS_ROOF_Y).count(), 8, "eight riders left on the roof");
+        // once the bus has gone, nobody is drawn on it
+        g.bus.active = false;
+        for a in g.actors.iter_mut().skip(1) {
+            a.mode = MoveMode::Freefall;
+        }
+        scene.build(&g, &g.camera(16.0 / 9.0));
+        assert!(scene.instances.iter().all(|i| i.is_sane()));
     }
 }

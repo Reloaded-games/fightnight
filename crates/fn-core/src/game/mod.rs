@@ -921,15 +921,23 @@ impl Game {
     pub fn camera(&self, aspect: f32) -> Camera {
         let idx = self.camera_actor();
         let a = &self.actors[idx];
-        let (pivot, dir) = self.camera_pivot(idx);
+        let (mut pivot, dir) = self.camera_pivot(idx);
         let env = self.env();
         let airborne = matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
         let mut back = if airborne { 7.5 } else { lerp(self.cam_dist, self.cam_dist * 0.62, a.anim.aim) };
         if self.vehicle_for_actor(idx).is_some() { back = 7.4; }
+        let mut lift = if airborne { 0.8 } else { 0.18 };
+        let mut aim_low = 0.0;
         if matches!(a.mode, MoveMode::Bus) {
-            back = 21.0;
+            // on the bus: far enough back for the bus and the bottom of its balloon, near enough to make out the riders on
+            // its roof (the player at the back), and high enough to look down over the roof, which sits a little below the
+            // middle of the screen
+            back = 14.0;
+            pivot.y += 1.4;
+            lift = 3.0;
+            aim_low = 4.0;
         }
-        let want = pivot - dir * back + Vec3::Y * if airborne { 0.8 } else { 0.18 };
+        let want = pivot - dir * back + Vec3::Y * lift;
         // pull the camera in when something is behind the player
         let to = want - pivot;
         let len = to.length().max(0.001);
@@ -964,7 +972,7 @@ impl Game {
             fov += 0.12;
         }
         let roll = if a.mode == MoveMode::Glide { -a.anim.lean_side * 0.12 } else { 0.0 };
-        let target = pivot + dir * 40.0;
+        let target = pivot + dir * 40.0 - Vec3::Y * aim_low;
         let look = (target - pos).normalize_or_zero();
         let mut look = if look == Vec3::ZERO { dir } else { look };
         // victory: the winner dances and the camera swings round in front of them

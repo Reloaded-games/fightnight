@@ -8,7 +8,8 @@ source, rigged GLBs and nine animation clips; Scout, Ranger, Pilot and Vanguard 
 The upgraded pack includes sculpted faces/clothing, an AK-47, five other distinct guns,
 and two detailed vehicle bodies with animated steering and wheels.
 
-* Drop from the **Battle Bus** (hot-air balloon and all), skydive and glide onto the island.
+* Ride the **Battle Bus** (hot-air balloon and all) on its roof with the other players, then drop, skydive and glide
+  onto the island.
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
   weapon bloom and recoil, **reloading**, headshots and damage falloff.
 * **39 enemy bots** (adjustable) that land, loot, heal, build cover, fight and run from the storm.
