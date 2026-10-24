@@ -34,9 +34,46 @@ pub struct LoopLevels {
     pub hum_pan: f32,
 }
 
+/// What a sound direction marker on the HUD stands for: the sounds a player most needs to place, somebody walking and
+/// somebody shooting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SoundKind {
+    Steps,
+    Shot,
+}
+
+impl SoundKind {
+    /// Seconds a marker stays up after the last sound.
+    pub fn life(self) -> f32 {
+        match self {
+            SoundKind::Steps => 1.2,
+            SoundKind::Shot => 2.0,
+        }
+    }
+}
+
+/// A sound the listener heard, for the HUD to point at. One per actor and kind: every new step or shot moves and refreshes
+/// it, so a running enemy is a single marker that follows them around.
+#[derive(Clone, Copy, Debug)]
+pub struct SoundMarker {
+    pub kind: SoundKind,
+    pub actor: usize,
+    pub pos: Vec3,
+    /// How close it was: 1 beside the listener, 0 at the edge of where it can be heard.
+    pub level: f32,
+    /// `Game::time` of the last sound.
+    pub at: f32,
+}
+
+/// More markers than this at once is noise, not information: the oldest goes.
+const MAX_MARKERS: usize = 12;
+
 pub struct Mixer {
     rng: Rng,
     started: bool,
+    markers: Vec<SoundMarker>,
+    /// The actor the markers were heard through (spectating someone else starts afresh).
+    marker_listener: usize,
 }
 
 impl Default for Mixer {
@@ -83,7 +120,26 @@ fn shot_sfx(w: WeaponKind) -> Sfx {
 
 impl Mixer {
     pub fn new() -> Mixer {
-        Mixer { rng: Rng::new(0xA0D10), started: false }
+        Mixer { rng: Rng::new(0xA0D10), started: false, markers: vec![], marker_listener: usize::MAX }
+    }
+
+    /// The footsteps and shots heard lately, for the HUD's direction markers.
+    pub fn markers(&self) -> &[SoundMarker] {
+        &self.markers
+    }
+
+    fn mark(&mut self, kind: SoundKind, actor: usize, pos: Vec3, listener: Vec3, max_d: f32, now: f32) {
+        let level = (1.0 - pos.distance(listener) / max_d).clamp(0.0, 1.0);
+        if let Some(m) = self.markers.iter_mut().find(|m| m.actor == actor && m.kind == kind) {
+            *m = SoundMarker { pos, level, at: now, ..*m };
+            return;
+        }
+        if self.markers.len() >= MAX_MARKERS {
+            if let Some(oldest) = (0..self.markers.len()).min_by(|&a, &b| self.markers[a].at.total_cmp(&self.markers[b].at)) {
+                self.markers.swap_remove(oldest);
+            }
+        }
+        self.markers.push(SoundMarker { kind, actor, pos, level, at: now });
     }
 
     fn variant(&mut self, sfx: Sfx) -> u32 {
@@ -97,12 +153,16 @@ impl Mixer {
         out.push(AudioCue { sfx, variant, pan: 0.0, gain, pitch, lowpass: 20000.0, delay: 0.0 });
     }
 
+    /// Queue a positional cue; false when it is too far away to be heard.
     #[allow(clippy::too_many_arguments)]
-    fn at(&mut self, out: &mut Vec<AudioCue>, listener: Vec3, cam: &Camera, sfx: Sfx, pos: Vec3, ref_d: f32, max_d: f32, base: f32) {
+    fn at(&mut self, out: &mut Vec<AudioCue>, listener: Vec3, cam: &Camera, sfx: Sfx, pos: Vec3, ref_d: f32, max_d: f32, base: f32) -> bool {
         if let Some(s) = spatial(listener, cam, pos, ref_d, max_d, base) {
             let variant = self.variant(sfx);
             let pitch = self.rng.range(0.96, 1.04);
             out.push(AudioCue { sfx, variant, pan: s.pan, gain: s.gain, pitch, lowpass: s.lowpass, delay: s.delay });
+            true
+        } else {
+            false
         }
     }
 
@@ -114,14 +174,20 @@ impl Mixer {
             self.started = true;
             self.two_d(out, Sfx::DropIn, 0.9);
         }
+        if self.marker_listener != me {
+            self.marker_listener = me;
+            self.markers.clear();
+        }
+        let now = g.time;
+        self.markers.retain(|m| now >= m.at && now - m.at < m.kind.life() && g.actors.get(m.actor).is_some_and(|a| a.alive));
         for e in &g.events {
             match e {
                 Event::Shot { actor, pos, weapon, .. } => {
                     if *actor == me {
                         let variant = self.variant(shot_sfx(*weapon));
                         out.push(AudioCue { sfx: shot_sfx(*weapon), variant, pan: 0.0, gain: 0.95, pitch: self.rng.range(0.98, 1.02), lowpass: 20000.0, delay: 0.0 });
-                    } else {
-                        self.at(out, listener, cam, shot_sfx(*weapon), *pos, 10.0, 420.0, 1.0);
+                    } else if self.at(out, listener, cam, shot_sfx(*weapon), *pos, 10.0, 420.0, 1.0) {
+                        self.mark(SoundKind::Shot, *actor, *pos, listener, 420.0, now);
                     }
                 }
                 Event::Impact { pos, kind, .. } => {
@@ -165,8 +231,8 @@ impl Mixer {
                     };
                     if *actor == me {
                         self.two_d(out, sfx, 0.32);
-                    } else {
-                        self.at(out, listener, cam, sfx, *pos, 2.5, 38.0, 0.55);
+                    } else if self.at(out, listener, cam, sfx, *pos, 2.5, 38.0, 0.55) {
+                        self.mark(SoundKind::Steps, *actor, *pos, listener, 38.0, now);
                     }
                 }
                 Event::Jump { actor, pos } => {
@@ -218,8 +284,12 @@ impl Mixer {
                         self.at(out, listener, cam, sfx, *pos, 3.0, 35.0, 0.5);
                     }
                 }
-                Event::ChestOpen { pos } => self.at(out, listener, cam, Sfx::ChestOpen, *pos, 8.0, 140.0, 1.0),
-                Event::HarvestHit { pos, .. } => self.at(out, listener, cam, Sfx::HarvestHit, *pos, 5.0, 60.0, 0.9),
+                Event::ChestOpen { pos } => {
+                    self.at(out, listener, cam, Sfx::ChestOpen, *pos, 8.0, 140.0, 1.0);
+                }
+                Event::HarvestHit { pos, .. } => {
+                    self.at(out, listener, cam, Sfx::HarvestHit, *pos, 5.0, 60.0, 0.9);
+                }
                 Event::TreeFelled { pos, .. } => {
                     self.at(out, listener, cam, Sfx::HarvestBreak, *pos, 8.0, 100.0, 0.9);
                     self.at(out, listener, cam, Sfx::TreeFall, *pos, 12.0, 170.0, 0.9);
@@ -236,8 +306,12 @@ impl Mixer {
                         self.at(out, listener, cam, sfx, *pos, 6.0, 75.0, 0.8);
                     }
                 }
-                Event::PieceDestroyed { pos, .. } => self.at(out, listener, cam, Sfx::PieceDestroy, *pos, 8.0, 110.0, 0.9),
-                Event::Explosion { pos, .. } => self.at(out, listener, cam, Sfx::Explosion, *pos, 25.0, 750.0, 1.0),
+                Event::PieceDestroyed { pos, .. } => {
+                    self.at(out, listener, cam, Sfx::PieceDestroy, *pos, 8.0, 110.0, 0.9);
+                }
+                Event::Explosion { pos, .. } => {
+                    self.at(out, listener, cam, Sfx::Explosion, *pos, 25.0, 750.0, 1.0);
+                }
                 // an impulse is a deep thump and a rush of air, a Boogie Bomb a sparkle (and then the music is the dance)
                 Event::Impulse { pos } => {
                     self.at(out, listener, cam, Sfx::Explosion, *pos, 12.0, 300.0, 0.45);
@@ -391,6 +465,55 @@ mod tests {
         assert!(out.iter().any(|c| c.sfx == Sfx::ShotShotgun && c.pan == 0.0 && c.delay == 0.0));
         assert!(out.iter().any(|c| c.sfx == Sfx::HitHead));
         assert!(!out.iter().any(|c| c.sfx == Sfx::StepGrass), "footsteps 200 m away are inaudible");
+    }
+
+    #[test]
+    fn heard_steps_and_shots_leave_direction_markers_that_fade() {
+        let mut g = game(4, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let cam = cam_at(g.actors[PLAYER].eye_pos());
+        let me = g.actors[PLAYER].pos;
+        let mut m = Mixer::new();
+        let mut out = vec![];
+        g.events.clear();
+        g.events.push(Event::Footstep { actor: 1, pos: me + Vec3::new(6.0, 0.0, 0.0), surface: Surface::Grass });
+        g.events.push(Event::Footstep { actor: PLAYER, pos: me, surface: Surface::Grass });
+        g.events.push(Event::Footstep { actor: 2, pos: me + Vec3::new(200.0, 0.0, 0.0), surface: Surface::Grass });
+        g.events.push(Event::Shot { actor: 3, pos: me + Vec3::new(0.0, 1.0, -150.0), weapon: WeaponKind::Sniper, end: me, hit_actor: false });
+        m.process(&g, &cam, &mut out);
+        let kinds: Vec<_> = m.markers().iter().map(|k| (k.kind, k.actor)).collect();
+        assert_eq!(kinds, vec![(SoundKind::Steps, 1), (SoundKind::Shot, 3)], "own steps and inaudible ones leave no marker");
+        let steps = m.markers()[0];
+        assert!(steps.level > 0.8, "6 m away is close: {}", steps.level);
+        assert!(m.markers()[1].level < 0.7, "150 m away is not: {}", m.markers()[1].level);
+
+        // the same walker keeps one marker, which follows them
+        g.events.clear();
+        g.time += 0.4;
+        g.events.push(Event::Footstep { actor: 1, pos: me + Vec3::new(20.0, 0.0, 0.0), surface: Surface::Grass });
+        m.process(&g, &cam, &mut out);
+        let walker: Vec<_> = m.markers().iter().filter(|k| k.actor == 1).collect();
+        assert_eq!(walker.len(), 1);
+        assert_eq!(walker[0].pos.x, me.x + 20.0);
+        assert!(walker[0].level < steps.level);
+
+        // steps fade before shots, and both are gone after a few quiet seconds
+        g.events.clear();
+        g.time += 1.5;
+        m.process(&g, &cam, &mut out);
+        assert_eq!(m.markers().iter().map(|k| k.kind).collect::<Vec<_>>(), vec![SoundKind::Shot]);
+        g.time += 1.0;
+        m.process(&g, &cam, &mut out);
+        assert!(m.markers().is_empty());
+
+        // a marker goes with the one who made it
+        g.events.push(Event::Footstep { actor: 2, pos: me + Vec3::new(0.0, 0.0, 5.0), surface: Surface::Wood });
+        m.process(&g, &cam, &mut out);
+        assert_eq!(m.markers().len(), 1);
+        g.events.clear();
+        g.actors[2].alive = false;
+        m.process(&g, &cam, &mut out);
+        assert!(m.markers().is_empty());
     }
 
     #[test]

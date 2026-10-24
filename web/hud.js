@@ -1,5 +1,5 @@
 // The in-game HUD: drawn with Canvas2D every frame from the JSON snapshot the game produces.
-import { RARITY, RARITY_DARK, AMMO_NAMES, MAT_COLORS, MAT_NAMES, PIECE_NAMES, drawItem, drawWeapon, drawAmmo, drawMaterial, drawPiece, drawSkull, drawPerson, drawStorm } from './icons.js';
+import { RARITY, RARITY_DARK, AMMO_NAMES, MAT_COLORS, MAT_NAMES, PIECE_NAMES, drawItem, drawWeapon, drawAmmo, drawMaterial, drawPiece, drawSkull, drawPerson, drawStorm, drawSteps, drawShot } from './icons.js';
 
 const FONT = '"Burbank Big Condensed","Bebas Neue","Oswald","Impact","Haettenschweiler","Arial Narrow Bold","Arial Narrow",system-ui,sans-serif';
 const WORLD = 1920; // matches fn_core::world::WORLD_SIZE
@@ -52,6 +52,7 @@ export class Hud {
     this.time = 0;
     this.fps = 60;
     this.showPerf = false;
+    this.showSounds = true; // markers around the crosshair for the footsteps and shots the player hears
     this.perf = '';
     this.spectateHint = 0;
     this.banners = []; // "ELIMINATED name" popups for the player's own kills
@@ -130,7 +131,10 @@ export class Hud {
     } else {
       this.spectating(s, W, H, S);
     }
-    if (!dead || s.spec) this.nameTags(s, W, H, S);
+    if (!dead || s.spec) {
+      this.soundIndicators(s, W, H, S); // after the crosshair, so they stay visible through a sniper scope
+      this.nameTags(s, W, H, S);
+    }
     this.damageNumbers(s, W, H, S);
     if (this.showPerf) this.text(this.perf, 12, H - 14, 15 * S, '#9dffb0', 'left', { italic: false, weight: 600 });
     if (s.net) this.netInfo(s.net, W, H, S);
@@ -714,6 +718,48 @@ export class Hud {
       this.ctx.save(); this.ctx.globalAlpha = a;
       this.text(String(d.a), x, y, size, col, 'center');
       this.ctx.restore();
+    }
+  }
+
+  // ---- sound directions: a ring around the crosshair showing where the footsteps (white) and shots (red) come from ----------
+  soundIndicators(s, W, H, S) {
+    if (!this.showSounds || !s.snd || !s.snd.length) return;
+    const ctx = this.ctx;
+    // wider than tall, so a sound on the left clears the character the shoulder camera puts there
+    const cx = W / 2, cy = H / 2, RX = Math.min(W * 0.3, H * 0.5), RY = H * 0.28;
+    // the ellipse's own angle for the point in direction `th`, and how far from the centre that point is
+    const param = (rx, ry, th) => Math.atan2(rx * Math.sin(th), ry * Math.cos(th));
+    const reach = (rx, ry, th) => 1 / Math.hypot(Math.cos(th) / rx, Math.sin(th) / ry);
+    for (const m of s.snd) {
+      const shot = m.k === 1;
+      const col = shot ? '#ff5a36' : '#ffffff';
+      // solid while fresh, then fading out; nearer sounds are stronger and bigger
+      const alpha = Math.min(1, m.t * 2.5) * (0.45 + 0.55 * m.l);
+      if (alpha < 0.02) continue;
+      const fresh = Math.max(0, (m.t - 0.85) / 0.15); // each new step or shot makes the marker swell for a moment
+      const ang = m.a - Math.PI / 2; // canvas angles start at 3 o'clock, the game's bearings at 12
+      const span = 0.15 + 0.12 * m.l;
+      const grow = fresh * 8 * S;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = 'round';
+      const arc = (out, sp, lw, stroke) => {
+        const rx = RX + grow + out, ry = RY + grow + out;
+        ctx.strokeStyle = stroke; ctx.lineWidth = lw;
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, param(rx, ry, ang - sp), param(rx, ry, ang + sp)); ctx.stroke();
+      };
+      arc(0, span, (12 + 4 * m.l) * S, 'rgba(8,12,40,.7)');
+      arc(0, span, (6 + 4 * m.l) * S, col);
+      // and a thinner wave further out
+      ctx.globalAlpha = alpha * 0.65;
+      arc(14 * S, span * 0.7, 6 * S, 'rgba(8,12,40,.55)');
+      arc(14 * S, span * 0.7, 3 * S, col);
+      ctx.globalAlpha = alpha;
+      const ir = reach(RX + grow, RY + grow, ang) - 40 * S, ix = cx + Math.cos(ang) * ir, iy = cy + Math.sin(ang) * ir;
+      const size = (36 + 10 * m.l) * S;
+      ctx.fillStyle = 'rgba(8,12,44,.65)'; ctx.beginPath(); ctx.arc(ix, iy, size * 0.58, 0, Math.PI * 2); ctx.fill();
+      (shot ? drawShot : drawSteps)(ctx, ix, iy, size, col);
+      ctx.restore();
     }
   }
 

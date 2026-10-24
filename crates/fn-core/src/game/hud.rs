@@ -2,6 +2,7 @@
 //! platform layer (which draws it with Canvas2D / DOM).
 
 use super::actor::*;
+use super::audio_map::{SoundKind, SoundMarker};
 use super::items::*;
 use super::loot::Target;
 use super::*;
@@ -55,6 +56,41 @@ fn kind_index(k: WeaponKind) -> usize {
 
 fn cons_index(k: ConsumableKind) -> usize {
     ConsumableKind::ALL.iter().position(|x| *x == k).unwrap_or(0)
+}
+
+/// Which way `to` lies from `from` on the ground, relative to where the camera looks: 0 ahead, + to the right, ±π behind.
+fn bearing(cam: &Camera, from: Vec3, to: Vec3) -> Option<f32> {
+    let d = Vec2::new(to.x - from.x, to.z - from.z);
+    if d.length() <= 0.5 {
+        return None;
+    }
+    let f = Vec2::new(cam.fwd.x, cam.fwd.z).normalize_or_zero();
+    let r = Vec2::new(cam.right.x, cam.right.z).normalize_or_zero();
+    let dn = d.normalize();
+    Some(dn.dot(r).atan2(dn.dot(f)))
+}
+
+/// The footsteps and shots the player heard lately, as the `"snd"` field of the HUD snapshot (with its leading comma):
+/// kind (0 steps, 1 shot), bearing, how close it was (0..1) and how much of its time on screen is left (1 fresh, 0 gone).
+pub fn sounds_json(g: &Game, cam: &Camera, markers: &[SoundMarker]) -> String {
+    let me = &g.actors[g.camera_actor()];
+    let mut s = String::from(",\"snd\":[");
+    let mut first = true;
+    for m in markers {
+        let Some(ang) = bearing(cam, me.pos, m.pos) else { continue };
+        let left = (1.0 - (g.time - m.at) / m.kind.life()).clamp(0.0, 1.0);
+        let kind = match m.kind {
+            SoundKind::Steps => 0,
+            SoundKind::Shot => 1,
+        };
+        if !first {
+            s.push(',');
+        }
+        first = false;
+        let _ = write!(s, "{{\"k\":{kind},\"a\":{},\"l\":{},\"t\":{}}}", n(ang), n(m.level), n(left));
+    }
+    s.push(']');
+    s
 }
 
 /// Build the HUD snapshot. `show_tags` adds name plates over nearby players (debug / spectating aid).
@@ -183,16 +219,8 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
     let _ = write!(s, ",\"hit\":{{\"t\":{},\"k\":{}}},\"hurt\":{}", n(g.hit_marker), g.hit_marker_kind, n(g.hurt_flash));
     s.push_str(",\"ind\":[");
     if g.hurt_flash > 0.04 {
-        if let Some(from) = g.last_hurt_dir {
-            let d = Vec2::new(from.x - me.pos.x, from.z - me.pos.z);
-            if d.length() > 0.5 {
-                // angle of the attacker relative to where the camera looks (0 = ahead, + = to the right)
-                let f = Vec2::new(cam.fwd.x, cam.fwd.z).normalize_or_zero();
-                let r = Vec2::new(cam.right.x, cam.right.z).normalize_or_zero();
-                let dn = d.normalize();
-                let ang = dn.dot(r).atan2(dn.dot(f));
-                let _ = write!(s, "{{\"a\":{},\"t\":{}}}", n(ang), n(g.hurt_flash.min(1.0)));
-            }
+        if let Some(ang) = g.last_hurt_dir.and_then(|from| bearing(cam, me.pos, from)) {
+            let _ = write!(s, "{{\"a\":{},\"t\":{}}}", n(ang), n(g.hurt_flash.min(1.0)));
         }
     }
     s.push(']');
@@ -389,6 +417,26 @@ mod tests {
             let j = hud_json(&g, &cam(&g), false);
             assert!(j.contains(word), "{kind:?}: {}", &j[j.find("\"prompt\"").unwrap()..][..80]);
         }
+    }
+
+    #[test]
+    fn heard_sounds_point_the_way_they_came_from() {
+        let mut g = game(2, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let p = g.actors[PLAYER].pos;
+        let c = Camera::look(p + Vec3::Y * 1.6, Vec3::NEG_Z, 0.0, 1.0, 1.6, 0.1);
+        let marker = |kind, actor, off: Vec3, at| SoundMarker { kind, actor, pos: p + off, level: 0.5, at };
+        let markers = [
+            marker(SoundKind::Steps, 1, Vec3::new(10.0, 0.0, 0.0), g.time),
+            marker(SoundKind::Shot, 2, Vec3::new(0.0, 3.0, -80.0), g.time - 1.0),
+            marker(SoundKind::Steps, 2, Vec3::new(-0.1, 0.0, 6.0), g.time - 0.6),
+        ];
+        let json = sounds_json(&g, &c, &markers);
+        assert_eq!(json, ",\"snd\":[{\"k\":0,\"a\":1.57,\"l\":0.5,\"t\":1},{\"k\":1,\"a\":0,\"l\":0.5,\"t\":0.5},{\"k\":0,\"a\":-3.12,\"l\":0.5,\"t\":0.5}]");
+        // turning to face the walker brings them ahead
+        let c = Camera::look(p + Vec3::Y * 1.6, Vec3::X, 0.0, 1.0, 1.6, 0.1);
+        assert!(sounds_json(&g, &c, &markers[..1]).contains("\"a\":0,"), "{}", sounds_json(&g, &c, &markers[..1]));
+        assert_eq!(sounds_json(&g, &c, &[]), ",\"snd\":[]");
     }
 
     #[test]
