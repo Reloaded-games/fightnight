@@ -236,7 +236,9 @@ impl World {
             for _ in 0..n {
                 let p = poi.center + rng.in_disc(poi.radius * 0.85);
                 let h = hm.height_at(p.x, p.y);
-                if h < 2.0 || splat.sample(p)[splat::CH_ASPHALT] > 0.3 {
+                // (not on the bed of a lake either)
+                let wet = layout.lakes.iter().any(|l| l.center.distance(p) < l.radius * 1.3 && h < l.level + 0.2);
+                if h < 2.0 || wet || splat.sample(p)[splat::CH_ASPHALT] > 0.3 {
                     continue;
                 }
                 let mut blocked = false;
@@ -334,9 +336,8 @@ impl World {
             for i in 0..w {
                 let c = nav.center(i, j);
                 let ht = self.hm.height_at(c.x, c.y);
-                // rivers are swum across; the open sea is not a way anywhere
-                let river = !self.layout.rivers.is_empty() && self.layout.river_distance(c) < 2.0;
-                let blocked = (ht < -0.3 && !river) || self.hm.slope_at(c.x, c.y) > 0.85 || self.layout.lakes.iter().any(|l| l.center.distance(c) < l.radius * 1.02 && ht < l.level - 0.35);
+                // (a river is crossed at its fords, where the roads go over it)
+                let blocked = ht < -0.3 || self.hm.slope_at(c.x, c.y) > 0.85 || self.layout.lakes.iter().any(|l| l.center.distance(c) < l.radius * 1.02 && ht < l.level - 0.35);
                 if blocked {
                     nav.set_blocked(i, j, true);
                 }

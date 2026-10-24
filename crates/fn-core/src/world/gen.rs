@@ -638,6 +638,10 @@ fn layout_from_spec(base: &BaseTerrain, spec: &'static MapSpec) -> Layout {
             let center = grid_to_world(ps.x, ps.y);
             let radius = ps.r;
             let mut ground = ground_height(base, center, radius);
+            if ps.kind == PoiKind::Swamp {
+                // a low, dry patch in the bog (the swamp is lowered round it), not a mesa standing out of it
+                ground = 2.6;
+            }
             if ps.kind == PoiKind::Lakeside {
                 // a place on a lake sits at its shore
                 if let Some(l) = lakes.iter().filter(|l| l.center.distance(center) < l.radius + radius).min_by(|a, b| a.center.distance(center).total_cmp(&b.center.distance(center))) {
@@ -739,7 +743,9 @@ pub fn build_heightmap(base: &BaseTerrain, layout: &Layout) -> Heightmap {
                 }
             }
             // rivers run at sea level: their bed is below it, shallow (a ford) where a road crosses
-            for river in &layout.rivers {
+            // (not inside a lake's water: a channel at sea level there would leave the lake's water hanging over it)
+            let in_lake = layout.lakes.iter().any(|l| l.center.distance(p) < l.radius * 1.3 + 2.0);
+            for river in layout.rivers.iter().filter(|_| !in_lake) {
                 let (dd, _) = polyline_distance(&river.pts, p);
                 let half = river.width * 0.5;
                 let bank = 22.0;

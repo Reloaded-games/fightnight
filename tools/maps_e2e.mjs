@@ -13,6 +13,16 @@ async function waitTime(seconds) {
   const t = (await state()).t + seconds;
   await page.waitForFunction(t => JSON.parse(window.__game.fn.debug('state')).t >= t, t, { timeout: 120000 });
 }
+// a picture for a person to look at (SHOTS=dir); headless Chromium cannot read back the WebGPU canvas itself, so
+// the frame is frozen into an image first, and a picture that cannot be taken never fails the checks
+async function shot(name) {
+  if (!shots) return;
+  try {
+    await page.evaluate(() => window.__game.freezeFrame());
+    await page.screenshot({ path: `${shots}/${name}.png`, timeout: 120000 });
+  } catch (e) { console.log(`(no picture ${name}: ${e.message})`); }
+  finally { await page.evaluate(() => window.__game.unfreeze()); }
+}
 async function start(map) {
   await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent(`skipbus=1;bots=3;god=1;map=${map}`));
   await page.waitForFunction(() => window.__game?.state === 'playing', null, { timeout: 240000 });
@@ -57,10 +67,10 @@ try {
     // stand in the first place on the list and look at it, then open the full map
     const first = list[0];
     await dbg(`tp ${first.x + 30} ${first.z + 30}`); await waitTime(0.5);
-    if (shots) await page.screenshot({ path: `${shots}/${map}_ground.png` });
+    await shot(`${map}_ground`);
     await page.keyboard.press('KeyM'); await waitTime(0.3);
     check(`${map}: M opens the full map`, await page.evaluate(() => document.getElementById('map').classList.contains('active')));
-    if (shots) await page.screenshot({ path: `${shots}/${map}_map.png` });
+    await shot(`${map}_map`);
     await page.keyboard.press('KeyM');
   }
   const errors = logs.filter(s => /error|validation|panic|uncaught/i.test(s));

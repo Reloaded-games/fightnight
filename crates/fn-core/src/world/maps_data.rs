@@ -40,9 +40,9 @@ pub static CHAPTER1: MapSpec = MapSpec {
     ],
     lakes: &[LakeSpec { name: "Loot Lake", x: 4.05, y: 4.0, r: 0.62, island: 0.2 }],
     rivers: &[
-        RiverSpec { name: "the river from Loot Lake to the south coast", pts: &[(4.35, 4.75), (4.3, 5.3), (4.5, 6.0), (4.8, 6.8), (5.2, 7.6), (5.35, 8.3), (5.0, 9.0), (4.95, 9.95)], width: 16.0 },
+        RiverSpec { name: "the river from Loot Lake to the south coast", pts: &[(4.4, 4.95), (4.3, 5.3), (4.5, 6.0), (4.8, 6.8), (5.2, 7.6), (5.35, 8.3), (5.0, 9.0), (4.95, 9.95)], width: 16.0 },
         RiverSpec { name: "the river north past Anarchy Acres", pts: &[(6.3, 2.95), (6.25, 2.6), (6.2, 1.9), (6.3, 1.2), (6.35, 0.35)], width: 14.0 },
-        RiverSpec { name: "the river from Loot Lake north to the waterfall on the north coast", pts: &[(4.25, 3.25), (4.35, 2.9), (4.4, 2.4), (4.4, 1.7), (4.4, 0.85), (4.4, 0.45)], width: 12.0 },
+        RiverSpec { name: "the river from Loot Lake north to the waterfall on the north coast", pts: &[(4.3, 3.0), (4.35, 2.75), (4.4, 2.4), (4.4, 1.7), (4.4, 0.85), (4.4, 0.45)], width: 12.0 },
         RiverSpec { name: "the brook at Lonely Lodge", pts: &[(9.35, 3.85), (9.65, 3.82), (9.98, 3.8)], width: 8.0 },
     ],
     swamps: &[Area { x: 8.6, y: 8.05, r: 0.95 }],
@@ -71,7 +71,7 @@ pub static CHAPTER1: MapSpec = MapSpec {
         PoiSpec { name: "Dusty Divot", kind: PoiKind::Crater, x: 6.0, y: 5.0, r: 45.0, axis_x: true },
         PoiSpec { name: "Retail Row", kind: PoiKind::Retail, x: 7.5, y: 5.5, r: 60.0, axis_x: true },
         PoiSpec { name: "Salty Springs", kind: PoiKind::Town, x: 5.5, y: 6.5, r: 50.0, axis_x: true },
-        PoiSpec { name: "Shifty Shafts", kind: PoiKind::Industrial, x: 3.5, y: 6.5, r: 45.0, axis_x: false },
+        PoiSpec { name: "Shifty Shafts", kind: PoiKind::Hamlet, x: 3.5, y: 6.5, r: 45.0, axis_x: false },
         PoiSpec { name: "Greasy Grove", kind: PoiKind::Town, x: 2.05, y: 6.45, r: 60.0, axis_x: true },
         PoiSpec { name: "Flush Factory", kind: PoiKind::Industrial, x: 3.5, y: 8.5, r: 50.0, axis_x: true },
         PoiSpec { name: "Fatal Fields", kind: PoiKind::Farm, x: 6.0, y: 8.0, r: 75.0, axis_x: true },
@@ -153,7 +153,7 @@ pub static CHAPTER2: MapSpec = MapSpec {
     rivers: &[
         RiverSpec {
             name: "the river from the Hydro 16 dam through Slurpy Swamp to the sea",
-            pts: &[(4.2, 6.45), (3.7, 6.55), (3.2, 6.55), (2.7, 6.7), (2.2, 6.85), (1.6, 6.95), (0.75, 7.1)],
+            pts: &[(4.15, 6.45), (3.7, 6.55), (3.2, 6.55), (2.7, 6.7), (2.2, 6.85), (1.6, 6.95), (0.75, 7.1)],
             width: 16.0,
         },
         RiverSpec {
@@ -192,7 +192,7 @@ pub static CHAPTER2: MapSpec = MapSpec {
         PoiSpec { name: "Holly Hedges", kind: PoiKind::Suburb, x: 1.9, y: 4.9, r: 60.0, axis_x: true },
         PoiSpec { name: "Weeping Woods", kind: PoiKind::Lodge, x: 3.3, y: 5.1, r: 50.0, axis_x: true },
         PoiSpec { name: "Slurpy Swamp", kind: PoiKind::Swamp, x: 2.35, y: 6.15, r: 55.0, axis_x: true },
-        PoiSpec { name: "Lazy Lake", kind: PoiKind::Lakeside, x: 5.65, y: 5.55, r: 60.0, axis_x: true },
+        PoiSpec { name: "Lazy Lake", kind: PoiKind::Town, x: 5.65, y: 5.55, r: 60.0, axis_x: true },
         PoiSpec { name: "Retail Row", kind: PoiKind::Retail, x: 7.1, y: 5.6, r: 60.0, axis_x: true },
         PoiSpec { name: "Misty Meadows", kind: PoiKind::Town, x: 4.9, y: 7.75, r: 55.0, axis_x: true },
     ],

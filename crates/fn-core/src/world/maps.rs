@@ -346,6 +346,124 @@ mod tests {
     }
 
     #[test]
+    fn rivers_are_crossed_at_fords_and_lakes_hold_their_water() {
+        for map in RECREATED {
+            let w = World::generate_map(1234, map);
+            // a walk from one bank of a river to the other never goes through deep water
+            for r in &w.layout.rivers {
+                let total: f32 = r.pts.windows(2).map(|s| s[0].distance(s[1])).sum();
+                let (mut run, mut probe) = (0.0, None);
+                for s in r.pts.windows(2) {
+                    let len = s[0].distance(s[1]);
+                    if run + len >= total * 0.5 {
+                        let t = (total * 0.5 - run) / len;
+                        let dir = (s[1] - s[0]).normalize();
+                        probe = Some((s[0].lerp(s[1], t), Vec2::new(-dir.y, dir.x)));
+                        break;
+                    }
+                    run += len;
+                }
+                let (mid, across) = probe.unwrap();
+                let (a, b) = (mid - across * (r.width * 0.5 + 34.0), mid + across * (r.width * 0.5 + 34.0));
+                if w.hm.height_at(a.x, a.y) < 1.0 || w.hm.height_at(b.x, b.y) < 1.0 || w.nav.is_blocked_at(a) || w.nav.is_blocked_at(b) {
+                    continue;
+                }
+                let path = w.nav.find_path(a, b, 400_000).unwrap_or_else(|| panic!("{map:?}: no way across the river at {mid:?}"));
+                for q in path.windows(2) {
+                    for k in 0..8 {
+                        let p = q[0].lerp(q[1], k as f32 / 8.0);
+                        assert!(w.hm.height_at(p.x, p.y) > -0.6, "{map:?}: the way across the river at {mid:?} swims at {p:?}");
+                    }
+                }
+            }
+            // round a lake, inside the circle its water fills, the ground never drops below the water (a channel there
+            // would leave the water hanging over it)
+            for l in &w.layout.lakes {
+                for k in 0..96 {
+                    let a = k as f32 / 96.0 * std::f32::consts::TAU;
+                    for t in [1.08, 1.15, 1.22, 1.3] {
+                        let p = l.center + Vec2::new(a.cos(), a.sin()) * l.radius * t;
+                        assert!(w.hm.height_at(p.x, p.y) > l.level - 0.5, "{map:?}: the ground at {p:?} is below the lake at {:?}", l.center);
+                    }
+                }
+            }
+            // no loot lies on the bed of a lake
+            for s in &w.loot_spots {
+                let p = Vec2::new(s.pos.x, s.pos.z);
+                assert!(!w.layout.lakes.iter().any(|l| l.center.distance(p) < l.radius && s.pos.y < l.level), "{map:?}: loot under the lake at {p:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn places_keep_their_streets_and_doors_open() {
+        use super::super::collision::Tag;
+        use super::super::gen::PoiKind;
+        for map in RECREATED {
+            for seed in [1234, 7, 99] {
+                let w = World::generate_map(seed, map);
+                for (pi, poi) in w.layout.pois.iter().enumerate() {
+                    // the streets through a factory yard and a shopping row stay clear of buildings
+                    let along = if poi.axis_x { Vec2::X } else { Vec2::Y };
+                    let across = Vec2::new(-along.y, along.x);
+                    let streets: Vec<Vec2> = match poi.kind {
+                        PoiKind::Industrial => vec![along],
+                        PoiKind::Retail => vec![along, across],
+                        _ => vec![],
+                    };
+                    for dir in streets {
+                        let side = Vec2::new(dir.y.abs(), dir.x.abs());
+                        let half = dir.abs() * poi.radius * 0.8 + side * 2.4;
+                        let (lo, hi) = (poi.center - half, poi.center + half);
+                        for b in w.buildings.iter().filter(|b| b.kind != "house") {
+                            let hit = b.aabb.min.x < hi.x && b.aabb.max.x > lo.x && b.aabb.min.z < hi.y && b.aabb.max.z > lo.y;
+                            assert!(!hit, "{map:?} seed {seed}: a {} stands on a street of {}", b.kind, poi.name);
+                        }
+                    }
+                    // nothing is put down in front of a door
+                    for b in w.buildings.iter().filter(|b| b.poi == pi && b.door_out.distance(b.door_in) > 0.5) {
+                        let d = b.door_out;
+                        let probe = Aabb::new(Vec3::new(d.x - 0.6, d.y + 0.4, d.z - 0.6), Vec3::new(d.x + 0.6, d.y + 1.6, d.z + 0.6));
+                        let mut blocked = false;
+                        w.statics.query(&probe, |_, c| {
+                            // (something bulky: a lamp post beside a door is no wall in front of it)
+                            let bb = c.shape.aabb();
+                            let size = bb.max - bb.min;
+                            blocked |= c.tag == Tag::Static && size.x.min(size.z) > 1.0 && size.y > 2.0 && bb.intersects(&probe)
+                        });
+                        assert!(!blocked, "{map:?} seed {seed}: something stands in front of the door of {} {} in {}", b.kind, b.id, poi.name);
+                    }
+                }
+                // a village in a swamp stands low, among its pools
+                for poi in w.layout.pois.iter().filter(|p| p.kind == PoiKind::Swamp) {
+                    assert!((2.0..4.0).contains(&poi.ground), "{map:?}: {} stands at {} m", poi.name, poi.ground);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bots_do_not_end_up_stranded_on_the_island_in_loot_lake() {
+        use crate::game::{Game, GameConfig, PlayerInput};
+        let w0 = World::generate_map(1234, MapKind::Chapter1);
+        let lake = w0.layout.lakes.iter().find(|l| l.island > 0.0).unwrap().clone();
+        drop(w0);
+        let mut stranded = 0;
+        for seed in 1..=4u64 {
+            let w = World::generate_map(1234, MapKind::Chapter1);
+            let mut g = Game::new(w, GameConfig { bots: 39, seed, god_mode: true, map: MapKind::Chapter1, ..Default::default() });
+            let inp = PlayerInput::default();
+            let mut t = 0.0;
+            while t < 150.0 {
+                g.update(1.0 / 30.0, &inp);
+                t += 1.0 / 30.0;
+            }
+            stranded += g.actors.iter().skip(1).filter(|a| a.alive && Vec2::new(a.pos.x, a.pos.z).distance(lake.center) < lake.radius * 0.35).count();
+        }
+        assert_eq!(stranded, 0, "bots still on the island in Loot Lake after 150 s");
+    }
+
+    #[test]
     fn a_recreated_map_is_the_same_on_every_machine() {
         for map in RECREATED {
             let (a, b) = (World::generate_map(77, map), World::generate_map(77, map));

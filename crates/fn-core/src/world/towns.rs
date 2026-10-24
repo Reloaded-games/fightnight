@@ -219,6 +219,14 @@ pub fn build_towns(layout: &Layout, hm: &Heightmap, splat: &mut Splat, seed: u32
             PoiKind::Retail => plan_retail(&mut pl, pi, poi),
         }
     }
+    // an island in a lake that no lakeside place is built round (Lazy Lake's village stands up the slope beside it)
+    for lake in layout.lakes.iter().filter(|l| l.island > 0.0) {
+        let owned = layout.pois.iter().any(|p| p.kind == PoiKind::Lakeside && p.center.distance(lake.center) < lake.radius * 0.5);
+        let nearest = layout.pois.iter().enumerate().min_by(|a, b| a.1.center.distance(lake.center).total_cmp(&b.1.center.distance(lake.center)));
+        if let (false, Some((pi, _))) = (owned, nearest) {
+            island_house(&mut pl, lake, pi);
+        }
+    }
     pl.out
 }
 
@@ -389,22 +397,26 @@ fn plan_lodge(pl: &mut Planner, pi: usize, poi: &Poi) {
     }
 }
 
+/// The house on the island in the middle of a lake (Loot Lake, Lazy Lake).
+fn island_house(pl: &mut Planner, lake: &Lake, pi: usize) {
+    let st = random_style(&mut pl.rng, 2);
+    let g = gen_house(&mut pl.rng, 10.5, 10.0, &Style { porch: true, chimney: true, ..st });
+    pl.place_with(&g, lake.center, 0, pi, "house", 1.0, false, Site { on_island: true, ..Site::default() });
+}
+
 fn plan_lakeside(pl: &mut Planner, pi: usize, poi: &Poi) {
     // houses on a ring around the nearest lake, front doors facing the water
     let Some(lake) = pl.layout.lakes.iter().min_by(|a, b| a.center.distance(poi.center).partial_cmp(&b.center.distance(poi.center)).unwrap()) else { return };
     let lake = lake.clone();
-    let beside = poi.center.distance(lake.center) > lake.radius * 0.5;
     let ring = lake.radius * 1.45 + 17.0;
     if lake.island > 0.0 {
         // the house on the island in the middle (Loot Lake)
-        let st = random_style(&mut pl.rng, 2);
-        let g = gen_house(&mut pl.rng, 10.5, 10.0, &Style { porch: true, chimney: true, ..st });
-        pl.place_with(&g, lake.center, 0, pi, "house", 1.0, false, Site { on_island: true, ..Site::default() });
+        island_house(pl, &lake, pi);
     }
-    // a lake with an island has a few houses on its shore, not a whole village round it; a village set beside its lake
-    // (Lazy Lake) is a ring of houses on its own stretch of shore
-    let n = if beside { 7 } else if lake.island > 0.0 { 3 } else { 9 };
-    let (hub, ring) = if beside { (poi.center, poi.radius * 0.62) } else { (lake.center, ring) };
+    // a lake with an island has a few houses right on its shore, not a whole village round it
+    let shore = lake.island > 0.0;
+    let n = if shore { 3 } else { 9 };
+    let (hub, ring) = if shore { (lake.center, lake.radius * 1.05 + 10.0) } else { (lake.center, ring) };
     for k in 0..n {
         let a = k as f32 / n as f32 * std::f32::consts::TAU + 0.2;
         let p = hub + Vec2::new(a.cos(), a.sin()) * ring;
@@ -413,7 +425,7 @@ fn plan_lakeside(pl: &mut Planner, pi: usize, poi: &Poi) {
         let st = random_style(&mut pl.rng, 1);
         let (w, d) = (pl.rng.range(7.5, 10.0), pl.rng.range(6.5, 8.5));
         let g = gen_house(&mut pl.rng, w, d, &Style { porch: true, ..st });
-        pl.place(&g, p, rot, pi, "house", 3.0, true);
+        pl.place_with(&g, p, rot, pi, "house", 3.0, true, Site { on_island: shore, ..Site::default() });
     }
     // dock reaching into the lake
     let dock = gen_dock(11.0);
@@ -594,11 +606,14 @@ fn plan_industrial(pl: &mut Planner, pi: usize, poi: &Poi) {
     let along = if poi.axis_x { Vec2::X } else { Vec2::Y };
     pl.street(c - along * r * 0.93, c + along * r * 0.93, STREET_HALF);
     pl.splat.paint_disc(c, r * 0.6, CH_ASPHALT, EDGE_RAMP);
-    // the halls on a ring round the yard, big doors to the middle
-    let halls = if r > 60.0 { 4 } else { 3 };
-    for k in 0..halls {
-        let a = k as f32 / halls as f32 * std::f32::consts::TAU + 0.35;
-        let d = dir_of(a);
+    // nothing is built on the street through the yard
+    let band = along * r * 0.93 + Vec2::new(along.y, along.x) * (STREET_HALF + 1.0);
+    pl.fps.push((c - band, c + band));
+    // the halls on a ring round the yard, big doors to the middle, clear of the street
+    let a0 = if poi.axis_x { 0.0 } else { std::f32::consts::FRAC_PI_2 };
+    let angles: &[f32] = if r > 60.0 { &[45.0, 135.0, 225.0, 315.0] } else { &[60.0, 120.0, 270.0] };
+    for &deg in angles {
+        let d = dir_of(a0 + deg.to_radians());
         let (w, dd) = (pl.rng.range(17.0, 23.0), pl.rng.range(12.5, 16.0));
         let rot = facing_rot(-d);
         let g = gen_warehouse(&mut pl.rng, w, dd);
@@ -637,7 +652,13 @@ fn place_containers(pl: &mut Planner, c: Vec2, r: f32, n: usize) {
         let rot = if pl.rng.chance(0.5) { 0 } else { 1 };
         let half = if rot == 0 { Vec2::new(3.3, 1.5) } else { Vec2::new(1.5, 3.3) };
         let (lo, hi) = pl.height_range(p - half, p + half);
-        if lo < 2.0 || hi - lo > 0.8 || pl.fps.iter().any(|&(a, b)| p.x + half.x > a.x && p.x - half.x < b.x && p.y + half.y > a.y && p.y - half.y < b.y) {
+        let overlaps = |a: Vec2, b: Vec2| p.x + half.x > a.x && p.x - half.x < b.x && p.y + half.y > a.y && p.y - half.y < b.y;
+        // (and never in front of a door: the way from outside to inside stays open)
+        let at_door = pl.out.buildings.iter().any(|b| {
+            let (i, o) = (Vec2::new(b.placed.door_in.x, b.placed.door_in.z), Vec2::new(b.placed.door_out.x, b.placed.door_out.z));
+            overlaps(i.min(o) - Vec2::splat(3.5), i.max(o) + Vec2::splat(3.5))
+        });
+        if lo < 2.0 || hi - lo > 0.8 || at_door || pl.fps.iter().any(|&(a, b)| overlaps(a, b)) {
             continue;
         }
         let g = gen_container(*pl.rng.pick(&paints));
@@ -783,6 +804,11 @@ fn plan_retail(pl: &mut Planner, pi: usize, poi: &Poi) {
         let (w, d) = (pl.rng.range(9.5, 12.5), pl.rng.range(7.6, 9.0));
         if u + w > span + 2.0 {
             break;
+        }
+        if u + w > -(STREET_HALF + 1.0) && u < STREET_HALF + 1.0 {
+            // a gap in the row where the cross street goes through
+            u = STREET_HALF + 1.0;
+            continue;
         }
         let g = gen_shop(&mut pl.rng, w, d);
         let p = c + along * (u + w * 0.5) + across * (STREET_HALF + park + 1.2 + d * 0.5);

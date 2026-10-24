@@ -490,7 +490,12 @@ impl Brain {
             };
             let crowd = g.actors.iter().filter(|o| o.brain.as_ref().and_then(|b| b.land).is_some_and(|l| l.distance(poi.center) < poi.radius + 60.0)).count() as f32;
             let w = kind_w / (1.0 + d / 140.0) / (1.0 + 0.55 * crowd);
-            let p = poi.center + self.rng.in_disc(poi.radius * 0.6);
+            let mut p = poi.center + self.rng.in_disc(poi.radius * 0.6);
+            // a place round a lake with an island in it (Loot Lake): come down on the shore, not on the island or in the water
+            if let Some(l) = g.world.layout.lakes.iter().find(|l| l.island > 0.0 && l.center.distance(p) < l.radius * 1.1) {
+                let dir = (p - l.center).try_normalize().unwrap_or(Vec2::X);
+                p = l.center + dir * (l.radius * 1.2);
+            }
             cands.push((p, d, w));
         }
         // sometimes drop somewhere quiet instead
@@ -581,7 +586,9 @@ impl Brain {
                 let mut r = 6.0;
                 while r < 160.0 {
                     let q = p + dir * r;
-                    if env.water_depth(q.x, q.y) < 0.6 && g.world.hm.height_at(q.x, q.y) > 0.3 {
+                    // the island in a lake is no way out of it (the only way off it is back into the water)
+                    let islet = g.world.layout.lakes.iter().any(|l| l.island > 0.0 && l.center.distance(q) < l.radius * (l.island + 0.2));
+                    if !islet && env.water_depth(q.x, q.y) < 0.6 && g.world.hm.height_at(q.x, q.y) > 0.3 {
                         if best.is_none_or(|b| r < b.0) {
                             best = Some((r, q));
                         }
