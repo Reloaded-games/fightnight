@@ -1665,7 +1665,8 @@ fn tower_room(b: &mut B, rng: &mut Rng, y: f32, room: (f32, f32, f32, f32), door
         }
     }
     if rng.chance(0.6) {
-        let x = rng.range(x0 + 0.9, x1 - 1.2);
+        // (clear of the sofa, which stands up to 0.95 m out from the right-hand wall)
+        let x = rng.range(x0 + 0.9, x1 - 1.85);
         if !in_lane(x, z0 + 0.3, 0.8) {
             cabinet(b, Vec3::new(x, y, z0 + 0.3), PI, *rng.pick(&[0x8a5a34, 0xb98b56, 0xe9e4d8, 0x5a5f6a]));
         }
@@ -1738,11 +1739,21 @@ pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom
     let left = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: -hx + WALL_T / 2.0, out: -1.0 };
     let right = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: hx - WALL_T / 2.0, out: 1.0 };
     let door = Op { u0: door_u - DOOR_W / 2.0, u1: door_u + DOOR_W / 2.0, v0: 0.0, v1: DOOR_H };
+    // on the storeys whose flight climbs along the left wall, that wall has no windows where the treads stand higher than a sill (0.9 m):
+    // the solid steps right behind them would fill them up
+    let low_steps = (0.9 / (STORY_H / STAIR_STEPS as f32)).floor();
+    let stairwell = (z_back - left.a0, z_front - low_steps * TOWER_RUN - left.a0);
     for fl in 0..floors {
         let y0 = FLOOR_Y + fl as f32 * STORY_H;
         for (li, line) in [front, back, left, right].into_iter().enumerate() {
             let street = fl == 0 && li == 0;
-            let (mut ops, avoid) = if street { (vec![door], vec![(door.u0 - 0.4, door.u1 + 0.4)]) } else { (vec![], vec![]) };
+            let (mut ops, avoid) = if street {
+                (vec![door], vec![(door.u0 - 0.4, door.u1 + 0.4)])
+            } else if li == 2 && flights[fl as usize].to_back {
+                (vec![], vec![stairwell])
+            } else {
+                (vec![], vec![])
+            };
             // tall shop windows either side of the door, sash windows everywhere else
             let (half_w, v0, v1) = if street { (0.8, 0.6, 2.35) } else { (0.65, 0.9, 2.2) };
             let wins: Vec<Op> = B::window_slots(line.len(), &avoid, 3.3).into_iter().map(|c| Op { u0: c - half_w, u1: c + half_w, v0, v1 }).collect();
@@ -2040,12 +2051,17 @@ pub fn gen_warehouse(rng: &mut Rng, w: f32, d: f32) -> Geom {
         b.bx_faces(Vec3::new(x - 0.06, FLOOR_Y + 0.02, iz0 + 0.3), Vec3::new(x + 0.06, FLOOR_Y + 0.025, iz1 - 0.3), hazard, mat::FLAT, 0b000100, false);
     }
     let aisle = 2.6;
+    // a stack reaches this far from its spot (the bottom crate 0.8 m, the ones on it a little less but set askew); none stands in the way
+    // from the side door across to the aisle
+    let stack_r = 0.86;
+    let side_z = side.a0 + sd_u;
     let mut spots = vec![];
     let mut z = iz0 + 1.6;
     while z < iz1 - 3.0 {
         let mut x = ix0 + 1.4;
         while x < ix1 - 1.2 {
-            if (x - door_x).abs() > aisle + 0.9 {
+            let cross = (x - door_x) * side.out > 0.0 && (z - side_z).abs() < stack_r + DOOR_W / 2.0 + 0.1;
+            if (x - door_x).abs() > aisle + 0.9 && !cross {
                 spots.push((x, z));
             }
             x += 3.2;
@@ -2173,7 +2189,8 @@ pub fn gen_smokestack(h: f32) -> Geom {
     b.mb.ao(0.6, 1.0);
     b.bx(Vec3::new(-2.3, -1.0, -2.3), Vec3::new(2.3, base_h, 2.3), 0x8e4b3a, mat::BRICK, true);
     b.mb.ao(1.0, 1.0);
-    b.bx(Vec3::new(-2.45, base_h, -2.45), Vec3::new(2.45, base_h + 0.25, 2.45), 0x9b9a95, mat::STONE, false);
+    // (the capping is solid too, or anyone up there would stand sunk into it)
+    b.bx(Vec3::new(-2.45, base_h, -2.45), Vec3::new(2.45, base_h + 0.25, 2.45), 0x9b9a95, mat::STONE, true);
     b.bx(Vec3::new(-0.5, 0.0, 2.3), Vec3::new(0.5, 1.9, 2.34), 0x2b2e34, mat::METAL, false);
     // the shaft
     let y0 = base_h + 0.25;
@@ -2884,6 +2901,64 @@ mod tests {
         assert_eq!(tower_storeys(&gen_tower(&mut r, 10.0, 10.0, 9, &st)), 6);
     }
 
+    #[test]
+    fn the_furniture_of_a_tower_stands_clear_of_itself() {
+        // (more towers than the others look at: a sofa and a cabinet once met in a corner now and then)
+        let mut r = Rng::new(99);
+        let mut pieces = 0;
+        for floors in 2..=6u32 {
+            for (w, d) in [(8.5f32, 8.5f32), (11.0, 10.0), (13.0, 12.5), (9.5, 13.0), (12.0, 9.0)] {
+                for _ in 0..6 {
+                    let st = random_style(&mut r, floors);
+                    let g = gen_tower(&mut r, w, d, floors, &st);
+                    let (hx, hz) = (g.half.x, g.half.y);
+                    // low solids standing on a floor, between the stairwell and the outer walls
+                    let room_x0 = tower_flights(hx, hz, floors)[1].x1 + 0.8;
+                    let furniture: Vec<Aabb> = g
+                        .cols
+                        .iter()
+                        .map(|c| c.shape.aabb())
+                        .filter(|bb| bb.min.x > room_x0 - 0.01 && bb.max.x < hx - WALL_T + 0.01 && bb.min.z > -hz + WALL_T - 0.01 && bb.max.z < hz - WALL_T + 0.01)
+                        .filter(|bb| bb.max.y - bb.min.y < 1.0 && (0..floors).any(|fl| (bb.min.y - storey_y(fl)).abs() < 0.01))
+                        .collect();
+                    pieces += furniture.len();
+                    for (i, a) in furniture.iter().enumerate() {
+                        for b in &furniture[i + 1..] {
+                            assert!((a.max.min(b.max) - a.min.max(b.min)).min_element() <= 0.01, "{floors} storeys, {w}x{d}: {a:?} and {b:?} stand in each other");
+                        }
+                    }
+                }
+            }
+        }
+        assert!(pieces > 300, "{pieces} pieces of furniture in 150 towers");
+    }
+
+    #[test]
+    fn a_towers_windows_are_not_filled_by_its_stairs() {
+        // the steps are solid down to the floor, so a window in the wall a flight climbs along would be plugged by them: a ray at chest
+        // height that gets into a window opening must carry on well into the building
+        for (floors, hx, hz, g) in towers() {
+            let name = format!("{floors} storeys, {hx}x{hz}");
+            for fl in 0..floors {
+                let y = storey_y(fl) + 1.6;
+                let mut open = 0;
+                for (dir, span) in [(Vec3::X, hz), (Vec3::NEG_X, hz), (Vec3::Z, hx), (Vec3::NEG_Z, hx)] {
+                    let mut u = -span + 0.3;
+                    while u < span - 0.3 {
+                        let o = if dir.x != 0.0 { Vec3::new(-dir.x * (hx + 1.0), y, u) } else { Vec3::new(u, y, -dir.z * (hz + 1.0)) };
+                        let t = g.cols.iter().filter(|c| c.blocks_bullets).filter_map(|c| c.shape.raycast(o, dir, 40.0)).map(|h| h.0).fold(f32::MAX, f32::min);
+                        if t > 1.02 {
+                            open += 1;
+                            assert!(t > 1.0 + WALL_T + 0.4, "{name}: storey {fl}: the window at {o:?} is filled by something right behind it ({t:.2})");
+                        }
+                        u += 0.1;
+                    }
+                }
+                assert!(open > 20, "{name}: storey {fl} has windows");
+            }
+        }
+    }
+
     /// The number of storeys of a tower, from its roof height.
     fn tower_storeys(g: &Geom) -> u32 {
         ((g.height - 1.05 - FLOOR_Y) / STORY_H).round() as u32
@@ -2925,6 +3000,18 @@ mod tests {
                 // in through the big door and on down the aisle to the back
                 let end = walk(&g.cols, g.door_out, &[Vec2::new(g.door_in.x, g.door_in.z), Vec2::new(g.door_in.x, -hz + 2.0)]).unwrap_or_else(|e| panic!("{name}: {e}"));
                 assert!((end.y - FLOOR_Y).abs() < 0.01, "{name}: on the floor, y {}", end.y);
+                // ... and in through the side door (found with rays at chest height along both side walls) and across to the aisle
+                let gap = |sx: f32, z: f32| {
+                    let o = Vec3::new(sx * (hx + 1.0), FLOOR_Y + 1.3, z);
+                    g.cols.iter().filter_map(|c| c.shape.raycast(o, Vec3::new(-sx, 0.0, 0.0), 30.0)).map(|h| h.0).fold(f32::MAX, f32::min) > 1.0 + WALL_T + 0.05
+                };
+                let doors: Vec<(f32, Vec<f32>)> = [-1.0f32, 1.0].iter().map(|&sx| (sx, (0..(hz * 40.0) as i32).map(|k| -hz + 0.025 + k as f32 * 0.05).filter(|&z| gap(sx, z)).collect())).collect();
+                let (sx, zs) = doors.iter().find(|d| !d.1.is_empty()).unwrap_or_else(|| panic!("{name}: no side door"));
+                assert!(doors.iter().filter(|d| !d.1.is_empty()).count() == 1 && (zs[zs.len() - 1] - zs[0] - DOOR_W).abs() < 0.1, "{name}: one side door, {zs:?}");
+                let zc = (zs[0] + zs[zs.len() - 1]) / 2.0;
+                let route = [Vec2::new(sx * (hx - 1.0), zc), Vec2::new(g.door_in.x, zc)];
+                let end = walk(&g.cols, Vec3::new(sx * (hx + 1.5), 0.0, zc), &route).unwrap_or_else(|e| panic!("{name}, side door: {e}"));
+                assert!((end.y - FLOOR_Y).abs() < 0.01, "{name}: in by the side door, y {}", end.y);
                 // crates to fight round: solid blocks standing on the floor, away from the walls
                 let indoors = |bb: Aabb| bb.min.x > -hx + WALL_T + 0.1 && bb.max.x < hx - WALL_T - 0.1 && bb.min.z > -hz + WALL_T + 0.1 && bb.max.z < hz - WALL_T - 0.1;
                 let crates = g.cols.iter().filter(|c| (c.shape.bottom() - FLOOR_Y).abs() < 0.01 && c.shape.aabb().max.y < FLOOR_Y + 2.0 && indoors(c.shape.aabb())).count();
@@ -2973,6 +3060,11 @@ mod tests {
         let cb = cases[0].1.cols[0].shape.aabb();
         assert!(((cb.max - cb.min) - Vec3::new(6.1, 2.6, 2.44)).abs().max_element() < 0.01, "{:?}", cb.max - cb.min);
         assert!(cases[2].1.height > cases[1].1.height + 25.0);
+        // the smokestack's plinth is solid up to the top of its capping, so anyone up there stands on it rather than in it
+        let stack = &cases[1].1;
+        let capping = stack.mesh.verts.iter().filter(|v| v.pos[0] > 1.9 && v.pos[2] > 1.9).map(|v| v.pos[1]).fold(f32::MIN, f32::max);
+        let top = stack.cols.iter().filter_map(|c| c.shape.top_at(2.0, 2.0)).fold(f32::MIN, f32::max);
+        assert!((top - capping).abs() < 0.02, "the plinth is solid to {top}, its capping is at {capping}");
         let piles: Vec<&Geom> = cases[3..].iter().map(|c| &c.1).collect();
         for (k, g) in piles.iter().enumerate() {
             let n = (k + 1) as f32;
