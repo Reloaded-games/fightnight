@@ -191,6 +191,7 @@ exactly like the keyboard does), so the same rules apply to everyone.
 cargo test --release                       # ~330 unit/integration tests (simulation, bots, models, input, shaders, ...)
 cargo test --release -- --ignored monkey   # long randomised "monkey" soak test over many seeds
 cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only match with a timeline
+                                           # (MAP=chapter1 or MAP=chapter2 in front plays it on a recreated map)
 cargo run --release -p fn-core --example dump_map -- 1234 map.png chapter1   # a map as a PNG (grid, places, roads, rivers)
 cargo run --release -p fn-core --example dump_height -- 1234 h.png chapter2  # its height field with 5 m contours
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
