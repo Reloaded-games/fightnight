@@ -13,6 +13,8 @@ pub const STORY_H: f32 = 3.0;
 pub const WALL_T: f32 = 0.28;
 const DOOR_W: f32 = 1.5;
 const DOOR_H: f32 = 2.35;
+/// How far the faces of a frame that line an opening stand into it, clear of the ends of the wall (2 mm).
+const REVEAL: f32 = 0.002;
 
 /// A raised entrance (stoop, porch, plinth): where its outer edge is, in the building's local frame.
 #[derive(Clone, Copy, Debug)]
@@ -42,6 +44,9 @@ pub struct Geom {
     pub entry: Option<Entry>,
     /// The flight of stairs up to the second floor, if there is one (local bounds; it rises toward -Z).
     pub stairs: Option<(Vec3, Vec3)>,
+    /// The openings of its walls, as (wall, height of the wall's foot, opening): what the tests check the dressing round them against.
+    #[cfg(test)]
+    openings: Vec<(Line, f32, Op)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -82,7 +87,7 @@ pub fn random_style(rng: &mut Rng, floors: u32) -> Style {
 // Builder plumbing
 // ---------------------------------------------------------------------------------
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Op {
     u0: f32,
     u1: f32,
@@ -115,7 +120,7 @@ fn wall_rects(len: f32, h: f32, ops: &[Op]) -> Vec<(f32, f32, f32, f32)> {
 }
 
 /// A straight wall in plan view.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Line {
     along_x: bool,
     a0: f32,
@@ -229,8 +234,8 @@ fn pilaster(b: &mut B, l: Line, u: f32, w: f32, y_lo: f32, y_hi: f32, out: f32, 
 }
 
 /// A striped shop awning on the outer face of the wall `l` over `u0`..`u1`: cloth from `y_top` at the wall sloping `drop` down to
-/// `reach` out, a valance along its front edge, cheeks at its ends and two stays back to the wall.
-fn awning(b: &mut B, l: Line, u0: f32, u1: f32, y_top: f32, drop: f32, reach: f32, col: u32) {
+/// `reach` out, a valance along its front edge, cheeks at its ends and two stays back to the wall at `stays` along it.
+fn awning(b: &mut B, l: Line, u0: f32, u1: f32, stays: [f32; 2], y_top: f32, drop: f32, reach: f32, col: u32) {
     let f = WALL_T / 2.0;
     let o = l.out_dir();
     let n = o * drop + Vec3::Y * reach;
@@ -253,7 +258,9 @@ fn awning(b: &mut B, l: Line, u0: f32, u1: f32, y_top: f32, drop: f32, reach: f3
     for (u, s) in [(u0, -1.0f32), (u1, 1.0)] {
         b.mb.tri_out(back(u), front(u, 0.0), l.at(u, l.out * (f + 0.01), y_top - drop), along * s);
         b.mb.tri_out(back(u), front(u, 0.0), l.at(u, l.out * (f + 0.01), y_top - drop), -along * s);
-        b.tube(l.at(u + 0.08 * -s, l.out * (f + reach - 0.05), y_top - drop + 0.03), l.at(u + 0.08 * -s, l.out * f, y_top - drop - 0.35), 0.018, 0x2b2e34, mat::METAL);
+    }
+    for u in stays {
+        b.tube(l.at(u, l.out * (f + reach - 0.05), y_top - drop + 0.03), l.at(u, l.out * f, y_top - drop - 0.35), 0.018, 0x2b2e34, mat::METAL);
     }
 }
 
@@ -262,11 +269,20 @@ struct B {
     cols: Vec<Collider>,
     loot: Vec<Vec3>,
     chests: Vec<(Vec3, f32)>,
+    #[cfg(test)]
+    openings: Vec<(Line, f32, Op)>,
 }
 
 impl B {
     fn new() -> Self {
-        Self { mb: MeshBuilder::new(), cols: vec![], loot: vec![], chests: vec![] }
+        Self {
+            mb: MeshBuilder::new(),
+            cols: vec![],
+            loot: vec![],
+            chests: vec![],
+            #[cfg(test)]
+            openings: vec![],
+        }
     }
 
     fn bx(&mut self, min: Vec3, max: Vec3, col: u32, m: u8, collide: bool) {
@@ -295,6 +311,8 @@ impl B {
 
     /// Emit a wall with openings (mesh + colliders).
     fn wall(&mut self, l: Line, y0: f32, h: f32, ops: &[Op], col: u32, m: u8) {
+        #[cfg(test)]
+        self.openings.extend(ops.iter().map(|o| (l, y0, *o)));
         self.mb.ao(0.82, 1.0);
         for (u0, u1, v0, v1) in wall_rects(l.len(), h, ops) {
             let (a, b) = l.bx(u0, u1, -WALL_T / 2.0, WALL_T / 2.0, y0 + v0, y0 + v1);
@@ -303,17 +321,18 @@ impl B {
         self.mb.ao(1.0, 1.0);
     }
 
-    /// Frame trim around openings (door: jambs + header; windows: + sill and optional shutters).
+    /// Frame trim around openings (door: jambs + header; windows: + sill and optional shutters). The faces of the frame that line the
+    /// opening stand `REVEAL` into it: flush with the ends of the wall they would z-fight with them.
     fn opening_trim(&mut self, l: Line, y0: f32, o: &Op, window: bool, trim: u32, shutter: Option<u32>) {
         let t = WALL_T / 2.0 + 0.05;
-        let (a, b) = l.bx(o.u0 - 0.1, o.u0, -t, t, y0 + o.v0, y0 + o.v1 + 0.12);
+        let (a, b) = l.bx(o.u0 - 0.1, o.u0 + REVEAL, -t, t, y0 + o.v0, y0 + o.v1 + 0.12);
         self.bx(a, b, trim, mat::FLAT, false);
-        let (a, b) = l.bx(o.u1, o.u1 + 0.1, -t, t, y0 + o.v0, y0 + o.v1 + 0.12);
+        let (a, b) = l.bx(o.u1 - REVEAL, o.u1 + 0.1, -t, t, y0 + o.v0, y0 + o.v1 + 0.12);
         self.bx(a, b, trim, mat::FLAT, false);
-        let (a, b) = l.bx(o.u0 - 0.1, o.u1 + 0.1, -t, t, y0 + o.v1, y0 + o.v1 + 0.12);
+        let (a, b) = l.bx(o.u0 - 0.1, o.u1 + 0.1, -t, t, y0 + o.v1 - REVEAL, y0 + o.v1 + 0.12);
         self.bx(a, b, trim, mat::FLAT, false);
         if window {
-            let (a, b) = l.bx(o.u0 - 0.14, o.u1 + 0.14, -t, t + 0.1, y0 + o.v0 - 0.09, y0 + o.v0);
+            let (a, b) = l.bx(o.u0 - 0.14, o.u1 + 0.14, -t, t + 0.1, y0 + o.v0 - 0.09, y0 + o.v0 + REVEAL);
             self.bx(a, b, trim, mat::FLAT, false);
             // window cross bars (open window with mullions) – thin so you can still shoot through
             let (a, b) = l.bx((o.u0 + o.u1) * 0.5 - 0.025, (o.u0 + o.u1) * 0.5 + 0.025, -0.03, 0.03, y0 + o.v0, y0 + o.v1);
@@ -403,8 +422,8 @@ impl B {
     fn window_dressing(&mut self, l: Line, y0: f32, o: &Op, key: i32, ground: bool) {
         let side = |a: f32, b: f32| if a < b { (a, b) } else { (b, a) };
         let h = hunit(key, 1, 7);
-        // curtains inside: pastel cloth against the inner face
-        let (d0, d1) = side(-l.out * (WALL_T / 2.0 + 0.0), -l.out * (WALL_T / 2.0 + 0.06));
+        // curtains inside: pastel cloth against the inner face (REVEAL off it: a flight of stairs along the wall lies in its plane)
+        let (d0, d1) = side(-l.out * (WALL_T / 2.0 + REVEAL), -l.out * (WALL_T / 2.0 + 0.06));
         let cols = [0xf4e3b8u32, 0xe9b8c4, 0xb8d6e9, 0xc9e3b8, 0xf2f0e8];
         let cc = cols[(h * 5.0) as usize % cols.len()];
         for (u0, u1) in [(o.u0 + 0.0, o.u0 + 0.2), (o.u1 - 0.2, o.u1 - 0.0)] {
@@ -458,7 +477,21 @@ impl B {
     }
 
     fn finish(self, half: Vec2, height: f32, door_out: Vec3, door_in: Vec3) -> Geom {
-        Geom { mesh: self.mb.finish(), cols: self.cols, loot: self.loot, chests: self.chests, door_out, door_in, half, height, hub: None, entry: None, stairs: None }
+        Geom {
+            mesh: self.mb.finish(),
+            cols: self.cols,
+            loot: self.loot,
+            chests: self.chests,
+            door_out,
+            door_in,
+            half,
+            height,
+            hub: None,
+            entry: None,
+            stairs: None,
+            #[cfg(test)]
+            openings: self.openings,
+        }
     }
 }
 
@@ -1174,20 +1207,24 @@ pub fn gen_barn(rng: &mut Rng) -> Geom {
     b.wall(front, FLOOR_Y, h, &ops, red, mat::WOOD);
     b.opening_trim(front, FLOOR_Y, &ops[0], false, 0xf5efe0, None);
     // barn doors slid open either side of the opening (visual only): red boards in a white frame with a rail across the middle and
-    // an X brace in each half
-    for sx in [-1.0f32, 1.0] {
-        let x0 = door_u - 1.8 + (if sx < 0.0 { -1.8 } else { 3.6 });
-        let (f, y0, y1, w) = (WALL_T / 2.0, FLOOR_Y, FLOOR_Y + 3.7, 0.15);
-        let (x1, ym) = (x0 + 1.8, (y0 + y1) / 2.0);
-        let (a, c) = front.bx(x0, x1, f, f + 0.05, y0, y1);
+    // an X brace in each half. They hang just in front of the jambs of the opening's frame (off the plane of its face) and are as wide
+    // as the wall between the opening and the high windows beside it allows, so they keep clear of those windows' sills and jambs.
+    // (8 cm short of the sills, which stand 0.14 past the windows' sides: 1.28 m)
+    let big = ops[0];
+    let door_w = (big.u0 - ops[1].u1).min(ops[2].u0 - big.u1) - 0.14 - 0.08;
+    for (x0, x1) in [(big.u0 - door_w, big.u0), (big.u1, big.u1 + door_w)] {
+        let (f, y0, y1, fw) = (WALL_T / 2.0 + 0.056, FLOOR_Y + big.v0, FLOOR_Y + big.v1, 0.15);
+        let ym = (y0 + y1) / 2.0;
+        let (a, c) = front.bx(x0, x1, f, f + 0.04, y0, y1);
         b.bx(a, c, shade_hex(red, 0.9), mat::WOOD, false);
-        for (u0, u1, v0, v1) in [(x0, x0 + w, y0, y1), (x1 - w, x1, y0, y1), (x0 + w, x1 - w, y0, y0 + w), (x0 + w, x1 - w, y1 - w, y1), (x0 + w, x1 - w, ym - w / 2.0, ym + w / 2.0)] {
-            let (a, c) = front.bx(u0, u1, f + 0.05, f + 0.09, v0, v1);
+        for (u0, u1, v0, v1) in [(x0, x0 + fw, y0, y1), (x1 - fw, x1, y0, y1), (x0 + fw, x1 - fw, y0, y0 + fw), (x0 + fw, x1 - fw, y1 - fw, y1), (x0 + fw, x1 - fw, ym - fw / 2.0, ym + fw / 2.0)] {
+            let (a, c) = front.bx(u0, u1, f + 0.04, f + 0.08, v0, v1);
             b.bx_faces(a, c, 0xf5efe0, mat::WOOD, front.outer_faces(), false);
         }
-        for (ya, yb) in [(y0 + w, ym - w / 2.0), (ym + w / 2.0, y1 - w)] {
-            for (ua, ub) in [(x0 + w, x1 - w), (x1 - w, x0 + w)] {
-                b.board(front.at(ua, f + 0.07, ya), front.at(ub, f + 0.07, yb), Vec3::Z, 0.13, 0.04, 0xf5efe0, mat::WOOD);
+        // (the braces sit a centimetre back from the face of the frame, their ends buried in it)
+        for (ya, yb) in [(y0 + fw, ym - fw / 2.0), (ym + fw / 2.0, y1 - fw)] {
+            for (ua, ub) in [(x0 + fw, x1 - fw), (x1 - fw, x0 + fw)] {
+                b.board(front.at(ua, f + 0.055, ya), front.at(ub, f + 0.055, yb), Vec3::Z, 0.13, 0.03, 0xf5efe0, mat::WOOD);
             }
         }
     }
@@ -1750,6 +1787,8 @@ fn stair_rail(b: &mut B, x: f32, f: &Flight, col: u32) {
 /// [`B::wall`] for a building of many storeys: the same boxes and colliders, without their top and bottom faces (those butt against the
 /// storeys above and below, or lie under the sills and lintels of the openings).
 fn lean_wall(b: &mut B, l: Line, y0: f32, h: f32, ops: &[Op], col: u32, m: u8) {
+    #[cfg(test)]
+    b.openings.extend(ops.iter().map(|o| (l, y0, *o)));
     b.mb.ao(0.82, 1.0);
     for (u0, u1, v0, v1) in wall_rects(l.len(), h, ops) {
         let (a, c) = l.bx(u0, u1, -WALL_T / 2.0, WALL_T / 2.0, y0 + v0, y0 + v1);
@@ -1760,11 +1799,13 @@ fn lean_wall(b: &mut B, l: Line, y0: f32, h: f32, ops: &[Op], col: u32, m: u8) {
 
 /// The frame of a city window: a sill, a lintel, a mullion and a transom (mesh only: the opening stays open to shoot and climb through).
 fn tower_window(b: &mut B, l: Line, y0: f32, o: &Op, trim: u32) {
-    let t = WALL_T / 2.0 + 0.04;
+    // (4.5 cm out from either face: the ribs of a warehouse's sheeting stand 4 cm out, a tower's stair rails 4 cm in from its walls;
+    // and the sill and lintel stand REVEAL into the opening, clear of the ends of a wall that has them)
+    let t = WALL_T / 2.0 + 0.045;
     let (s0, s1) = if l.out > 0.0 { (-t, t + 0.06) } else { (-t - 0.06, t) };
-    let (a, c) = l.bx(o.u0 - 0.12, o.u1 + 0.12, s0, s1, y0 + o.v0 - 0.1, y0 + o.v0);
+    let (a, c) = l.bx(o.u0 - 0.12, o.u1 + 0.12, s0, s1, y0 + o.v0 - 0.1, y0 + o.v0 + REVEAL);
     b.bx(a, c, trim, mat::FLAT, false);
-    let (a, c) = l.bx(o.u0 - 0.12, o.u1 + 0.12, -t, t, y0 + o.v1, y0 + o.v1 + 0.16);
+    let (a, c) = l.bx(o.u0 - 0.12, o.u1 + 0.12, -t, t, y0 + o.v1 - REVEAL, y0 + o.v1 + 0.16);
     b.bx(a, c, trim, mat::FLAT, false);
     // flat jambs on the outer face from the sill up to the lintel, which close the frame (3.5 cm proud: only their fronts are worth
     // drawing, a building has dozens of windows)
@@ -1853,6 +1894,24 @@ fn tower_room(b: &mut B, rng: &mut Rng, y: f32, room: (f32, f32, f32, f32), door
     b.loot.extend(spots);
 }
 
+/// The striped awnings over the shop windows of a tower (centred at `slots` along a front `len` long, 1.6 m wide in frames of 0.1 m
+/// jambs), as (u0, u1, stays): from 5 cm past the jambs (or from 2 cm beside a corner post), with a stay on each jamb.
+fn shop_awnings(len: f32, slots: &[f32]) -> Vec<(f32, f32, [f32; 2])> {
+    slots
+        .iter()
+        .map(|&c| {
+            let (u0, u1) = ((c - 0.95).max(0.25), (c + 0.95).min(len - 0.25));
+            (u0, u1, [(c - 0.85).max(u0 + 0.02), (c + 0.85).min(u1 - 0.02)])
+        })
+        .collect()
+}
+
+/// Half the width of the canopy over a tower's front door at `door_u`: 1.25 m, less where it would come within 6 cm of one of the
+/// `awnings` (the shop windows keep 1.15 m clear of the door, so it is never less than 1.04 m).
+fn canopy_half(door_u: f32, awnings: &[(f32, f32, [f32; 2])]) -> f32 {
+    awnings.iter().map(|&(u0, u1, _)| (if u0 > door_u { u0 - door_u } else { door_u - u1 }) - 0.06).fold(1.25, f32::min)
+}
+
 /// A city tower block in the manner of Tilted Towers: `floors` storeys (clamped to 2..=6) of brick or plaster (`st` gives the colours)
 /// under a flat roof with a parapet, windows on every side of every floor, tall shop windows and the front door (+Z) on the ground floor.
 /// Inside, a switchback stair climbs from the ground floor to a hatch in the roof: its flights alternate between two lanes along the left
@@ -1893,8 +1952,9 @@ pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom
     // the solid steps right behind them would fill them up
     let low_steps = (0.9 / (STORY_H / STAIR_STEPS as f32)).floor();
     let stairwell = (z_back - left.a0, z_front - low_steps * TOWER_RUN - left.a0);
-    // the shop storey is faced in stone (a brick tower's in pale dressed stone, a rendered one's in a stone tinted like its walls)
-    let (base_col, base_mat) = if st.wall_mat == mat::BRICK { (0xbcb3a3u32, mat::STONE) } else { (mix_hex(st.wall, 0x857f77, 0.62), mat::STONE) };
+    // the shop storey is faced in stone: pale dressed stone under brick, a warm light limestone under pastel render
+    let base_col = if st.wall_mat == mat::BRICK { 0xbcb3a3u32 } else { 0xdacdb5 };
+    let base_mat = mat::STONE;
     for fl in 0..floors {
         let y0 = FLOOR_Y + fl as f32 * STORY_H;
         for (li, line) in [front, back, left, right].into_iter().enumerate() {
@@ -1935,37 +1995,31 @@ pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom
         b.bx(Vec3::new(hx, y0, -hz), Vec3::new(hx + o, y1, hz), st.trim, mat::FLAT, false);
     }
     b.corner_posts(hx - 0.06, hz - 0.06, FLOOR_Y, roof_y - 0.3, st.trim);
-    // pilasters between the bays of the storeys above the shops, with capitals under a frieze that runs round below the cornice
-    // (nothing stands further out than the cornice, so the tower's bounds stay what they were)
+    // pilasters between the bays of the storeys above the shops, their capitals carrying a frieze that runs round right under the
+    // cornice (nothing stands further out than the cornice, so the tower's bounds stay what they were)
     let pil_col = if st.wall_mat == mat::BRICK { shade_hex(st.wall, 1.12) } else { mix_hex(st.wall, 0xffffff, 0.3) };
+    let (cap_lo, frieze_lo, cornice_lo) = (roof_y - 0.6, roof_y - 0.48, roof_y - 0.3);
     for line in [front, back, left, right] {
         let bays = ((line.len() / 3.3).floor() as i32).max(1);
         for k in 1..bays {
             let u = line.len() * k as f32 / bays as f32;
-            pilaster(&mut b, line, u, 0.42, FLOOR_Y + STORY_H + 0.12, roof_y - 0.42, 0.1, pil_col, st.wall_mat);
-            pilaster(&mut b, line, u, 0.56, roof_y - 0.42, roof_y - 0.3, 0.12, st.trim, mat::FLAT);
+            pilaster(&mut b, line, u, 0.42, FLOOR_Y + STORY_H + 0.12, cap_lo, 0.1, pil_col, st.wall_mat);
+            pilaster(&mut b, line, u, 0.56, cap_lo, frieze_lo, 0.12, st.trim, mat::FLAT);
         }
-        wall_band(&mut b, line, roof_y, -0.56, -0.46, &[], 0.05, st.trim, mat::FLAT);
+        wall_band(&mut b, line, 0.0, frieze_lo, cornice_lo, &[], 0.06, st.trim, mat::FLAT);
     }
-    // striped awnings over the shop windows, clear of the door's canopy and of the corners
-    for c in B::window_slots(front.len(), &[(door.u0 - 0.4, door.u1 + 0.4)], 3.3) {
-        let (mut u0, mut u1) = ((c - 0.95).max(0.3), (c + 0.95).min(front.len() - 0.3));
-        if c < door_u {
-            u1 = u1.min(door_u - 1.35);
-        } else {
-            u0 = u0.max(door_u + 1.35);
-        }
-        if u1 - u0 > 0.8 {
-            awning(&mut b, front, u0, u1, FLOOR_Y + STORY_H - 0.2, 0.45, 0.8, st.roof);
-        }
+    // striped awnings over the shop windows, and the front door standing ajar under a canopy on two stays, narrowed to keep clear of them
+    let awnings = shop_awnings(front.len(), &B::window_slots(front.len(), &[(door.u0 - 0.4, door.u1 + 0.4)], 3.3));
+    for &(u0, u1, stays) in &awnings {
+        awning(&mut b, front, u0, u1, stays, FLOOR_Y + STORY_H - 0.2, 0.45, 0.8, st.roof);
     }
-    // the front door standing ajar, and a canopy over it on two stays
     b.opening_trim(front, FLOOR_Y, &door, false, st.trim, None);
     b.door_leaf(front, FLOOR_Y, &door, door_col, 0xe3c15a);
     let cy = FLOOR_Y + DOOR_H + 0.35;
-    b.bx(Vec3::new(door_x - 1.25, cy, hz), Vec3::new(door_x + 1.25, cy + 0.12, hz + 0.9), st.roof, mat::METAL, false);
+    let ch = canopy_half(door_u, &awnings);
+    b.bx(Vec3::new(door_x - ch, cy, hz), Vec3::new(door_x + ch, cy + 0.12, hz + 0.9), st.roof, mat::METAL, false);
     for sx in [-1.0f32, 1.0] {
-        b.tube(Vec3::new(door_x + sx * 1.1, cy + 0.06, hz + 0.85), Vec3::new(door_x + sx * 1.1, cy + 0.9, hz + 0.05), 0.025, 0x2b2e34, mat::METAL);
+        b.tube(Vec3::new(door_x + sx * (ch - 0.15), cy + 0.06, hz + 0.85), Vec3::new(door_x + sx * (ch - 0.15), cy + 0.9, hz + 0.05), 0.025, 0x2b2e34, mat::METAL);
     }
 
     // --- the stairwell: a spine wall between the two lanes on every storey, one flight per storey
@@ -2242,16 +2296,22 @@ pub fn gen_warehouse(rng: &mut Rng, w: f32, d: f32) -> Geom {
                 b.tube(p0, p1, 0.055, 0x9aa0a8, mat::METAL);
             }
         }
-        // skylights in every bay between the trusses: a pane in a frame, a little proud of the sheeting
+        // skylights in every bay between the trusses: a pane on a curb that stands on the sheeting, over the standing seams (which run
+        // into its ends). In the curb's own frame x runs down the slope, y along the ridge and z out of the roof; the curb has no
+        // underside (it would lie in the plane of the sheeting).
         let bays = ((2.0 * len_h) / 4.5).round().max(2.0) as i32;
-        let lift = |x: f32, w: f32, e: f32| map(x, top_y + rise - (top_y + rise - eave_y) * w / ew, s * w) + n * e;
+        let on_roof = |x: f32, w: f32| map(x, top_y + rise - (top_y + rise - eave_y) * w / ew, s * w);
+        let (curb_h, w0, w1) = (0.12, 0.3 * ew - 0.08, 0.72 * ew + 0.08);
         for k in 0..bays {
             let xc = -len_h + 2.0 * len_h * (k as f32 + 0.5) / bays as f32;
-            let (w0, w1) = (0.3 * ew, 0.72 * ew);
+            let (p0, p1) = (on_roof(xc, w0), on_roof(xc, w1));
+            let (down, len) = ((p1 - p0).normalize(), p0.distance(p1));
+            b.mb.push_xf(Mat4::from_cols(down.extend(0.0), n.cross(down).extend(0.0), n.extend(0.0), p0.extend(1.0)));
             b.mb.mat(mat::METAL).hex(0xc9ccd0);
-            b.mb.quad_out([lift(xc - 0.75, w0 - 0.08, 0.075), lift(xc + 0.75, w0 - 0.08, 0.075), lift(xc + 0.75, w1 + 0.08, 0.075), lift(xc - 0.75, w1 + 0.08, 0.075)], n);
+            b.mb.box_faces(Vec3::new(0.0, -0.75, 0.0), Vec3::new(len, 0.75, curb_h), 0b011111);
             b.mb.mat(mat::GLASS).hex(0x56788a);
-            b.mb.quad_out([lift(xc - 0.62, w0, 0.085), lift(xc + 0.62, w0, 0.085), lift(xc + 0.62, w1, 0.085), lift(xc - 0.62, w1, 0.085)], n);
+            b.mb.box_faces(Vec3::new(0.08, -0.62, curb_h), Vec3::new(len - 0.08, 0.62, curb_h + 0.006), 0b010000);
+            b.mb.pop_xf();
         }
     }
     let (a, c) = (map(-el - 0.02, top_y + rise - 0.05, -0.2), map(el + 0.02, top_y + rise + 0.08, 0.2));
@@ -2572,9 +2632,9 @@ fn house_details(b: &mut B, hx: f32, hz: f32, door_u: f32, floors: u32, st: &Sty
     let door = Op { u0: door_u - DOOR_W / 2.0, u1: door_u + DOOR_W / 2.0, v0: 0.0, v1: DOOR_H };
     b.door_leaf(front, FLOOR_Y, &door, door_col, 0xe3c15a);
     // a wainscot round the foot of the ground-floor walls in a deeper tone under a rail of trim (broken at the door and its frame):
-    // stone under a brick house, darker boards under a cabin
+    // stone under a brick house, and a grey fieldstone skirt under a cabin's boards (darker boards were lost against them)
     let (base, base_mat) = if st.logs {
-        (shade_hex(st.wall, 0.72), mat::WOOD)
+        (0x8a8276, mat::STONE)
     } else if st.wall_mat == mat::BRICK {
         (0xa39b8f, mat::STONE)
     } else {
@@ -3349,5 +3409,179 @@ mod tests {
             tops.sort_by(|a, b| a.0.total_cmp(&b.0));
             assert!(tops.windows(2).all(|p| (p[1].0 - p[0].1).abs() < 0.05), "each wreck lies on the one below: {tops:?}");
         }
+    }
+
+    // ----- the dressing round the openings in the walls
+
+    /// Buildings with openings in their walls from every generator that makes them, in many sizes and styles: houses and cabins, shops,
+    /// the barn, tower blocks of every width Tilted Towers builds (the door in the middle or off to one side), the clock tower, warehouses.
+    fn walled() -> Vec<(String, Geom)> {
+        let mut out: Vec<(String, Geom)> = all_geoms().into_iter().filter(|(_, g)| !g.openings.is_empty()).map(|(n, g)| (n.to_string(), g)).collect();
+        let mut r = Rng::new(77);
+        for k in 0..10 {
+            let (w, d) = (8.0 + (k % 4) as f32 * 1.3, 8.0 + (k % 3) as f32 * 1.6);
+            let st = random_style(&mut r, 1 + k % 2);
+            out.push((format!("house {k}, {w}x{d}"), gen_house(&mut r, w, d, &st)));
+            out.push((format!("cabin {k}, {w}x{d}"), gen_cabin(&mut r, w, d - 1.0)));
+            out.push((format!("shop {k}, {w}x{d}"), gen_shop(&mut r, w + 2.0, d)));
+        }
+        for k in 0..24 {
+            let (w, d) = (8.5 + k as f32 * 0.2, 13.0 - k as f32 * 0.15);
+            let st = random_style(&mut r, 2);
+            out.push((format!("tower {k}, {w}x{d}"), gen_tower(&mut r, w, d, 2, &st)));
+        }
+        for k in 0..4 {
+            let st = Style { wall: 0xC9B79C, wall_mat: mat::BRICK, ..random_style(&mut r, 6) };
+            out.push((format!("clock tower {k}"), gen_tower(&mut r, 9.0, 9.0, 6, &st)));
+        }
+        for (w, d) in [(16.0f32, 12.0f32), (22.0, 16.0), (28.0, 20.0), (18.0, 20.0)] {
+            out.push((format!("warehouse {w}x{d}"), gen_warehouse(&mut r, w, d)));
+        }
+        out
+    }
+
+    /// The corners of triangle `k` of `m`.
+    fn tri(m: &MeshData, k: usize) -> [Vec3; 3] {
+        [0, 1, 2].map(|i| Vec3::from(m.verts[m.idx[k * 3 + i] as usize].pos))
+    }
+
+    /// True if the triangle `t` and the box `bb` share some volume (separating axis test).
+    fn tri_meets_box(t: [Vec3; 3], bb: &Aabb) -> bool {
+        let (c, h) = ((bb.min + bb.max) * 0.5, (bb.max - bb.min) * 0.5);
+        let v = t.map(|p| p - c);
+        let e = [v[1] - v[0], v[2] - v[1], v[0] - v[2]];
+        let mut axes = vec![Vec3::X, Vec3::Y, Vec3::Z, e[0].cross(e[1])];
+        for a in [Vec3::X, Vec3::Y, Vec3::Z] {
+            axes.extend(e.map(|ed| a.cross(ed)));
+        }
+        axes.into_iter().filter(|a| a.length_squared() > 1e-12).all(|a| {
+            let (lo, hi) = v.iter().map(|p| p.dot(a)).fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
+            let r = h.x * a.x.abs() + h.y * a.y.abs() + h.z * a.z.abs();
+            lo < r && hi > -r
+        })
+    }
+
+    #[test]
+    fn nothing_stands_in_front_of_a_window_or_a_door() {
+        // what dresses a wall (sliding barn doors, an awning and its stays, lamps, a plinth) keeps out of the space right in front of the
+        // openings in it: the barn's doors once ran across half of the high windows beside them, and an awning cut short by the canopy
+        // of a tower's door put its stay in the middle of a shop window
+        let mut bad = vec![];
+        for (name, g) in walled() {
+            for (l, y0, o) in &g.openings {
+                // from 5 mm off the outer face of the wall to 25 cm out, a centimetre inside the sides and the head of the opening and
+                // 12 cm above its foot (the flowers of a window box stand up in front of the sill)
+                let (d0, d1) = l.proud(0.005, 0.25);
+                let (a, c) = l.bx(o.u0 + 0.01, o.u1 - 0.01, d0, d1, y0 + o.v0 + 0.12, y0 + o.v1 - 0.01);
+                let space = Aabb::new(a, c);
+                if let Some(t) = (0..g.mesh.tri_count()).map(|k| tri(&g.mesh, k)).find(|t| tri_meets_box(*t, &space)) {
+                    bad.push(format!("{name}: a face at {t:?} stands in front of the opening {o:?} of the wall {l:?}"));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{} openings:\n{}", bad.len(), bad.join("\n"));
+    }
+
+    /// The faces of `m` within `within` that lie in one plane with another, face the same way and overlap it by more than `eps` either
+    /// way, in another colour or material: the renderer cannot tell which is in front and z-fights them. Faces turned down onto the
+    /// foundation (at FLOOR_Y) are never seen and are left out. Each clash is given as the two triangles and their colours.
+    fn coplanar_faces(m: &MeshData, within: &Aabb, eps: f32) -> Vec<([Vec3; 3], [Vec3; 3], [u8; 3], [u8; 3])> {
+        // (axis, sign, offset of the plane, triangle) for each face square to an axis that reaches into `within`
+        let mut faces: Vec<(usize, bool, f32, usize)> = vec![];
+        for k in 0..m.tri_count() {
+            let t = tri(m, k);
+            let n = (t[1] - t[0]).cross(t[2] - t[0]).normalize_or_zero();
+            let Some(ax) = (0..3).find(|&a| n[a].abs() > 0.9999) else { continue };
+            let (lo, hi) = (t[0].min(t[1]).min(t[2]), t[0].max(t[1]).max(t[2]));
+            let meets = (0..3).all(|a| lo[a] <= within.max[a] && hi[a] >= within.min[a]);
+            if meets && !(ax == 1 && n.y < 0.0 && t[0].y < FLOOR_Y + 1e-4) {
+                faces.push((ax, n[ax] > 0.0, t[0][ax], k));
+            }
+        }
+        faces.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)).then(a.2.total_cmp(&b.2)));
+        let mut out = vec![];
+        for (i, a) in faces.iter().enumerate() {
+            for b in &faces[i + 1..] {
+                if (b.0, b.1) != (a.0, a.1) || b.2 - a.2 > 2e-4 {
+                    break;
+                }
+                let (va, vb) = (&m.verts[m.idx[a.3 * 3] as usize], &m.verts[m.idx[b.3 * 3] as usize]);
+                if va.col[..3] == vb.col[..3] && va.attr[1] == vb.attr[1] {
+                    continue;
+                }
+                // how far the two overlap in their plane, at the least, across the edges of either (separating axes)
+                let (u, v) = ((a.0 + 1) % 3, (a.0 + 2) % 3);
+                let (ta, tb) = (tri(m, a.3), tri(m, b.3));
+                let (pa, pb) = (ta.map(|p| Vec2::new(p[u], p[v])), tb.map(|p| Vec2::new(p[u], p[v])));
+                let span = |q: &[Vec2; 3], ax: Vec2| q.iter().map(|p| p.dot(ax)).fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
+                let overlap = [pa, pb]
+                    .iter()
+                    .flat_map(|q| (0..3).map(move |e| (q[(e + 1) % 3] - q[e]).perp().normalize_or_zero()))
+                    .map(|ax| {
+                        let ((a0, a1), (b0, b1)) = (span(&pa, ax), span(&pb, ax));
+                        a1.min(b1) - a0.max(b0)
+                    })
+                    .fold(f32::MAX, f32::min);
+                if overlap > eps {
+                    out.push((ta, tb, [va.col[0], va.col[1], va.col[2]], [vb.col[0], vb.col[1], vb.col[2]]));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_frames_of_windows_and_doors_share_no_plane_with_other_faces() {
+        // two faces in one plane that face the same way z-fight: the barn's red door panels once lay in the plane of the faces of the white
+        // frames of the windows beside them, and the jambs, heads and sills of every frame lay in the planes of the ends of the wall they
+        // line, which showed as a red and white sawtooth up the reveal of the barn's door
+        let mut bad = vec![];
+        for (name, g) in walled() {
+            for (l, y0, o) in &g.openings {
+                let t = WALL_T / 2.0 + 0.3;
+                let (a, c) = l.bx(o.u0 - 0.3, o.u1 + 0.3, -t, t, y0 + o.v0 - 0.2, y0 + o.v1 + 0.3);
+                let clashes = coplanar_faces(&g.mesh, &Aabb::new(a, c), 0.002);
+                if let Some(first) = clashes.first() {
+                    bad.push(format!("{name}: round the opening {o:?} of the wall {l:?}: {} clashes, the first {first:?}", clashes.len()));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{} openings:\n{}", bad.len(), bad.join("\n"));
+    }
+
+    #[test]
+    fn a_towers_shop_awnings_cover_their_windows_and_stand_on_their_frames() {
+        // on every front a tower can have, with its door in the middle or off to the side (as gen_tower places it): each awning reaches
+        // over the jambs of its window's frame (or right up to the corner post), its stays stand on those jambs, and the canopy over the
+        // door keeps clear of the awnings and still covers the door's frame
+        let (mut awnings_seen, mut narrowed) = (0, 0);
+        for k in 0..=100 {
+            let len = 8.5 + k as f32 * 0.045;
+            let hx = len / 2.0;
+            let room_x0 = -hx + WALL_T + TOWER_LANE + TOWER_SPINE + TOWER_LANE + 0.8;
+            let ix1 = hx - WALL_T;
+            let (lo, hi) = (room_x0 + DOOR_W / 2.0, ix1 - DOOR_W / 2.0 - 0.4);
+            for pick in [0.0f32, (room_x0 + ix1) / 2.0] {
+                let door_u = pick.clamp(lo, hi.max(lo)) + hx;
+                let (du0, du1) = (door_u - DOOR_W / 2.0, door_u + DOOR_W / 2.0);
+                let slots = B::window_slots(len, &[(du0 - 0.4, du1 + 0.4)], 3.3);
+                let awnings = shop_awnings(len, &slots);
+                let ch = canopy_half(door_u, &awnings);
+                let name = format!("front {len}, door at {door_u}");
+                assert!(ch - 0.15 - 0.025 >= DOOR_W / 2.0 + 0.1 && ch <= 1.25, "{name}: canopy {ch} m either side of the door");
+                narrowed += (ch < 1.25) as usize;
+                for (&c, &(u0, u1, stays)) in slots.iter().zip(&awnings) {
+                    awnings_seen += 1;
+                    // the window's frame: an opening c +- 0.8 between jambs 0.1 wide; the corner posts reach 0.23 in from the ends
+                    let (o0, o1) = (c - 0.8, c + 0.8);
+                    assert!((u0 <= o0 - 0.1 || u0 >= 0.23) && u0 <= o0 - 0.02 && (u1 >= o1 + 0.1 || u1 <= len - 0.23) && u1 >= o1 + 0.02, "{name}: awning {u0}..{u1} over the window {o0}..{o1}");
+                    for (s, (j0, j1)) in stays.iter().zip([(o0 - 0.1, o0), (o1, o1 + 0.1)]) {
+                        assert!(*s - 0.018 >= j0 && *s + 0.018 <= j1 && *s - 0.018 >= u0 && *s + 0.018 <= u1, "{name}: a stay at {s} off the jamb {j0}..{j1} or the awning {u0}..{u1}");
+                    }
+                    assert!(u0 >= door_u + ch + 0.05 || u1 <= door_u - ch - 0.05, "{name}: awning {u0}..{u1} runs into the canopy {ch} either side of {door_u}");
+                }
+            }
+        }
+        assert!(awnings_seen > 300 && narrowed > 10, "{awnings_seen} awnings, {narrowed} canopies narrowed");
     }
 }
