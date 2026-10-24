@@ -167,7 +167,7 @@ impl App {
     /// [`App::net_finish_host`] once the messages have been sent.
     pub fn net_begin_host(&mut self, cfg: &GameConfig) -> Result<(), String> {
         let Lobby::Host(mut room) = std::mem::replace(&mut self.lobby, Lobby::None) else { return Err("You are not hosting a room.".into()) };
-        let params = StartParams { seed: cfg.seed as u32, mode: cfg.mode, bots: cfg.bots as u16, difficulty: cfg.difficulty, skip_bus: cfg.skip_bus, storm_speed: cfg.storm_speed, start_mats: cfg.start_mats.min(65535) as u16 };
+        let params = StartParams { seed: cfg.seed as u32, mode: cfg.mode, bots: cfg.bots as u16, difficulty: cfg.difficulty, skip_bus: cfg.skip_bus, storm_speed: cfg.storm_speed, start_mats: cfg.start_mats.min(65535) as u16, map: cfg.map };
         let setup = room.begin(&params);
         self.net_out.extend(room.drain());
         self.pending_host = Some((room, setup));
@@ -177,13 +177,14 @@ impl App {
     /// Build the island and start the match for everyone in the room.
     pub fn net_finish_host(&mut self) -> Result<(), String> {
         let (room, setup) = self.pending_host.take().ok_or("The match has not been announced.")?;
-        let world = World::generate(setup.seed);
+        let world = World::generate_map(setup.seed, setup.map);
         self.renderer.set_world(&world);
-        if setup.seed as u64 != self.cfg.seed || self.minimap.is_empty() {
+        if setup.seed as u64 != self.cfg.seed || setup.map != self.cfg.map || self.minimap.is_empty() {
             self.minimap = fn_core::world::minimap::render(&world, 1024);
         }
         self.cfg.seed = setup.seed as u64;
         self.cfg.mode = setup.mode;
+        self.cfg.map = setup.map;
         let fov = self.mode.game().fov_deg;
         let mut host = Host::new(world, setup, room);
         host.game.fov_deg = fov;
@@ -197,13 +198,14 @@ impl App {
     pub fn net_start_guest(&mut self) -> Result<(), String> {
         let Lobby::Guest(g) = &self.lobby else { return Err("You are not in a room.".into()) };
         let Some((you, setup)) = g.start().cloned() else { return Err("The host has not started the match.".into()) };
-        let world = World::generate(setup.seed);
+        let world = World::generate_map(setup.seed, setup.map);
         self.renderer.set_world(&world);
-        if setup.seed as u64 != self.cfg.seed || self.minimap.is_empty() {
+        if setup.seed as u64 != self.cfg.seed || setup.map != self.cfg.map || self.minimap.is_empty() {
             self.minimap = fn_core::world::minimap::render(&world, 1024);
         }
         self.cfg.seed = setup.seed as u64;
         self.cfg.mode = setup.mode;
+        self.cfg.map = setup.map;
         let fov = self.mode.game().fov_deg;
         let mut client = Client::new(world, you, setup);
         client.game.fov_deg = fov;

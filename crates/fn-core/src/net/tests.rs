@@ -62,7 +62,7 @@ struct Harness {
 }
 
 fn quick_params(bots: u16, skip_bus: bool) -> StartParams {
-    StartParams { seed: 1234, mode: crate::game::GameMode::BattleRoyale, bots, difficulty: Difficulty::Normal, skip_bus, storm_speed: 1.0, start_mats: 300 }
+    StartParams { seed: 1234, mode: crate::game::GameMode::BattleRoyale, bots, difficulty: Difficulty::Normal, skip_bus, storm_speed: 1.0, start_mats: 300, map: crate::world::maps::MapKind::Island }
 }
 
 impl Harness {
@@ -89,8 +89,8 @@ impl Harness {
             }
         }
         assert_eq!(starts.len(), guests, "everybody is told the match starts");
-        let host = Host::new(World::generate(params.seed), setup.clone(), room);
-        let clients: Vec<Client> = starts.iter().map(|(_, you, setup)| Client::new(World::generate(setup.seed), *you as usize, setup.clone())).collect();
+        let host = Host::new(World::generate_map(params.seed, params.map), setup.clone(), room);
+        let clients: Vec<Client> = starts.iter().map(|(_, you, setup)| Client::new(World::generate_map(setup.seed, setup.map), *you as usize, setup.clone())).collect();
         Harness { host, clients, up: (0..guests).map(|_| Pipe::default()).collect(), down: (0..guests).map(|_| Pipe::default()).collect(), net, now: 0.0, rng: Rng::new(77), bytes_down: 0, bytes_up: 0 }
     }
 

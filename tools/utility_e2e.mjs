@@ -17,7 +17,7 @@ const click = async () => { await page.mouse.down({ button: 'left' }); await fra
 const hold = async (code, n) => { await page.keyboard.down(code); await frames(n); await page.keyboard.up(code); };
 
 try {
-  await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=3;god=1'));
+  await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=3;god=1;map=island'));
   await page.waitForFunction(() => window.__game?.state === 'playing', null, { timeout: 240000 });
   await dbg('freeze_bots');
   await frames(2);

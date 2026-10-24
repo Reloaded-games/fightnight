@@ -119,7 +119,7 @@ pub(crate) fn now_ms() -> f64 {
 
 impl App {
     pub fn new(renderer: Renderer, meshes: Vec<MeshData>, cfg: GameConfig) -> App {
-        let world = World::generate(cfg.seed as u32);
+        let world = World::generate_map(cfg.seed as u32, cfg.map);
         let mut renderer = renderer;
         renderer.set_world(&world);
         let minimap = fn_core::world::minimap::render(&world, 1024);
@@ -159,9 +159,9 @@ impl App {
 
     /// Start a fresh match (regenerates the island so felled trees come back).
     pub fn restart(&mut self, cfg: GameConfig) {
-        let world = World::generate(cfg.seed as u32);
+        let world = World::generate_map(cfg.seed as u32, cfg.map);
         self.renderer.set_world(&world);
-        if cfg.seed != self.cfg.seed || self.minimap.is_empty() {
+        if cfg.seed != self.cfg.seed || cfg.map != self.cfg.map || self.minimap.is_empty() {
             self.minimap = fn_core::world::minimap::render(&world, 1024);
         }
         let fov = self.mode.game().fov_deg;
@@ -873,9 +873,10 @@ impl App {
                 }
                 "ok".into()
             }
+            "map_key" => format!("{}:{}", g.world.map.key(), g.world.seed),
             "state" => {
                 let a = &g.actors[me];
-                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{},\"outfit\":{},\"gameMode\":\"{:?}\",\"worldSize\":{},\"vehicles\":{},\"shield\":{:.0},\"thrown\":{},\"traps\":{}}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting, g.cfg.player_outfit, g.cfg.mode, fn_core::world::WORLD_SIZE, g.vehicles.len(), a.shield, g.thrown.len(), g.traps.len())
+                format!("{{\"pos\":[{:.1},{:.1},{:.1}],\"yaw\":{:.2},\"hp\":{:.0},\"mode\":\"{:?}\",\"alive\":{},\"phase\":\"{:?}\",\"pieces\":{},\"pickups\":{},\"t\":{:.1},\"emoting\":{},\"outfit\":{},\"gameMode\":\"{:?}\",\"worldSize\":{},\"vehicles\":{},\"shield\":{:.0},\"thrown\":{},\"traps\":{},\"map\":\"{}\"}}", a.pos.x, a.pos.y, a.pos.z, a.yaw, a.hp, a.mode, g.alive_count(), g.phase, g.pieces.count(), g.pickups.len(), g.time, a.emoting, g.cfg.player_outfit, g.cfg.mode, fn_core::world::WORLD_SIZE, g.vehicles.len(), a.shield, g.thrown.len(), g.traps.len(), g.world.map.key())
             }
             "vehicles" => {
                 let list: Vec<String> = g.vehicles.iter().map(|v| format!("{{\"id\":{},\"pos\":[{:.2},{:.2},{:.2}],\"yaw\":{:.3},\"speed\":{:.2},\"driver\":{}}}", v.id, v.pos.x, v.pos.y, v.pos.z, v.yaw, v.speed, v.driver.map_or("null".into(), |i| i.to_string()))).collect();

@@ -479,11 +479,12 @@ impl Brain {
                 continue;
             }
             let kind_w = match poi.kind {
-                PoiKind::Town => 3.0,
-                PoiKind::Coastal => 2.0,
-                PoiKind::Lakeside => 1.6,
-                PoiKind::Lodge => 1.3,
-                PoiKind::Farm => 1.0,
+                PoiKind::Town | PoiKind::City => 3.0,
+                PoiKind::Suburb | PoiKind::Retail => 2.4,
+                PoiKind::Coastal | PoiKind::Industrial | PoiKind::Mansions => 2.0,
+                PoiKind::Lakeside | PoiKind::Crater => 1.6,
+                PoiKind::Lodge | PoiKind::Swamp => 1.3,
+                PoiKind::Farm | PoiKind::Junkyard => 1.0,
                 PoiKind::Station => 1.0,
                 PoiKind::Hamlet => 0.8,
             };

@@ -17,9 +17,10 @@ use crate::game::pieces::PieceKey;
 use crate::game::{Difficulty, GameConfig, GameMode, Phase, PickupKind};
 use crate::game::vehicles::Vehicle;
 use crate::math::*;
+use crate::world::maps::MapKind;
 
 /// Bump when anything in this file changes shape; hosts and clients of different versions refuse each other.
-pub const VERSION: u16 = 4;
+pub const VERSION: u16 = 5;
 /// Most people in one room, the host included.
 pub const MAX_HUMANS: usize = 8;
 /// Most commands a single packet may carry.
@@ -42,6 +43,8 @@ pub struct MatchSetup {
     pub skip_bus: bool,
     pub storm_speed: f32,
     pub start_mats: u16,
+    /// The island everybody builds (with `seed`).
+    pub map: MapKind,
     /// The humans' names in actor order: the host first.
     pub names: Vec<String>,
 }
@@ -61,6 +64,7 @@ impl MatchSetup {
             skip_bus: self.skip_bus,
             storm_speed: self.storm_speed,
             god_mode: false,
+            map: self.map,
         }
     }
 
@@ -76,6 +80,7 @@ impl MatchSetup {
         w.bool(self.skip_bus);
         w.f32(self.storm_speed);
         w.u16(self.start_mats);
+        w.u8(self.map.index());
         w.u8(self.names.len() as u8);
         for n in &self.names {
             w.str(n);
@@ -101,12 +106,13 @@ impl MatchSetup {
             return Err(WireError::Invalid("storm speed"));
         }
         let start_mats = r.u16()?;
+        let map = MapKind::from_index(r.u8()?).ok_or(WireError::Invalid("map"))?;
         let n = r.u8()? as usize;
         if n == 0 || n > MAX_HUMANS {
             return Err(WireError::Invalid("players"));
         }
         let names = (0..n).map(|_| r.str()).collect::<Result<Vec<_>>>()?;
-        Ok(MatchSetup { seed, mode, bots, difficulty, skip_bus, storm_speed, start_mats, names })
+        Ok(MatchSetup { seed, mode, bots, difficulty, skip_bus, storm_speed, start_mats, map, names })
     }
 }
 
@@ -1393,7 +1399,7 @@ mod tests {
     }
 
     fn setup() -> MatchSetup {
-        MatchSetup { seed: 1234, mode: GameMode::Lego, bots: 30, difficulty: Difficulty::Hard, skip_bus: true, storm_speed: 2.5, start_mats: 150, names: vec!["Host".into(), "Ada".into(), "ZoÃ«".into()] }
+        MatchSetup { seed: 1234, mode: GameMode::Lego, bots: 30, difficulty: Difficulty::Hard, skip_bus: true, storm_speed: 2.5, start_mats: 150, map: MapKind::Chapter2, names: vec!["Host".into(), "Ada".into(), "ZoÃ«".into()] }
     }
 
     fn own() -> Own {
@@ -1664,6 +1670,7 @@ mod tests {
         assert_eq!(cfg.player_name, "Host");
         assert_eq!(cfg.human_names, vec!["Ada".to_string(), "ZoÃ«".to_string()]);
         assert_eq!(cfg.difficulty, Difficulty::Hard);
+        assert_eq!(cfg.map, MapKind::Chapter2, "the island the host chose");
     }
 
     #[test]

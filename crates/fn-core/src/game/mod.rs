@@ -27,6 +27,7 @@ pub mod vehicles;
 use crate::camera::Camera;
 use crate::math::*;
 use crate::rng::Rng;
+use crate::world::maps::MapKind;
 use crate::world::{ChestKind, World, WORLD_HALF};
 use actor::*;
 use env::Env;
@@ -80,11 +81,13 @@ pub struct GameConfig {
     pub storm_speed: f32,
     /// The human takes no damage (tests).
     pub god_mode: bool,
+    /// Which island: the procedural one (from `seed`) or one of the recreated Fortnite maps.
+    pub map: MapKind,
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        Self { seed: 1, mode: GameMode::BattleRoyale, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, humans: 1, human_names: vec![], start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false }
+        Self { seed: 1, mode: GameMode::BattleRoyale, bots: 39, difficulty: Difficulty::Normal, player_name: "You".into(), player_outfit: 0, humans: 1, human_names: vec![], start_mats: 100, skip_bus: false, storm_speed: 1.0, god_mode: false, map: MapKind::Island }
     }
 }
 

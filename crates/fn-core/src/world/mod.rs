@@ -4,6 +4,8 @@ pub mod buildings;
 pub mod collision;
 pub mod gen;
 pub mod heightmap;
+pub mod maps;
+mod maps_data;
 pub mod minimap;
 pub mod nav;
 pub mod props;
@@ -108,6 +110,8 @@ pub struct Windmill {
 
 pub struct World {
     pub seed: u32,
+    /// Which island this is (the procedural one, or a recreated Fortnite map).
+    pub map: maps::MapKind,
     pub base: BaseTerrain,
     pub layout: Layout,
     pub hm: Heightmap,
@@ -128,11 +132,22 @@ pub struct World {
 }
 
 impl World {
+    /// The procedural island for `seed`.
     pub fn generate(seed: u32) -> World {
-        let base = BaseTerrain::new(seed);
+        World::generate_map(seed, maps::MapKind::Island)
+    }
+
+    /// The island of a match: the procedural one for `seed`, or a recreated map (`seed` then only varies the small
+    /// details: trees, rocks, loot).
+    pub fn generate_map(seed: u32, map: maps::MapKind) -> World {
+        let spec = map.spec();
+        let base = match spec {
+            Some(spec) => BaseTerrain::from_spec(seed, spec),
+            None => BaseTerrain::new(seed),
+        };
         let layout = gen::plan_layout(&base);
         let hm = gen::build_heightmap(&base, &layout);
-        let painter = TerrainPainter { seed };
+        let painter = TerrainPainter { seed, spec };
         let mut splat = Splat::new();
         for r in &layout.roads {
             let ch = if r.kind == RoadKind::Asphalt { splat::CH_ASPHALT } else { splat::CH_DIRT };
@@ -284,7 +299,9 @@ impl World {
             if layout.pois.iter().any(|poi| poi.center.distance(p) < poi.radius + 40.0) || splat.sample(p)[splat::CH_ASPHALT] > 0.05 {
                 continue;
             }
-            if llamas.iter().any(|q| q.distance(p) < WORLD_HALF * 0.45) || chest_spots.iter().any(|c| Vec2::new(c.pos.x, c.pos.z).distance(p) < 25.0) {
+            // (a recreated map is busier: the llamas are not quite as far apart there)
+            let apart = if spec.is_some() { WORLD_HALF * 0.32 } else { WORLD_HALF * 0.45 };
+            if llamas.iter().any(|q| q.distance(p) < apart) || chest_spots.iter().any(|c| Vec2::new(c.pos.x, c.pos.z).distance(p) < 25.0) {
                 continue;
             }
             let mut blocked = false;
@@ -296,7 +313,7 @@ impl World {
             llamas.push(p);
         }
 
-        let mut world = World { seed, base, layout, hm, painter, terrain, splat, statics, buildings, chunk_props: nature.chunk_props, harvest: nature.harvest, chunk_meshes: cm, windmills, loot_spots, chest_spots, nav: NavGrid::new(WORLD_HALF, NAV_CELL), no_cover };
+        let mut world = World { seed, map, base, layout, hm, painter, terrain, splat, statics, buildings, chunk_props: nature.chunk_props, harvest: nature.harvest, chunk_meshes: cm, windmills, loot_spots, chest_spots, nav: NavGrid::new(WORLD_HALF, NAV_CELL), no_cover };
         world.build_nav();
         world
     }
@@ -317,7 +334,9 @@ impl World {
             for i in 0..w {
                 let c = nav.center(i, j);
                 let ht = self.hm.height_at(c.x, c.y);
-                let blocked = ht < -0.3 || self.hm.slope_at(c.x, c.y) > 0.85 || self.layout.lakes.iter().any(|l| l.center.distance(c) < l.radius * 1.02 && ht < l.level - 0.35);
+                // rivers are swum across; the open sea is not a way anywhere
+                let river = !self.layout.rivers.is_empty() && self.layout.river_distance(c) < 2.0;
+                let blocked = (ht < -0.3 && !river) || self.hm.slope_at(c.x, c.y) > 0.85 || self.layout.lakes.iter().any(|l| l.center.distance(c) < l.radius * 1.02 && ht < l.level - 0.35);
                 if blocked {
                     nav.set_blocked(i, j, true);
                 }

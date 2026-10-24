@@ -733,7 +733,7 @@ export class Hud {
 }
 
 /** Draw the full-screen island map into its own canvas. */
-export function drawFullMap(canvas, mapImage, s, pois) {
+export function drawFullMap(canvas, mapImage, s, pois, info = null) {
   const ctx = canvas.getContext('2d');
   const N = canvas.width;
   ctx.clearRect(0, 0, N, N);
@@ -741,6 +741,26 @@ export function drawFullMap(canvas, mapImage, s, pois) {
   if (mapImage) ctx.drawImage(mapImage, 0, 0, N, N);
   const scale = N / WORLD;
   const toX = (x) => (x + WORLD / 2) * scale, toY = (z) => (z + WORLD / 2) * scale;
+  // the lettered grid of the recreated maps: columns A..J west to east, rows 1..10 north to south
+  if (info && info.grid > 0) {
+    const g = info.grid, x0 = -5 * g;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let k = 0; k <= 10; k++) {
+      const a = toX(x0 + k * g), b = toY(x0 + k * g);
+      ctx.moveTo(a, toY(x0)); ctx.lineTo(a, toY(-x0));
+      ctx.moveTo(toX(x0), b); ctx.lineTo(toX(-x0), b);
+    }
+    ctx.stroke();
+    ctx.font = `italic 900 22px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    for (let k = 0; k < 10; k++) {
+      ctx.fillText(String.fromCharCode(65 + k), toX(x0 + (k + 0.5) * g), toY(x0) + 16);
+      ctx.fillText(String(k + 1), toX(x0) + 16, toY(x0 + (k + 0.5) * g));
+    }
+    ctx.restore();
+  }
   const hud = { arrow: Hud.prototype.arrow, mapOverlays: Hud.prototype.mapOverlays };
   hud.mapOverlays(ctx, s, toX, toY, scale, N / 2, false, 1.4);
   // points of interest: nudge a label up or down when it would overlap another one or the player marker
@@ -752,7 +772,8 @@ export function drawFullMap(canvas, mapImage, s, pois) {
   for (const p of pois) {
     const text = p.name.toUpperCase();
     const w = ctx.measureText(text).width + 10, h = 30;
-    const x = toX(p.x);
+    // (a place on the coast keeps its whole name on the map)
+    const x = Math.min(Math.max(toX(p.x), w / 2 + 4), N - w / 2 - 4);
     let y = toY(p.z);
     for (const k of [0, -1, 1, -2, 2, -3, 3]) {
       const yy = toY(p.z) + k * h;

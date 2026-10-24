@@ -20,7 +20,7 @@ const frames = async (n) => {
   { frames: start.frames + n, t: start.t + n / 10, native: process.env.FN_FLAGS === 'native' }, { timeout: 300000 });
 };
 
-await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=15;god=1'));
+await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=15;god=1;map=island'));
 try { await page.waitForFunction(() => window.__game && window.__game.state === 'playing', null, { timeout: 240000 }); } catch (e) { /* reported below */ }
 check('match starts and enters the playing state', (await page.evaluate(() => window.__game && window.__game.state)) === 'playing');
 if (failed) {

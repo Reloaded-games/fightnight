@@ -37,6 +37,8 @@ try {
   // ---- the host opens a room and makes an invite -----------------------------------------------------------------------
   await pages.host.evaluate(() => { window.__game.cfg.name = 'Hosty'; window.__game.cfg.bots = 6; window.__game.cfg.skipbus = true; });
   await pages.host.click('#seg-mode button[data-v="lego"]');
+  // (the original island: the rest of the test walks to places on it)
+  await pages.host.click('#seg-map button[data-v="island"]');
   await pages.host.click('#btn-multi');
   await pages.host.click('#btn-mp-host');
   check('the room creator is identified as the host', (await pages.host.textContent('#lobby-title')).includes('You are the host'));
@@ -48,6 +50,7 @@ try {
   // ---- the guest answers it ---------------------------------------------------------------------------------------------------
   await pages.guest.evaluate(() => { window.__game.cfg.name = 'Gus'; });
   await pages.guest.click('#seg-mode button[data-v="zero-build"]');
+  await pages.guest.click('#seg-map button[data-v="chapter2"]');
   await pages.guest.click('#btn-multi');
   await pages.guest.click('#btn-mp-join');
   check('a guest cannot start the host room', !(await pages.guest.isVisible('#btn-lobby-start')));
@@ -79,6 +82,8 @@ try {
   const modeHuds = await Promise.all(['host', 'guest'].map((who) => pages[who].evaluate(() => ({ mode: window.__game.hud.gameMode, world: window.__game.hud.worldSize }))));
   check('both HUDs show the host LEGO mode despite the guest choosing Zero Build', modeHuds.every((h) => h.mode === 'lego'), JSON.stringify(modeHuds));
   check('both players use the expanded island', modeHuds.every((h) => h.world === 1920), JSON.stringify(modeHuds));
+  const maps = await Promise.all(['host', 'guest'].map((who) => pages[who].evaluate(() => JSON.parse(window.__game.fn.debug('state')).map)));
+  check('the host chooses the island for both players, whatever the guest picked', maps.every((m) => m === 'island'), maps.join(' / '));
 
   // ---- the guest walks; the host sees it -----------------------------------------------------------------------------------
   await dbg('host', 'tp 52 28'); // the host stays out of the way

@@ -7,7 +7,7 @@ use super::heightmap::Heightmap;
 use super::props::{PropInst, PropKind};
 use super::splat::*;
 use crate::math::*;
-use crate::mesh::MeshData;
+use crate::mesh::{mat, MeshData};
 use crate::rng::Rng;
 use std::f32::consts::FRAC_PI_2;
 
@@ -39,6 +39,43 @@ struct Planner<'a> {
 
 const STREET_HALF: f32 = 3.4;
 
+/// Where a building may stand besides level, dry ground away from lakes.
+#[derive(Clone, Copy)]
+struct Site {
+    /// How far the ground may fall away under the footprint.
+    max_drop: f32,
+    /// It stands on an island in a lake.
+    on_island: bool,
+    /// It stands at the lowest ground under it, sunk into the slope (landmarks without a floor to walk on).
+    sink: bool,
+}
+
+impl Default for Site {
+    fn default() -> Self {
+        Site { max_drop: 1.5, on_island: false, sink: false }
+    }
+}
+
+/// Quarter turns that make a building's door (its local +Z) face `dir`.
+fn facing_rot(dir: Vec2) -> u8 {
+    if dir.x.abs() > dir.y.abs() {
+        if dir.x > 0.0 {
+            1
+        } else {
+            3
+        }
+    } else if dir.y > 0.0 {
+        0
+    } else {
+        2
+    }
+}
+
+/// A unit vector at angle `a` (radians) in the x/z plane.
+fn dir_of(a: f32) -> Vec2 {
+    Vec2::new(a.cos(), a.sin())
+}
+
 impl<'a> Planner<'a> {
     fn height_range(&self, min: Vec2, max: Vec2) -> (f32, f32) {
         let mut lo = f32::MAX;
@@ -57,10 +94,16 @@ impl<'a> Planner<'a> {
 
     /// Try to put a building at `pos` (x, z). Returns its index on success.
     fn place(&mut self, g: &Geom, pos: Vec2, rot: u8, poi: usize, kind: &'static str, margin: f32, lawn: bool) -> Option<usize> {
+        self.place_with(g, pos, rot, poi, kind, margin, lawn, Site::default())
+    }
+
+    /// [`Planner::place`] for an unusual site (see [`Site`]).
+    #[allow(clippy::too_many_arguments)]
+    fn place_with(&mut self, g: &Geom, pos: Vec2, rot: u8, poi: usize, kind: &'static str, margin: f32, lawn: bool, site: Site) -> Option<usize> {
         let half = if rot % 2 == 0 { g.half } else { Vec2::new(g.half.y, g.half.x) };
         let (min, max) = (pos - half, pos + half);
         let (lo, hi) = self.height_range(min - Vec2::splat(1.0), max + Vec2::splat(1.0));
-        if lo < 2.0 || hi - lo > 1.5 || self.lake_conflict(pos, half.max_element()) {
+        if lo < 2.0 || hi - lo > site.max_drop || (!site.on_island && self.lake_conflict(pos, half.max_element())) {
             return None;
         }
         let (emin, emax) = (min - Vec2::splat(margin), max + Vec2::splat(margin));
@@ -68,7 +111,7 @@ impl<'a> Planner<'a> {
             return None;
         }
         let id = self.out.buildings.len() as u32;
-        let at = Vec3::new(pos.x, hi, pos.y);
+        let at = Vec3::new(pos.x, if site.sink { lo } else { hi }, pos.y);
         let mut placed = place(g, at, rot, Tag::Building(id));
         let hm = self.hm;
         add_entrance_steps(&mut placed, g, at, rot, Tag::Building(id), &|x, z| hm.height_at(x, z));
@@ -166,6 +209,14 @@ pub fn build_towns(layout: &Layout, hm: &Heightmap, splat: &mut Splat, seed: u32
             PoiKind::Lakeside => plan_lakeside(&mut pl, pi, poi),
             PoiKind::Hamlet => plan_hamlet(&mut pl, pi, poi),
             PoiKind::Station => plan_station(&mut pl, pi, poi),
+            PoiKind::City => plan_city(&mut pl, pi, poi),
+            PoiKind::Suburb => plan_suburb(&mut pl, pi, poi),
+            PoiKind::Industrial => plan_industrial(&mut pl, pi, poi),
+            PoiKind::Mansions => plan_mansions(&mut pl, pi, poi),
+            PoiKind::Junkyard => plan_junkyard(&mut pl, pi, poi),
+            PoiKind::Crater => plan_crater(&mut pl, pi, poi),
+            PoiKind::Swamp => plan_swamp(&mut pl, pi, poi),
+            PoiKind::Retail => plan_retail(&mut pl, pi, poi),
         }
     }
     pl.out
@@ -342,12 +393,22 @@ fn plan_lakeside(pl: &mut Planner, pi: usize, poi: &Poi) {
     // houses on a ring around the nearest lake, front doors facing the water
     let Some(lake) = pl.layout.lakes.iter().min_by(|a, b| a.center.distance(poi.center).partial_cmp(&b.center.distance(poi.center)).unwrap()) else { return };
     let lake = lake.clone();
+    let beside = poi.center.distance(lake.center) > lake.radius * 0.5;
     let ring = lake.radius * 1.45 + 17.0;
-    let n = 9;
+    if lake.island > 0.0 {
+        // the house on the island in the middle (Loot Lake)
+        let st = random_style(&mut pl.rng, 2);
+        let g = gen_house(&mut pl.rng, 10.5, 10.0, &Style { porch: true, chimney: true, ..st });
+        pl.place_with(&g, lake.center, 0, pi, "house", 1.0, false, Site { on_island: true, ..Site::default() });
+    }
+    // a lake with an island has a few houses on its shore, not a whole village round it; a village set beside its lake
+    // (Lazy Lake) is a ring of houses on its own stretch of shore
+    let n = if beside { 7 } else if lake.island > 0.0 { 3 } else { 9 };
+    let (hub, ring) = if beside { (poi.center, poi.radius * 0.62) } else { (lake.center, ring) };
     for k in 0..n {
         let a = k as f32 / n as f32 * std::f32::consts::TAU + 0.2;
-        let p = lake.center + Vec2::new(a.cos(), a.sin()) * ring;
-        let to_l = (lake.center - p).normalize_or_zero();
+        let p = hub + Vec2::new(a.cos(), a.sin()) * ring;
+        let to_l = (hub - p).normalize_or_zero();
         let rot = if to_l.x.abs() > to_l.y.abs() { if to_l.x > 0.0 { 1 } else { 3 } } else if to_l.y > 0.0 { 0 } else { 2 };
         let st = random_style(&mut pl.rng, 1);
         let (w, d) = (pl.rng.range(7.5, 10.0), pl.rng.range(6.5, 8.5));
@@ -413,6 +474,336 @@ fn plan_station(pl: &mut Planner, pi: usize, poi: &Poi) {
         }
     }
     let _ = FRAC_PI_2;
+}
+
+/// A grid of streets with blocks of tall buildings between them and a clock tower in the middle (Tilted Towers).
+fn plan_city(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let ext = poi.radius * 0.93;
+    let n = if poi.radius >= 70.0 { 3 } else { 2 };
+    let block = ext * 2.0 / n as f32;
+    let lines: Vec<f32> = (0..=n).map(|k| -ext + k as f32 * block).collect();
+    for &u in &lines {
+        pl.street(c + Vec2::new(u, -ext), c + Vec2::new(u, ext), STREET_HALF);
+        pl.street(c + Vec2::new(-ext, u), c + Vec2::new(ext, u), STREET_HALF);
+    }
+    pl.splat.paint_rect(c - Vec2::splat(ext), c + Vec2::splat(ext), CH_ASPHALT, EDGE_RAMP);
+    let middle = n / 2;
+    for bx in 0..n {
+        for bz in 0..n {
+            let (x0, x1) = (lines[bx] + STREET_HALF + 1.2, lines[bx + 1] - STREET_HALF - 1.2);
+            let (z0, z1) = (lines[bz] + STREET_HALF + 1.2, lines[bz + 1] - STREET_HALF - 1.2);
+            let (iw, id) = (x1 - x0, z1 - z0);
+            if iw < 9.0 || id < 9.0 {
+                continue;
+            }
+            let bc = c + Vec2::new((x0 + x1) * 0.5, (z0 + z1) * 0.5);
+            if bx == middle && bz == middle && n % 2 == 1 {
+                // the clock tower: tall and narrow, in a little square
+                let st = Style { wall: 0xC9B79C, wall_mat: mat::BRICK, ..random_style(&mut pl.rng, 6) };
+                let g = gen_tower(&mut pl.rng, 9.0, 9.0, 6, &st);
+                pl.place(&g, bc, 0, pi, "clock tower", 0.6, false);
+                continue;
+            }
+            // two blocks of flats side by side along the longer side of the block, fronts to the streets either side
+            let along_x = (bx + bz) % 2 == 0;
+            let span = if along_x { iw } else { id };
+            let depth = if along_x { id } else { iw };
+            let pair = span >= 19.5;
+            let count = if pair { 2 } else { 1 };
+            for k in 0..count {
+                let w = (span / count as f32 - 1.4).clamp(8.5, 13.0) * pl.rng.range(0.88, 1.0);
+                let d = (depth - 1.0).clamp(8.5, 13.0) * pl.rng.range(0.88, 1.0);
+                let off = if pair { (k as f32 - 0.5) * span * 0.5 } else { 0.0 };
+                let p = if along_x { bc + Vec2::new(off, 0.0) } else { bc + Vec2::new(0.0, off) };
+                // doors face the street on the short side nearest the edge of the city
+                let out = if along_x { Vec2::new(0.0, if bz < middle || (n % 2 == 0 && bz == 0) { -1.0 } else { 1.0 }) } else { Vec2::new(if bx < middle || (n % 2 == 0 && bx == 0) { -1.0 } else { 1.0 }, 0.0) };
+                let rot = facing_rot(out);
+                // (w runs along the pair, d across it; a quarter turn swaps the generator's width and depth)
+                let (ex, ez) = if along_x { (w, d) } else { (d, w) };
+                let (gw, gd) = if rot % 2 == 0 { (ex, ez) } else { (ez, ex) };
+                let floors = 3 + (pl.rng.f32() * 3.0) as u32;
+                let st = random_style(&mut pl.rng, floors);
+                let g = gen_tower(&mut pl.rng, gw, gd, floors, &st);
+                pl.place(&g, p, rot, pi, "tower block", 0.6, false);
+            }
+        }
+    }
+    let mut u = -ext + 8.0;
+    while u < ext - 4.0 {
+        for &l in &lines[1..n] {
+            pl.lamp(c + Vec2::new(u, l + STREET_HALF + 0.9));
+            pl.lamp(c + Vec2::new(l + STREET_HALF + 0.9, u));
+        }
+        u += 24.0;
+    }
+}
+
+/// Houses round a green with a ring road, and streets out to the four sides (Pleasant Park).
+fn plan_suburb(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let r = poi.radius;
+    let ring = (r * 0.42).max(16.0);
+    pl.splat.paint_disc(c, ring - STREET_HALF - 0.8, CH_LAWN, 4.0);
+    let segs = 36;
+    for k in 0..segs {
+        let (a0, a1) = (k as f32 / segs as f32 * std::f32::consts::TAU, (k + 1) as f32 / segs as f32 * std::f32::consts::TAU);
+        pl.street(c + dir_of(a0) * ring, c + dir_of(a1) * ring, STREET_HALF);
+    }
+    for d in [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y] {
+        pl.street(c + d * ring, c + d * r * 0.93, STREET_HALF);
+    }
+    // the gazebo-like fountain in the middle of the green, benches round it
+    let h = pl.hm.height_at(c.x, c.y);
+    pl.decor(&gen_fountain(), Vec3::new(c.x, h, c.y), 0, Some(5.0));
+    for k in 0..4 {
+        let a = std::f32::consts::FRAC_PI_4 + k as f32 * FRAC_PI_2;
+        let p = c + dir_of(a) * 7.0;
+        pl.decor(&gen_bench(a.cos().atan2(a.sin())), Vec3::new(p.x, pl.hm.height_at(p.x, p.y), p.y), 0, None);
+    }
+    // houses round the outside of the ring, doors to the green; the four streets out stay clear
+    let houses_r = ring + STREET_HALF + 8.5;
+    let count = ((std::f32::consts::TAU * houses_r) / 15.5) as usize;
+    for k in 0..count {
+        let a = k as f32 / count as f32 * std::f32::consts::TAU + 0.2;
+        let d = dir_of(a);
+        if d.x.abs() < 0.2 || d.y.abs() < 0.2 {
+            continue;
+        }
+        let two = pl.rng.chance(0.35);
+        let st = random_style(&mut pl.rng, if two { 2 } else { 1 });
+        let (w, dd) = if two { (pl.rng.range(8.5, 10.5), pl.rng.range(9.8, 11.0)) } else { (pl.rng.range(7.5, 10.0), pl.rng.range(6.5, 8.5)) };
+        let g = gen_house(&mut pl.rng, w, dd, &st);
+        pl.place(&g, c + d * houses_r, facing_rot(-d), pi, "house", 2.0, true);
+    }
+    // more houses along the streets out, in a big enough place
+    if r > 62.0 {
+        let near = ring + houses_r - ring + 9.0;
+        let far = r * 0.9;
+        pl.street_lots(pi, c, true, near, far - 9.0, &[], 0.0, 0.3, Some("house"));
+        pl.street_lots(pi, c, true, -far, -near - 11.0, &[], 0.0, 0.3, Some("house"));
+        pl.street_lots(pi, c, false, near, far - 9.0, &[], 0.0, 0.3, Some("house"));
+        pl.street_lots(pi, c, false, -far, -near - 11.0, &[], 0.0, 0.3, Some("house"));
+    }
+}
+
+/// Warehouses round an asphalt yard, with shipping containers and tall chimneys (Flush Factory, Steamy Stacks, Dirty Docks).
+fn plan_industrial(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let r = poi.radius;
+    let along = if poi.axis_x { Vec2::X } else { Vec2::Y };
+    pl.street(c - along * r * 0.93, c + along * r * 0.93, STREET_HALF);
+    pl.splat.paint_disc(c, r * 0.6, CH_ASPHALT, EDGE_RAMP);
+    // the halls on a ring round the yard, big doors to the middle
+    let halls = if r > 60.0 { 4 } else { 3 };
+    for k in 0..halls {
+        let a = k as f32 / halls as f32 * std::f32::consts::TAU + 0.35;
+        let d = dir_of(a);
+        let (w, dd) = (pl.rng.range(17.0, 23.0), pl.rng.range(12.5, 16.0));
+        let rot = facing_rot(-d);
+        let g = gen_warehouse(&mut pl.rng, w, dd);
+        for ring in [0.5, 0.42, 0.6] {
+            if pl.place(&g, c + d * r * ring, rot, pi, "warehouse", 2.0, false).is_some() {
+                break;
+            }
+        }
+    }
+    // the site office
+    let office = gen_shop(&mut pl.rng, 10.0, 8.0);
+    for k in 0..8 {
+        let p = c + dir_of(k as f32 / 8.0 * std::f32::consts::TAU + 1.1) * r * 0.25;
+        if pl.place(&office, p, facing_rot(c - p), pi, "shop", 1.5, false).is_some() {
+            break;
+        }
+    }
+    // chimneys
+    for k in 0..2 {
+        let stack = gen_smokestack(pl.rng.range(24.0, 34.0));
+        for t in 0..10 {
+            let p = c + dir_of(k as f32 * 3.0 + t as f32 * 0.7) * r * pl.rng.range(0.55, 0.8);
+            if pl.place_with(&stack, p, 0, pi, "chimney", 2.0, false, Site { max_drop: 4.0, sink: true, ..Site::default() }).is_some() {
+                break;
+            }
+        }
+    }
+    place_containers(pl, c, r * 0.55, 8);
+}
+
+/// `n` shipping containers lying about within `r` of `c`, some stacked two high.
+fn place_containers(pl: &mut Planner, c: Vec2, r: f32, n: usize) {
+    let paints = [0xb5463a, 0x2f6fb0, 0x3e7e4e, 0xd9a23b, 0x5a5f6a, 0xc96f2a];
+    for _ in 0..n {
+        let p = c + pl.rng.in_disc(r);
+        let rot = if pl.rng.chance(0.5) { 0 } else { 1 };
+        let half = if rot == 0 { Vec2::new(3.3, 1.5) } else { Vec2::new(1.5, 3.3) };
+        let (lo, hi) = pl.height_range(p - half, p + half);
+        if lo < 2.0 || hi - lo > 0.8 || pl.fps.iter().any(|&(a, b)| p.x + half.x > a.x && p.x - half.x < b.x && p.y + half.y > a.y && p.y - half.y < b.y) {
+            continue;
+        }
+        let g = gen_container(*pl.rng.pick(&paints));
+        pl.decor(&g, Vec3::new(p.x, hi, p.y), rot, None);
+        pl.fps.push((p - half, p + half));
+        if pl.rng.chance(0.3) {
+            let top = gen_container(*pl.rng.pick(&paints));
+            pl.decor(&top, Vec3::new(p.x, hi + 2.6, p.y), rot, None);
+        }
+    }
+}
+
+/// A few big two-storey houses on wide lots along one road (Snobby Shores).
+fn plan_mansions(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let ext = poi.radius * 0.93;
+    let along = if poi.axis_x { Vec2::X } else { Vec2::Y };
+    let across = Vec2::new(-along.y, along.x);
+    pl.street(c - along * ext, c + along * ext, STREET_HALF);
+    let mut u = -ext + 12.0;
+    let mut k = 0;
+    while u < ext - 10.0 {
+        let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+        k += 1;
+        let (w, d) = (pl.rng.range(12.0, 14.5), pl.rng.range(10.4, 12.4));
+        let st = random_style(&mut pl.rng, 2);
+        let g = gen_house(&mut pl.rng, w, d, &Style { porch: true, chimney: true, ..st });
+        let p = c + along * u + across * side * (STREET_HALF + pl.rng.range(6.0, 9.0) + d * 0.5);
+        if pl.place(&g, p, facing_rot(-across * side), pi, "house", 4.0, true).is_some() {
+            // a hedge-like fence along the front of the lot
+            let fence = gen_fence(w + 4.0, 0xf2efe6);
+            let f = c + along * (u - (w + 4.0) * 0.5) + across * side * (STREET_HALF + 2.2);
+            // (the fence runs along its +X; a quarter turn the other way round makes that +Z)
+            let rot = if poi.axis_x { 0 } else { 3 };
+            pl.decor(&fence, Vec3::new(f.x, pl.hm.height_at(f.x, f.y), f.y), rot, None);
+        }
+        u += pl.rng.range(22.0, 30.0) * 0.5 + 6.0;
+    }
+}
+
+/// Rows of crushed cars in a dirt yard, with loot on top of the piles and an office (Junk Junction).
+fn plan_junkyard(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let r = poi.radius;
+    pl.splat.paint_disc(c, r * 0.8, CH_DIRT, EDGE_RAMP);
+    let office = gen_shop(&mut pl.rng, 10.5, 8.0);
+    pl.place(&office, c + Vec2::new(0.0, -r * 0.55), 0, pi, "shop", 2.0, false);
+    let step = Vec2::new(10.0, 8.5);
+    let n = (r * 0.7 / step.x) as i32;
+    for i in -n..=n {
+        for j in -n..=n {
+            if i == 0 && j.abs() <= 1 {
+                // an aisle down the middle
+                continue;
+            }
+            let p = c + Vec2::new(i as f32 * step.x, j as f32 * step.y) + pl.rng.in_disc(1.2);
+            if p.distance(c) > r * 0.75 {
+                continue;
+            }
+            let layers = 2 + (pl.rng.f32() * 4.0) as u32;
+            let mut g = gen_wreck_stack(&mut pl.rng, layers);
+            // something worth climbing for on top of every pile, now and then a chest
+            g.loot.push(Vec3::new(0.0, g.height, 0.0));
+            if pl.rng.chance(0.18) {
+                g.chests.push((Vec3::new(0.0, g.height, 0.0), 0.0));
+                g.loot.clear();
+            }
+            let rot = (pl.rng.f32() * 4.0) as u8;
+            pl.place(&g, p, rot, pi, "wrecks", 1.4, false);
+        }
+    }
+    place_containers(pl, c, r * 0.7, 4);
+}
+
+/// The research site on the floor of a meteor crater: two labs and containers (Dusty Divot).
+fn plan_crater(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let r = poi.radius;
+    pl.splat.paint_disc(c, r * 0.55, CH_DIRT, EDGE_RAMP);
+    for (k, off) in [Vec2::new(-12.0, -4.0), Vec2::new(12.0, 5.0)].into_iter().enumerate() {
+        let g = gen_warehouse(&mut pl.rng, 16.5, 12.5);
+        let rot = if k == 0 { 1 } else { 3 };
+        pl.place(&g, c + off, rot, pi, "warehouse", 1.5, false);
+    }
+    place_containers(pl, c, r * 0.5, 6);
+}
+
+/// Cabins on the dry ground in the middle of a swamp, boardwalks out over the water (Moisty Mire).
+fn plan_swamp(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let r = poi.radius;
+    let h = pl.hm.height_at(c.x, c.y);
+    pl.decor(&gen_well(), Vec3::new(c.x, h, c.y), 0, Some(3.5));
+    pl.splat.paint_disc(c, 6.0, CH_DIRT, EDGE_RAMP);
+    let mut placed = 0;
+    for _ in 0..40 {
+        if placed >= 8 {
+            break;
+        }
+        let p = c + pl.rng.in_disc(r * 0.62);
+        let (w, d) = (pl.rng.range(6.5, 9.0), pl.rng.range(6.0, 7.8));
+        let g = gen_cabin(&mut pl.rng, w, d);
+        if pl.place(&g, p, facing_rot(c - p), pi, "cabin", 3.0, false).is_some() {
+            placed += 1;
+        }
+    }
+    // boardwalks from the edge of the dry ground out over the water
+    let walk = gen_dock(12.0);
+    for k in 0..6 {
+        let d = dir_of(k as f32 / 6.0 * std::f32::consts::TAU + 0.4);
+        let mut p = c + d * (r * 0.4);
+        for _ in 0..40 {
+            p += d * 2.0;
+            if pl.hm.height_at(p.x, p.y) < 0.4 {
+                let back = p - d * 5.0;
+                let rot = if d.x.abs() > d.y.abs() { if d.x > 0.0 { 1 } else { 3 } } else if d.y > 0.0 { 0 } else { 2 };
+                pl.decor(&walk, Vec3::new(back.x, 0.55, back.y), rot, Some(4.0));
+                break;
+            }
+        }
+    }
+}
+
+/// A row of shops behind a car park on one side of the main street, houses along the rest (Retail Row).
+fn plan_retail(pl: &mut Planner, pi: usize, poi: &Poi) {
+    let c = poi.center;
+    let r = poi.radius;
+    let ext = r * 0.93;
+    let along = if poi.axis_x { Vec2::X } else { Vec2::Y };
+    let across = Vec2::new(-along.y, along.x);
+    pl.street(c - along * ext, c + along * ext, STREET_HALF);
+    pl.street(c - across * ext, c + across * ext, STREET_HALF);
+    // the car park, then the shops shoulder to shoulder behind it, fronts to the street
+    let park = 13.0;
+    let span = (ext * 0.62).min(48.0);
+    let lot_min = c - along * span + across * (STREET_HALF + 0.5);
+    let lot_max = c + along * span + across * (STREET_HALF + park);
+    let (pmin, pmax) = (lot_min.min(lot_max), lot_min.max(lot_max));
+    pl.splat.paint_rect(pmin, pmax, CH_ASPHALT, EDGE_RAMP);
+    pl.fps.push((pmin, pmax));
+    let mut u = -span;
+    while u < span - 8.0 {
+        let (w, d) = (pl.rng.range(9.5, 12.5), pl.rng.range(7.6, 9.0));
+        if u + w > span + 2.0 {
+            break;
+        }
+        let g = gen_shop(&mut pl.rng, w, d);
+        let p = c + along * (u + w * 0.5) + across * (STREET_HALF + park + 1.2 + d * 0.5);
+        pl.place(&g, p, facing_rot(-across), pi, "shop", 0.3, false);
+        u += w + 0.8;
+    }
+    for k in 0..4 {
+        let p = c + along * (-span + 6.0 + k as f32 * (span * 2.0 - 12.0) / 3.0) + across * (STREET_HALF + park * 0.5);
+        pl.lamp(p);
+    }
+    // houses along the far side of the main street and both sides of the cross street
+    pl.street_lots(pi, c, poi.axis_x, -ext + 6.0, ext - 14.0, &[(-10.0, 10.0)], 0.0, 0.3, Some("house"));
+    pl.street_lots(pi, c, !poi.axis_x, -ext + 6.0, ext - 14.0, &[(-10.0, 10.0)], 0.0, 0.3, Some("house"));
+    // the water tower over the town
+    let wt = gen_water_tower();
+    for k in 0..12 {
+        let p = c + dir_of(k as f32 / 12.0 * std::f32::consts::TAU + 2.2) * (r * 0.75);
+        if pl.place(&wt, p, 0, pi, "tower", 3.0, false).is_some() {
+            break;
+        }
+    }
 }
 
 #[cfg(test)]

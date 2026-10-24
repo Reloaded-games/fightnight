@@ -41,8 +41,12 @@ and two detailed vehicle bodies with animated steering and wheels.
   up cliffs, box yourself in, and watch bullets and rockets chew through your pieces.
 * **Harvesting**: hit trees (wood), grey rocks (stone) and the blue-grey ore rocks (metal) with the pickaxe (trees really fall over).
 * **Shrinking storm** in 7 phases that forces everyone together, with a minimap, full map and storm timer.
-* A **1,920 × 1,920 m island**, 2.25× the former area, with grassy hills, forests, three lakes,
-  a snowy mountain, beaches and up to 18 named destinations connected by roads.
+* **Three maps**, chosen in the menu (and by the multiplayer host): **Chapter 1** and **Chapter 2**, recreations of
+  the Fortnite Battle Royale islands of Chapter 1 (season 4) and Chapter 2 (season 1) built from their real layouts
+  (every named location in its grid cell, the coastline, lakes, rivers, swamps, hills and roads), and the
+  **Original island**, a procedural 1,920 × 1,920 m island with grassy hills, forests, three lakes, a snowy mountain,
+  beaches and up to 18 named destinations connected by roads. The full map (**M**) shows the place names and, on the
+  recreated maps, the lettered A–J / 1–10 grid.
 * Fortnite-flavoured lighting (cascaded shadow maps, bloom, ACES grading, soft sky and clouds), procedural
   character animation (run/crouch/air/swim/glide cycles, IK-held weapons, reload and swing animations, a
   dance emote and a victory dance) and a Canvas2D HUD in the same visual language (compass, minimap, skewed
@@ -184,15 +188,18 @@ exactly like the keyboard does), so the same rules apply to everyone.
 ## Tests
 
 ```bash
-cargo test --release                       # ~320 unit/integration tests (simulation, bots, models, input, shaders, ...)
+cargo test --release                       # ~330 unit/integration tests (simulation, bots, models, input, shaders, ...)
 cargo test --release -- --ignored monkey   # long randomised "monkey" soak test over many seeds
 cargo run --release -p fn-core --example soak -- 39 700 1 bus   # a bots-only match with a timeline
+cargo run --release -p fn-core --example dump_map -- 1234 map.png chapter1   # a map as a PNG (grid, places, roads, rivers)
+cargo run --release -p fn-core --example dump_height -- 1234 h.png chapter2  # its height field with 5 m contours
 cd tools && npm install && npm test       # real-browser tests (needs `scripts/build.sh` first):
                                            #   e2e.mjs      gameplay: move, shoot, reload, build, harvest, chests, kills...
                                            #   e2e_flow.mjs UI state machine with the real pointer lock: pause, win, spectate...
                                            #   mp_e2e.mjs   two browsers host/join through the real invite codes over WebRTC
                                            #   supply_e2e.mjs  a supply drop falls, lands, shows on the HUD and is opened with E
                                            #   utility_e2e.mjs grenades, the Launch Pad, Slurp Juice, ammo boxes and llamas
+                                           #   maps_e2e.mjs  the map choice, a match on Chapter 1 and Chapter 2, places in their grid cells
                                            # npm run fuzz   random keys/clicks/blur/lock releases against the UI state machine
 ```
 

@@ -12,7 +12,7 @@ async function waitTime(seconds) {
   await page.waitForFunction(t => JSON.parse(window.__game.fn.debug('state')).t >= t, t, { timeout: 120000 });
 }
 async function start(mode) {
-  await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent(`skipbus=1;bots=3;god=1;mode=${mode}`));
+  await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent(`skipbus=1;bots=3;god=1;map=island;mode=${mode}`));
   await page.waitForFunction(() => window.__game?.state === 'playing', null, { timeout: 240000 });
   await waitTime(0.3);
 }

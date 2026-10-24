@@ -3,6 +3,7 @@
 //! 1, 2 and 4) plus skirts that hide cracks between chunks of different LOD.
 
 use super::heightmap::Heightmap;
+use super::maps::MapSpec;
 use super::{CELL, CHUNKS, CHUNK_CELLS, WORLD_HALF};
 use crate::math::*;
 use crate::mesh::{mat, to_srgb8, Vertex};
@@ -35,6 +36,8 @@ pub struct TerrainMesh {
 #[derive(Clone)]
 pub struct TerrainPainter {
     pub seed: u32,
+    /// The woods, fields and swamps of a recreated map (`None` on the procedural island).
+    pub spec: Option<&'static MapSpec>,
 }
 
 #[inline]
@@ -45,11 +48,27 @@ fn mix3(a: Vec3, b: Vec3, t: f32) -> Vec3 {
 impl TerrainPainter {
     /// Autumn-ness in [0,1] for a location (drives grass tint and tree species).
     pub fn autumn(&self, x: f32, z: f32) -> f32 {
+        if self.spec.is_some() {
+            // the recreated maps are in their summer colours
+            return 0.0;
+        }
         smoothstep(0.6, 0.72, fbm01(x / 210.0 + 90.0, z / 210.0 - 40.0, 3, self.seed ^ 0xA7))
     }
     /// Forest density mask in [0,1] (0 = open meadow).
     pub fn forest(&self, x: f32, z: f32) -> f32 {
-        smoothstep(0.43, 0.58, fbm01(x / 120.0 - 33.0, z / 120.0 + 12.0, 4, self.seed ^ 0xF0))
+        let f = smoothstep(0.43, 0.58, fbm01(x / 120.0 - 33.0, z / 120.0 + 12.0, 4, self.seed ^ 0xF0));
+        let Some(spec) = self.spec else { return f };
+        // the map's woods and fields over a lighter scattering of copses
+        let p = Vec2::new(x, z);
+        let woods = spec.woods.iter().map(|a| a.weight(p)).fold(0.0, f32::max);
+        let open = spec.open.iter().map(|a| a.weight(p)).fold(0.0, f32::max);
+        (f * 0.7).max(woods * 0.95) * (1.0 - open * 0.92)
+    }
+    /// How much of a swamp a location is in [0,1].
+    pub fn swamp(&self, x: f32, z: f32) -> f32 {
+        let Some(spec) = self.spec else { return 0.0 };
+        let p = Vec2::new(x, z);
+        spec.swamps.iter().map(|a| a.weight(p)).fold(0.0, f32::max)
     }
 
     pub fn color(&self, x: f32, z: f32, h: f32, slope: f32) -> Vec3 {
@@ -72,12 +91,16 @@ impl TerrainPainter {
         let rock = mix3(hex_v(0x8F9097), hex_v(0x6E7076), n2);
         c = mix3(c, rock, smoothstep(0.62, 0.95, slope));
         // snow caps
-        let snow_h = 41.0 + (n1 - 0.5) * 6.0;
+        let snow_h = self.spec.map_or(41.0, |s| s.snow_line) + (n1 - 0.5) * 6.0;
         c = mix3(c, hex_v(0xF2F7FF), smoothstep(snow_h, snow_h + 4.0, h) * (1.0 - smoothstep(0.7, 1.1, slope) * 0.6));
-        // beaches and the sea floor
+        // beaches and the sea floor (a swamp's low ground is mud and moss, not sand)
+        let bog = self.swamp(x, z);
         let sand = mix3(hex_v(0xF1DFA6), hex_v(0xE3CD8C), n2);
-        let sand_w = smoothstep(3.4, 2.0, h + (n1 - 0.5) * 0.9);
+        let sand_w = smoothstep(3.4, 2.0, h + (n1 - 0.5) * 0.9) * (1.0 - bog);
         c = mix3(c, sand, sand_w);
+        if bog > 0.0 {
+            c = mix3(c, mix3(hex_v(0x5F6E36), hex_v(0x4A5A2E), n2), bog * 0.7);
+        }
         if h < 0.0 {
             let wet = hex_v(0xB9A777);
             c = mix3(c, wet, smoothstep(0.2, -1.0, h));
@@ -206,7 +229,7 @@ mod tests {
         let base = BaseTerrain::new(5);
         let layout = plan_layout(&base);
         let hm = build_heightmap(&base, &layout);
-        let painter = TerrainPainter { seed: 5 };
+        let painter = TerrainPainter { seed: 5, spec: None };
         let tm = build_terrain_mesh(&hm, &painter);
         assert_eq!(tm.chunks.len(), CHUNKS * CHUNKS);
         let side = CHUNK_CELLS + 1;
@@ -237,7 +260,7 @@ mod tests {
 
     #[test]
     fn painter_colors_are_sane() {
-        let p = TerrainPainter { seed: 3 };
+        let p = TerrainPainter { seed: 3, spec: None };
         for k in 0..200 {
             let c = p.color(k as f32 * 7.3, k as f32 * 3.1, (k % 50) as f32 - 5.0, (k % 10) as f32 * 0.1);
             assert!(c.cmpge(Vec3::splat(-0.01)).all() && c.cmple(Vec3::splat(1.01)).all(), "{c:?}");

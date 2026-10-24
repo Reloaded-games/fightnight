@@ -1492,6 +1492,781 @@ pub fn gen_fence(len: f32, col: u32) -> Geom {
 }
 
 // ---------------------------------------------------------------------------------
+// City towers
+// ---------------------------------------------------------------------------------
+
+/// Width of each of the two side-by-side lanes of a tower's switchback stair.
+const TOWER_LANE: f32 = 1.3;
+/// Thickness of the spine wall between the two lanes.
+const TOWER_SPINE: f32 = 0.2;
+/// Depth of the landing between a tower's back wall and the back end of its flights.
+const TOWER_LANDING: f32 = 1.2;
+/// Run of one step of a tower's flights (16 of them climb a storey in 5.6 m).
+const TOWER_RUN: f32 = 0.35;
+/// Thickness of a tower's floor slabs and of its roof.
+const SLAB_T: f32 = 0.3;
+/// Steps at the foot of a flight that stay under the slab it climbs to: under a 0.3 m slab the second step still has 2.3 m of
+/// head room, the third would have less than 2.2 m.
+const COVERED_STEPS: i32 = 2;
+/// Height of the parapet round a tower's flat roof.
+const PARAPET_H: f32 = 0.9;
+
+/// One flight of a tower's stair, in the tower's frame: it fills its lane from `z_back` to `z_front` and climbs a storey, from the
+/// floor at `y_low` to the one at `y_high`, toward the back (-Z) when `to_back`, toward the front otherwise.
+#[derive(Clone, Copy, Debug)]
+struct Flight {
+    x0: f32,
+    x1: f32,
+    z_back: f32,
+    z_front: f32,
+    y_low: f32,
+    y_high: f32,
+    to_back: bool,
+}
+
+impl Flight {
+    fn run(&self) -> f32 {
+        (self.z_front - self.z_back) / STAIR_STEPS as f32
+    }
+
+    /// The opening (x0, x1, z0, z1) this flight needs in the slab it arrives at: all of its length but the steps at its foot.
+    fn hole(&self) -> (f32, f32, f32, f32) {
+        let covered = COVERED_STEPS as f32 * self.run();
+        if self.to_back {
+            (self.x0, self.x1, self.z_back, self.z_front - covered)
+        } else {
+            (self.x0, self.x1, self.z_back + covered, self.z_front)
+        }
+    }
+
+    /// Its step blocks, from the foot up.
+    fn steps(&self) -> Vec<Step> {
+        let steps = flight_steps(self.x0, self.x1, self.z_back, self.z_front, self.y_low, self.y_low, self.y_high, STAIR_STEPS);
+        if self.to_back {
+            return steps;
+        }
+        // the same flight turned round to climb toward +Z
+        let m = self.z_back + self.z_front;
+        steps.into_iter().map(|s| Step { min: Vec3::new(s.min.x, s.min.y, m - s.max.z), max: Vec3::new(s.max.x, s.max.y, m - s.min.z) }).collect()
+    }
+}
+
+/// The stair of a tower of `floors` storeys on a `hx` x `hz` half footprint: one flight per storey, from the ground floor up to the
+/// roof. The flights alternate between a lane along the left wall, climbing toward the back, and the lane beside it (behind a
+/// spine wall), climbing toward the front, so each one starts on the landing where the one below it ends.
+fn tower_flights(hx: f32, hz: f32, floors: u32) -> Vec<Flight> {
+    let x0 = -hx + WALL_T;
+    let z_back = -hz + WALL_T + TOWER_LANDING;
+    let z_front = z_back + STAIR_STEPS as f32 * TOWER_RUN;
+    (0..floors)
+        .map(|i| {
+            let x = if i % 2 == 0 { x0 } else { x0 + TOWER_LANE + TOWER_SPINE };
+            let y_low = FLOOR_Y + i as f32 * STORY_H;
+            Flight { x0: x, x1: x + TOWER_LANE, z_back, z_front, y_low, y_high: y_low + STORY_H, to_back: i % 2 == 0 }
+        })
+        .collect()
+}
+
+/// Like [`flight_mesh`], but without the faces nobody sees (the undersides on the floor, and the backs that the next step up hides), for
+/// buildings with a stair on every storey.
+fn flight_mesh_lean(mb: &mut MeshBuilder, steps: &[Step], riser: u32, tread: u32, m: u8) {
+    const BOARD: f32 = 0.05;
+    for (k, s) in steps.iter().enumerate() {
+        let back = if k + 1 == steps.len() { 0b100000 } else { 0 };
+        mb.mat(m).hex(riser).ao(0.8, 1.0);
+        mb.box_faces(s.min, Vec3::new(s.max.x, s.max.y - BOARD, s.max.z), 0b010011 | back);
+        mb.hex(tread).ao(1.0, 1.0);
+        mb.box_faces(Vec3::new(s.min.x, s.max.y - BOARD, s.min.z), Vec3::new(s.max.x, s.max.y, s.max.z + BOARD), 0b011111 | back);
+    }
+}
+
+/// Emit one flight of a tower's stair: a solid block per step, and the steps' mesh (turned half a turn for a flight that climbs
+/// toward the front, so the nosing of every tread still overhangs the step below it).
+fn tower_flight(b: &mut B, f: &Flight, riser: u32, tread: u32) {
+    let steps = flight_steps(f.x0, f.x1, f.z_back, f.z_front, f.y_low, f.y_low, f.y_high, STAIR_STEPS);
+    let c = Vec3::new((f.x0 + f.x1) / 2.0, 0.0, (f.z_back + f.z_front) / 2.0);
+    let turn = if f.to_back { Mat4::IDENTITY } else { Mat4::from_translation(c) * Mat4::from_rotation_y(PI) * Mat4::from_translation(-c) };
+    b.mb.push_xf(turn);
+    flight_mesh_lean(&mut b.mb, &steps, riser, tread, mat::STONE);
+    b.mb.pop_xf();
+    b.cols.extend(f.steps().iter().map(|s| Collider::aabb_box(s.min, s.max, Tag::Static)));
+}
+
+/// A handrail on posts up the open side of a flight, at `x` (mesh only, as in the houses).
+fn stair_rail(b: &mut B, x: f32, f: &Flight, col: u32) {
+    let rise = (f.y_high - f.y_low) / STAIR_STEPS as f32;
+    let (foot, dz) = if f.to_back { (f.z_front, -1.0) } else { (f.z_back, 1.0) };
+    let at = |k: f32| Vec3::new(x, f.y_low + (k + 1.0) * rise + STAIR_RAIL, foot + dz * (k + 0.5) * f.run());
+    b.mb.mat(mat::METAL).hex(col);
+    for k in (0..STAIR_STEPS).step_by(3) {
+        let top = at(k as f32);
+        b.mb.box_min_max(Vec3::new(x - 0.025, top.y - STAIR_RAIL, top.z - 0.025), Vec3::new(x + 0.025, top.y, top.z + 0.025));
+    }
+    b.tube(at(0.0), at((STAIR_STEPS - 1) as f32), 0.03, col, mat::METAL);
+}
+
+/// [`B::wall`] for a building of many storeys: the same boxes and colliders, without their top and bottom faces (those butt against the
+/// storeys above and below, or lie under the sills and lintels of the openings).
+fn lean_wall(b: &mut B, l: Line, y0: f32, h: f32, ops: &[Op], col: u32, m: u8) {
+    b.mb.ao(0.82, 1.0);
+    for (u0, u1, v0, v1) in wall_rects(l.len(), h, ops) {
+        let (a, c) = l.bx(u0, u1, -WALL_T / 2.0, WALL_T / 2.0, y0 + v0, y0 + v1);
+        b.bx_faces(a, c, col, m, 0b110011, true);
+    }
+    b.mb.ao(1.0, 1.0);
+}
+
+/// The frame of a city window: a sill, a lintel, a mullion and a transom (mesh only: the opening stays open to shoot and climb through).
+fn tower_window(b: &mut B, l: Line, y0: f32, o: &Op, trim: u32) {
+    let t = WALL_T / 2.0 + 0.04;
+    let (s0, s1) = if l.out > 0.0 { (-t, t + 0.06) } else { (-t - 0.06, t) };
+    let (a, c) = l.bx(o.u0 - 0.12, o.u1 + 0.12, s0, s1, y0 + o.v0 - 0.1, y0 + o.v0);
+    b.bx(a, c, trim, mat::FLAT, false);
+    let (a, c) = l.bx(o.u0 - 0.12, o.u1 + 0.12, -t, t, y0 + o.v1, y0 + o.v1 + 0.16);
+    b.bx(a, c, trim, mat::FLAT, false);
+    // (the bars leave out the end faces that butt against the sill, the lintel and the jambs)
+    let um = (o.u0 + o.u1) * 0.5;
+    let (a, c) = l.bx(um - 0.03, um + 0.03, -0.03, 0.03, y0 + o.v0, y0 + o.v1);
+    b.bx_faces(a, c, trim, mat::FLAT, 0b110011, false);
+    let ym = y0 + o.v0 + (o.v1 - o.v0) * 0.66;
+    let (a, c) = l.bx(o.u0, o.u1, -0.03, 0.03, ym - 0.025, ym + 0.025);
+    b.bx_faces(a, c, trim, mat::FLAT, if l.along_x { 0b111100 } else { 0b001111 }, false);
+}
+
+/// A low chest of drawers whose back is its local +Z side, with its collider.
+fn cabinet(b: &mut B, c: Vec3, yaw: f32, col: u32) {
+    b.mb.push_xf(Mat4::from_translation(c) * Mat4::from_rotation_y(yaw));
+    b.mb.mat(mat::WOOD).hex(col);
+    b.mb.box_min_max(Vec3::new(-0.8, 0.0, -0.25), Vec3::new(0.8, 0.95, 0.25));
+    b.mb.hex(shade_hex(col, 0.8));
+    for k in 0..3 {
+        let y = 0.1 + k as f32 * 0.28;
+        b.mb.box_min_max(Vec3::new(-0.72, y, -0.27), Vec3::new(0.72, y + 0.22, -0.25));
+    }
+    b.mb.pop_xf();
+    let (a, bb) = rot_box(Vec3::new(-0.8, 0.0, -0.27), Vec3::new(0.8, 0.95, 0.25), yaw, c);
+    b.cols.push(Collider::aabb_box(a, bb, Tag::Static));
+}
+
+/// Dress one floor of a tower's rooms (`room` = x0, x1, z0, z1, the floor at height `y`): a sofa against the right-hand wall, a cabinet
+/// against the back wall, a rug and a ceiling lamp; a chest when `chest`; and one or two loot spots on clear floor. On the ground floor
+/// `door_x` keeps the way in from the front door (`hz` is the half depth) free.
+fn tower_room(b: &mut B, rng: &mut Rng, y: f32, room: (f32, f32, f32, f32), door_x: Option<f32>, chest: bool, hz: f32) {
+    let (x0, x1, z0, z1) = room;
+    let in_lane = |x: f32, z: f32, r: f32| door_x.is_some_and(|dx| (x - dx).abs() < 1.5 + r && z > hz - 3.2);
+    let mid = Vec3::new((x0 + x1) * 0.5, y, (z0 + z1) * 0.5);
+    rug(b, mid, (x1 - x0 - 1.6).min(3.0), (z1 - z0).min(2.6) * 0.8, *rng.pick(&[0xc0583e, 0x3f78a8, 0x5b8f4a, 0xb88a3b, 0x6b5a8f]));
+    let ceiling = y + STORY_H - SLAB_T;
+    b.bx(Vec3::new(mid.x - 0.45, ceiling - 0.04, mid.z - 0.45), Vec3::new(mid.x + 0.45, ceiling, mid.z + 0.45), 0xfff3d0, mat::EMISSIVE, false);
+    if rng.chance(0.75) {
+        let z = rng.range(z0 + 1.3, z1 - 1.3);
+        if !in_lane(x1 - 0.5, z, 1.0) {
+            sofa(b, Vec3::new(x1 - 0.5, y, z), FRAC_PI_2, *rng.pick(&[0x6b8fb8, 0xb8706b, 0x7ba66f, 0xc9a35a, 0x5a5f6a]));
+        }
+    }
+    if rng.chance(0.6) {
+        let x = rng.range(x0 + 0.9, x1 - 1.2);
+        if !in_lane(x, z0 + 0.3, 0.8) {
+            cabinet(b, Vec3::new(x, y, z0 + 0.3), PI, *rng.pick(&[0x8a5a34, 0xb98b56, 0xe9e4d8, 0x5a5f6a]));
+        }
+    }
+    let mut chest_at = None;
+    if chest {
+        let cands = [(Vec3::new(x1 - 0.6, y, z0 + 0.5), 0.0f32), (Vec3::new(x1 - 0.5, y, (z0 + z1) * 0.5), -FRAC_PI_2), (Vec3::new(x1 - 0.6, y, z1 - 0.5), PI), (Vec3::new(x0 + 0.6, y, z1 - 0.5), PI)];
+        let fits = |p: &Vec3, yaw: f32| {
+            // clear of furniture over the chest's footprint plus the room it needs to open
+            let (rx, rz) = if (yaw.abs() - FRAC_PI_2).abs() < 0.1 { (0.4, 0.55) } else { (0.55, 0.4) };
+            !in_lane(p.x, p.z, rx) && floor_clear(b, p.x, p.z, y, rx, rz)
+        };
+        if let Some(&(p, yaw)) = cands.iter().find(|(p, yaw)| fits(p, *yaw)) {
+            b.chests.push((p, yaw));
+            chest_at = Some(p);
+        }
+    }
+    let want = 1 + rng.below(2);
+    let mut spots: Vec<Vec3> = vec![];
+    for _ in 0..16 {
+        if spots.len() >= want {
+            break;
+        }
+        let p = Vec3::new(rng.range(x0 + 0.4, x1 - 0.5), y, rng.range(z0 + 0.6, z1 - 0.6));
+        let ok = !in_lane(p.x, p.z, 0.4) && floor_clear(b, p.x, p.z, y, 0.3, 0.3) && chest_at.is_none_or(|c| c.distance(p) > 1.3) && spots.iter().all(|q| q.distance(p) > 1.5);
+        if ok {
+            spots.push(p);
+        }
+    }
+    if spots.is_empty() {
+        // the middle of the room is never furnished, and is far from the door lane and the chest
+        spots.push(mid);
+    }
+    b.loot.extend(spots);
+}
+
+/// A city tower block in the manner of Tilted Towers: `floors` storeys (clamped to 2..=6) of brick or plaster (`st` gives the colours)
+/// under a flat roof with a parapet, windows on every side of every floor, tall shop windows and the front door (+Z) on the ground floor.
+/// Inside, a switchback stair climbs from the ground floor to a hatch in the roof: its flights alternate between two lanes along the left
+/// wall, each slab is open only above the flight that arrives at it (with guard rails round the opening), and the flight that leaves it
+/// stands on solid slab. Every floor has one or two loot spots, upper floors sometimes a chest, the roof one spot. `w` x `d` is the outer
+/// footprint, at least 8.5 m each way (9 to 13 m suits it best).
+pub fn gen_tower(rng: &mut Rng, w: f32, d: f32, floors: u32, st: &Style) -> Geom {
+    let mut b = B::new();
+    let (hx, hz) = (w.max(8.5) / 2.0, d.max(8.5) / 2.0);
+    let floors = floors.clamp(2, 6);
+    let roof_y = FLOOR_Y + floors as f32 * STORY_H;
+    let (ix0, ix1, iz0, iz1) = (-hx + WALL_T, hx - WALL_T, -hz + WALL_T, hz - WALL_T);
+    let flights = tower_flights(hx, hz, floors);
+    let (lane_a, lane_b) = (flights[0], flights[1]);
+    let (z_back, z_front) = (lane_a.z_back, lane_a.z_front);
+    // the stairwell takes the strip along the left wall: the rooms, and the front door, are right of it
+    let room_x0 = lane_b.x1 + 0.8;
+    let (lo, hi) = (room_x0 + DOOR_W / 2.0, ix1 - DOOR_W / 2.0 - 0.4);
+    let door_x = rng.pick(&[0.0f32, (room_x0 + ix1) / 2.0]).clamp(lo, hi.max(lo));
+    let door_u = door_x + hx;
+    let (floor_col, floor_mat) = *rng.pick(&[(0xb98b56u32, mat::WOOD), (0xcfc7b8, mat::STONE), (0x9c7a56, mat::WOOD), (0xbfc4c9, mat::STONE)]);
+    let door_col = *rng.pick(&[0x2f4f7fu32, 0xb5463a, 0x3e6e42, 0x2b2e34, 0x8a5a34]);
+    let rail = 0x3d4048;
+
+    // --- foundation and ground floor
+    b.mb.ao(0.55, 1.0);
+    b.bx(Vec3::new(-hx - 0.1, -1.6, -hz - 0.1), Vec3::new(hx + 0.1, FLOOR_Y, hz + 0.1), 0x9b9a95, mat::STONE, true);
+    b.mb.ao(1.0, 1.0);
+    b.bx_faces(Vec3::new(ix0, FLOOR_Y, iz0), Vec3::new(ix1, FLOOR_Y + 0.02, iz1), floor_col, floor_mat, 0b000100, false);
+
+    // --- outer walls, storey by storey
+    let front = Line { along_x: true, a0: -hx, a1: hx, c: hz - WALL_T / 2.0, out: 1.0 };
+    let back = Line { along_x: true, a0: -hx, a1: hx, c: -hz + WALL_T / 2.0, out: -1.0 };
+    let left = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: -hx + WALL_T / 2.0, out: -1.0 };
+    let right = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: hx - WALL_T / 2.0, out: 1.0 };
+    let door = Op { u0: door_u - DOOR_W / 2.0, u1: door_u + DOOR_W / 2.0, v0: 0.0, v1: DOOR_H };
+    for fl in 0..floors {
+        let y0 = FLOOR_Y + fl as f32 * STORY_H;
+        for (li, line) in [front, back, left, right].into_iter().enumerate() {
+            let street = fl == 0 && li == 0;
+            let (mut ops, avoid) = if street { (vec![door], vec![(door.u0 - 0.4, door.u1 + 0.4)]) } else { (vec![], vec![]) };
+            // tall shop windows either side of the door, sash windows everywhere else
+            let (half_w, v0, v1) = if street { (0.8, 0.6, 2.35) } else { (0.65, 0.9, 2.2) };
+            let wins: Vec<Op> = B::window_slots(line.len(), &avoid, 3.3).into_iter().map(|c| Op { u0: c - half_w, u1: c + half_w, v0, v1 }).collect();
+            ops.extend(wins.iter().copied());
+            lean_wall(&mut b, line, y0, STORY_H, &ops, st.wall, st.wall_mat);
+            for o in &wins {
+                tower_window(&mut b, line, y0, o, st.trim);
+            }
+        }
+    }
+    // a stone plinth (split round the door), a band at every floor line and quoins up the corners
+    let (py0, py1, plinth) = (FLOOR_Y, FLOOR_Y + 0.45, 0x8d8a84);
+    b.bx(Vec3::new(-hx - 0.05, py0, -hz - 0.05), Vec3::new(hx + 0.05, py1, -hz), plinth, mat::STONE, false);
+    b.bx(Vec3::new(-hx - 0.05, py0, -hz), Vec3::new(-hx, py1, hz), plinth, mat::STONE, false);
+    b.bx(Vec3::new(hx, py0, -hz), Vec3::new(hx + 0.05, py1, hz), plinth, mat::STONE, false);
+    for (x0, x1) in [(-hx - 0.05, door_x - DOOR_W / 2.0 - 0.1), (door_x + DOOR_W / 2.0 + 0.1, hx + 0.05)] {
+        b.bx(Vec3::new(x0, py0, hz), Vec3::new(x1, py1, hz + 0.05), plinth, mat::STONE, false);
+    }
+    for fl in 1..=floors {
+        // (four boards round the outside: the one at the roof line is the cornice under the parapet)
+        let y = FLOOR_Y + fl as f32 * STORY_H;
+        let (y0, y1, o) = if fl == floors { (y - 0.3, y, 0.12) } else { (y - 0.12, y + 0.12, 0.06) };
+        b.bx(Vec3::new(-hx - o, y0, hz), Vec3::new(hx + o, y1, hz + o), st.trim, mat::FLAT, false);
+        b.bx(Vec3::new(-hx - o, y0, -hz - o), Vec3::new(hx + o, y1, -hz), st.trim, mat::FLAT, false);
+        b.bx(Vec3::new(-hx - o, y0, -hz), Vec3::new(-hx, y1, hz), st.trim, mat::FLAT, false);
+        b.bx(Vec3::new(hx, y0, -hz), Vec3::new(hx + o, y1, hz), st.trim, mat::FLAT, false);
+    }
+    b.corner_posts(hx - 0.06, hz - 0.06, FLOOR_Y, roof_y - 0.3, st.trim);
+    // the front door standing ajar, and a canopy over it on two stays
+    b.opening_trim(front, FLOOR_Y, &door, false, st.trim, None);
+    b.door_leaf(front, FLOOR_Y, &door, door_col, 0xe3c15a);
+    let cy = FLOOR_Y + DOOR_H + 0.35;
+    b.bx(Vec3::new(door_x - 1.25, cy, hz), Vec3::new(door_x + 1.25, cy + 0.12, hz + 0.9), st.roof, mat::METAL, false);
+    for sx in [-1.0f32, 1.0] {
+        b.tube(Vec3::new(door_x + sx * 1.1, cy + 0.06, hz + 0.85), Vec3::new(door_x + sx * 1.1, cy + 0.9, hz + 0.05), 0.025, 0x2b2e34, mat::METAL);
+    }
+
+    // --- the stairwell: a spine wall between the two lanes on every storey, one flight per storey
+    for fl in 0..floors {
+        let y0 = FLOOR_Y + fl as f32 * STORY_H;
+        b.mb.ao(0.8, 1.0);
+        b.bx(Vec3::new(lane_a.x1, y0, z_back), Vec3::new(lane_b.x0, y0 + STORY_H - SLAB_T, z_front), 0xe6e0d4, mat::PLASTER, true);
+        b.mb.ao(1.0, 1.0);
+    }
+    for f in &flights {
+        tower_flight(&mut b, f, 0x9a958c, 0xb8b2a6);
+        if !f.to_back {
+            // the right-hand lane is open to the rooms
+            stair_rail(&mut b, f.x1 - 0.06, f, rail);
+        }
+    }
+
+    // --- the floors above the ground and the roof: each slab is open only above the flight that arrives at it
+    for fl in 1..=floors {
+        let y = FLOOR_Y + fl as f32 * STORY_H;
+        let roof = fl == floors;
+        let arrive = flights[fl as usize - 1];
+        let (hx0, hx1, hz0, hz1) = arrive.hole();
+        for (a0, a1, c0, c1) in [(ix0, hx0, iz0, iz1), (hx1, ix1, iz0, iz1), (hx0, hx1, iz0, hz0), (hx0, hx1, hz1, iz1)] {
+            if a1 - a0 > 0.05 && c1 - c0 > 0.05 {
+                b.bx(Vec3::new(a0, y - SLAB_T, c0), Vec3::new(a1, y, c1), 0xf1ede2, mat::PLASTER, true);
+                let (col, m) = if roof { (0x7d7f84, mat::STONE) } else { (floor_col, floor_mat) };
+                b.bx_faces(Vec3::new(a0, y, c0), Vec3::new(a1, y + 0.02, c1), col, m, 0b110111, false);
+            }
+        }
+        // guard rails across the foot end of the opening and down its open sides; the sides stop a metre short of the head of the
+        // flight, so you can step off sideways as well as straight ahead. Indoors the left lane lies between the outer wall and the
+        // spine and the right lane has the spine on its left; on the roof there is no spine.
+        if arrive.to_back {
+            let (ze, xr) = (hz1 + 0.05, hx1 + 0.05);
+            guard_rail(&mut b, Vec3::new(hx0, y, ze), Vec3::new(if roof { xr } else { hx1 }, y, ze), rail);
+            if roof {
+                guard_rail(&mut b, Vec3::new(xr, y, ze), Vec3::new(xr, y, hz0 + 1.0), rail);
+            }
+        } else {
+            let (ze, xl, xr) = (hz0 - 0.05, hx0 - 0.05, hx1 + 0.05);
+            guard_rail(&mut b, Vec3::new(if roof { xl } else { hx0 }, y, ze), Vec3::new(xr, y, ze), rail);
+            guard_rail(&mut b, Vec3::new(xr, y, ze), Vec3::new(xr, y, hz1 - 1.0), rail);
+            if roof {
+                guard_rail(&mut b, Vec3::new(xl, y, ze), Vec3::new(xl, y, hz1 - 1.0), rail);
+            }
+        }
+    }
+
+    // --- the roof: a parapet with a coping, an air-conditioning unit and a vent stack (clear of the ways off the hatch)
+    for (k, (mn, mx)) in [
+        (Vec3::new(-hx - 0.1, roof_y, -hz - 0.1), Vec3::new(hx + 0.1, roof_y + PARAPET_H, -hz + WALL_T)),
+        (Vec3::new(-hx - 0.1, roof_y, hz - WALL_T), Vec3::new(hx + 0.1, roof_y + PARAPET_H, hz + 0.1)),
+        (Vec3::new(-hx - 0.1, roof_y, -hz + WALL_T), Vec3::new(-hx + WALL_T, roof_y + PARAPET_H, hz - WALL_T)),
+        (Vec3::new(hx - WALL_T, roof_y, -hz + WALL_T), Vec3::new(hx + 0.1, roof_y + PARAPET_H, hz - WALL_T)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        b.bx(mn, mx, st.wall, st.wall_mat, true);
+        // the copings of the front and back parapets cover the corners; those of the sides fit between them
+        let ez = if k < 2 { 0.05 } else { 0.0 };
+        b.bx(Vec3::new(mn.x - 0.05, mx.y, mn.z - ez), Vec3::new(mx.x + 0.05, mx.y + 0.08, mx.z + ez), st.trim, mat::FLAT, false);
+    }
+    let roof_mid = (z_back + z_front) * 0.5;
+    let ac = Vec3::new(ix1 - 0.75, roof_y, roof_mid);
+    b.bx(Vec3::new(ac.x - 0.55, roof_y, ac.z - 0.7), Vec3::new(ac.x + 0.55, roof_y + 0.85, ac.z + 0.7), 0xb8bcc2, mat::METAL, true);
+    b.bx(Vec3::new(ac.x - 0.4, roof_y + 0.85, ac.z - 0.45), Vec3::new(ac.x + 0.4, roof_y + 0.9, ac.z + 0.45), 0x4a4d57, mat::METAL, false);
+    b.tube(Vec3::new(ac.x, roof_y, ac.z - 1.1), Vec3::new(ac.x, roof_y + 1.0, ac.z - 1.1), 0.09, 0x9aa0a8, mat::METAL);
+
+    // --- rooms: a little furniture, loot on every floor, now and then a chest upstairs, and one spot on the roof
+    let room = (room_x0, ix1, iz0, iz1);
+    for fl in 0..floors {
+        let y = FLOOR_Y + fl as f32 * STORY_H;
+        let chest = fl > 0 && rng.chance(0.4);
+        tower_room(&mut b, rng, y, room, (fl == 0).then_some(door_x), chest, hz);
+    }
+    b.loot.push(Vec3::new((room_x0 + ac.x - 0.55) * 0.5, roof_y, roof_mid));
+
+    let door_out = Vec3::new(door_x, 0.0, hz + 2.4);
+    let door_in = Vec3::new(door_x, FLOOR_Y, hz - 1.6);
+    // (the rails round the hatch stand a little higher than the parapet)
+    let mut g = b.finish(Vec2::new(hx, hz), roof_y + 1.05, door_out, door_in);
+    g.stairs = Some((Vec3::new(lane_a.x0, lane_a.y_low, z_back), Vec3::new(lane_a.x1, lane_a.y_high, z_front)));
+    g.entry = Some(Entry { edge: Vec3::new(door_x, FLOOR_Y, hz + 0.1), half_w: 1.0 });
+    g
+}
+
+// ---------------------------------------------------------------------------------
+// Industry
+// ---------------------------------------------------------------------------------
+
+/// A wall of corrugated sheet: the wall with its openings, and ribs pressed into its outer face (mesh only).
+fn ribbed_wall(b: &mut B, l: Line, y0: f32, h: f32, ops: &[Op], col: u32, rib: u32) {
+    b.wall(l, y0, h, ops, col, mat::METAL);
+    // only the faces that can be seen: the outer one and the two edges
+    let faces = match (l.along_x, l.out > 0.0) {
+        (true, true) => 0b010011,
+        (true, false) => 0b100011,
+        (false, true) => 0b110001,
+        (false, false) => 0b110010,
+    };
+    let (d0, d1) = if l.out > 0.0 { (WALL_T / 2.0, WALL_T / 2.0 + 0.04) } else { (-WALL_T / 2.0 - 0.04, -WALL_T / 2.0) };
+    for (u0, u1, v0, v1) in wall_rects(l.len(), h, ops) {
+        if v1 - v0 < 0.25 {
+            continue;
+        }
+        let mut u = u0 + 0.2;
+        while u < u1 - 0.12 {
+            let (a, c) = l.bx(u - 0.05, u + 0.05, d0, d1, y0 + v0, y0 + v1);
+            b.bx_faces(a, c, rib, mat::METAL, faces, false);
+            u += 0.45;
+        }
+    }
+}
+
+/// A wooden crate standing on `min.y` (solid), with dark battens round its middle and its top edge.
+fn crate_box(b: &mut B, min: Vec3, max: Vec3, col: u32) {
+    b.bx(min, max, col, mat::WOOD, true);
+    let (dark, e) = (shade_hex(col, 0.7), 0.03);
+    let mid = (min.y + max.y) * 0.5;
+    for (y0, y1) in [(mid - 0.06, mid + 0.06), (max.y - 0.1, max.y + 0.01)] {
+        b.bx_faces(Vec3::new(min.x - e, y0, min.z - e), Vec3::new(max.x + e, y1, max.z + e), dark, mat::WOOD, 0b110011, false);
+    }
+}
+
+/// An industrial hall, about 7 m tall: corrugated metal walls, a shallow pitched roof, a wide roll-up door on the front (+Z) that stays
+/// open, a side door, strip windows high up, and stacks of crates (solid) either side of the aisle that runs back from the big door, with
+/// three to five loot spots on the floor between them and often a chest at the end of the aisle. `w` (16 to 28 m) by `d` (12 to 20 m)
+/// is the footprint; sizes outside those ranges are clamped into them.
+pub fn gen_warehouse(rng: &mut Rng, w: f32, d: f32) -> Geom {
+    let mut b = B::new();
+    let (w, d) = (w.clamp(16.0, 28.0), d.clamp(12.0, 20.0));
+    let (hx, hz) = (w / 2.0, d / 2.0);
+    let h = 6.0;
+    let top_y = FLOOR_Y + h;
+    let (ix0, ix1, iz0, iz1) = (-hx + WALL_T, hx - WALL_T, -hz + WALL_T, hz - WALL_T);
+    let skin = *rng.pick(&[0x9aa7b0u32, 0x7f9fb8, 0xc2c4bd, 0x88a184, 0xb86b4b, 0xd8c9a3]);
+    let rib = shade_hex(skin, 0.84);
+    let roof_col = *rng.pick(&[0x6c6f78u32, 0x8a8d93, 0x5a6f80]);
+    let (steel, hazard) = (0x4a4e57, 0xe0b030);
+
+    // --- concrete slab and floor
+    b.mb.ao(0.55, 1.0);
+    b.bx(Vec3::new(-hx - 0.1, -1.6, -hz - 0.1), Vec3::new(hx + 0.1, FLOOR_Y, hz + 0.1), 0x9d9e9f, mat::STONE, true);
+    b.mb.ao(1.0, 1.0);
+    b.bx_faces(Vec3::new(ix0, FLOOR_Y, iz0), Vec3::new(ix1, FLOOR_Y + 0.02, iz1), 0xa9aaa4, mat::STONE, 0b000100, false);
+
+    // --- walls: the roll-up door in the front, a side door, strip windows high up all round
+    let front = Line { along_x: true, a0: -hx, a1: hx, c: hz - WALL_T / 2.0, out: 1.0 };
+    let back = Line { along_x: true, a0: -hx, a1: hx, c: -hz + WALL_T / 2.0, out: -1.0 };
+    let left = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: -hx + WALL_T / 2.0, out: -1.0 };
+    let right = Line { along_x: false, a0: -hz + WALL_T, a1: hz - WALL_T, c: hx - WALL_T / 2.0, out: 1.0 };
+    let big_w = 5.0;
+    let door_u = (w * *rng.pick(&[0.5f32, 0.38, 0.62])).clamp(big_w / 2.0 + 2.0, w - big_w / 2.0 - 2.0);
+    let door_x = -hx + door_u;
+    let big = Op { u0: door_u - big_w / 2.0, u1: door_u + big_w / 2.0, v0: 0.0, v1: 4.6 };
+    let (side, other) = if rng.chance(0.5) { (left, right) } else { (right, left) };
+    let sd_u = side.len() * 0.3;
+    let side_door = Op { u0: sd_u - DOOR_W / 2.0, u1: sd_u + DOOR_W / 2.0, v0: 0.0, v1: DOOR_H };
+    let strip = |len: f32, avoid: &[(f32, f32)]| -> Vec<Op> { B::window_slots(len, avoid, 4.2).into_iter().map(|c| Op { u0: c - 1.0, u1: c + 1.0, v0: 4.5, v1: 5.3 }).collect() };
+    let walls = [
+        (front, Some(big), strip(front.len(), &[(big.u0 - 0.6, big.u1 + 0.6)])),
+        (back, None, strip(back.len(), &[])),
+        (side, Some(side_door), strip(side.len(), &[(side_door.u0 - 0.6, side_door.u1 + 0.6)])),
+        (other, None, strip(other.len(), &[])),
+    ];
+    for (line, door, wins) in &walls {
+        let mut ops = wins.clone();
+        ops.extend(door.iter().copied());
+        ribbed_wall(&mut b, *line, FLOOR_Y, h, &ops, skin, rib);
+        for o in wins {
+            tower_window(&mut b, *line, FLOOR_Y, o, steel);
+        }
+    }
+    b.corner_posts(hx - 0.06, hz - 0.06, FLOOR_Y, top_y, steel);
+    // the roll-up door, rolled up into its drum inside above the opening, with its bottom rail just showing; a sign and a lamp outside
+    b.opening_trim(front, FLOOR_Y, &big, false, hazard, None);
+    let inner = -WALL_T / 2.0;
+    let (a, c) = front.bx(big.u0 - 0.25, big.u1 + 0.25, inner - 0.6, inner, FLOOR_Y + big.v1 + 0.05, FLOOR_Y + big.v1 + 0.65);
+    b.bx(a, c, steel, mat::METAL, false);
+    let (a, c) = front.bx(big.u0, big.u1, -0.06, 0.02, FLOOR_Y + big.v1 - 0.32, FLOOR_Y + big.v1);
+    b.bx(a, c, shade_hex(skin, 0.92), mat::METAL, false);
+    let (a, c) = front.bx(big.u0, big.u1, -0.08, 0.04, FLOOR_Y + big.v1 - 0.38, FLOOR_Y + big.v1 - 0.32);
+    b.bx(a, c, steel, mat::METAL, false);
+    let (a, c) = front.bx(big.u0 + 0.5, big.u1 - 0.5, WALL_T / 2.0, WALL_T / 2.0 + 0.06, FLOOR_Y + 4.85, FLOOR_Y + 5.6);
+    b.bx(a, c, *rng.pick(&[0xc24a3cu32, 0x2f8f8a, 0x3f5f94, 0xd9772f]), mat::FLAT, false);
+    let (a, c) = front.bx(big.u0 + 0.7, big.u1 - 0.7, WALL_T / 2.0 + 0.06, WALL_T / 2.0 + 0.08, FLOOR_Y + 5.0, FLOOR_Y + 5.45);
+    b.bx(a, c, 0xf4f1ea, mat::FLAT, false);
+    // the side door, standing ajar, with a lamp over it
+    b.opening_trim(side, FLOOR_Y, &side_door, false, steel, None);
+    b.door_leaf(side, FLOOR_Y, &side_door, 0x5a6f80, 0xc9c9c9);
+    let (s0, s1) = if side.out > 0.0 { (WALL_T / 2.0, WALL_T / 2.0 + 0.2) } else { (-WALL_T / 2.0 - 0.2, -WALL_T / 2.0) };
+    let (a, c) = side.bx(sd_u - 0.2, sd_u + 0.2, s0, s1, FLOOR_Y + DOOR_H + 0.3, FLOOR_Y + DOOR_H + 0.45);
+    b.bx(a, c, 0xffe29a, mat::EMISSIVE, false);
+
+    // --- roof: two shallow slopes up to a ridge along the long side, with standing seams, a ridge cap, gutters and vents; inside, a
+    // ceiling under steel trusses and lamps. The colliders (two wedges) stay within the footprint.
+    let ridge_x = w >= d;
+    let map = |x: f32, y: f32, z: f32| if ridge_x { Vec3::new(x, y, z) } else { Vec3::new(z, y, x) };
+    let (len_h, wid_h) = if ridge_x { (hx, hz) } else { (hz, hx) };
+    let rise = wid_h * 0.14;
+    let ov = 0.3;
+    let (el, ew) = (len_h + ov, wid_h + ov);
+    let eave_y = top_y - rise * ov / wid_h;
+    for s in [-1.0f32, 1.0] {
+        let n = Vec3::new(0.0, wid_h, s * rise).normalize();
+        let n = if ridge_x { n } else { Vec3::new(n.z, n.y, n.x) };
+        let p = [map(-el, eave_y, s * ew), map(el, eave_y, s * ew), map(el, top_y + rise, 0.0), map(-el, top_y + rise, 0.0)];
+        b.mb.mat(mat::METAL).hex(roof_col);
+        b.mb.quad_out(p, n);
+        b.mb.hex(shade_hex(roof_col, 0.7));
+        b.mb.quad_out(p, -n);
+        let seams = (2.0 * el / 1.2).round() as i32;
+        for k in 0..=seams {
+            let x = -el + 0.06 + (2.0 * el - 0.12) * k as f32 / seams as f32;
+            b.board(map(x, eave_y + 0.03, s * ew), map(x, top_y + rise + 0.03, 0.0), n, 0.06, 0.05, shade_hex(roof_col, 0.85), mat::METAL);
+        }
+        // a gutter along the eave
+        b.tube(map(-el, eave_y - 0.02, s * (ew + 0.03)), map(el, eave_y - 0.02, s * (ew + 0.03)), 0.07, 0x9aa0a8, mat::METAL);
+    }
+    let (a, c) = (map(-el - 0.02, top_y + rise - 0.05, -0.2), map(el + 0.02, top_y + rise + 0.08, 0.2));
+    b.bx(a.min(c), a.max(c), shade_hex(roof_col, 0.8), mat::METAL, false);
+    b.mb.mat(mat::METAL).hex(skin);
+    for s in [-1.0f32, 1.0] {
+        b.mb.tri_out(map(s * len_h, top_y, -wid_h), map(s * len_h, top_y, wid_h), map(s * len_h, top_y + rise, 0.0), map(s, 0.0, 0.0));
+    }
+    for t in [-0.45f32, 0.45] {
+        let v = map(t * len_h, top_y + rise, 0.0);
+        b.mb.mat(mat::METAL).hex(0xb8bcc2);
+        b.mb.cylinder(v - Vec3::Y * 0.05, 0.28, 0.28, 0.45, 10, false, false);
+        b.mb.sphere(v + Vec3::Y * 0.42, 0.3, 1);
+    }
+    if ridge_x {
+        b.cols.push(Collider::wedge(Vec3::new(-hx, top_y, 0.0), Vec3::new(hx, top_y + rise, hz), 3, Tag::Static));
+        b.cols.push(Collider::wedge(Vec3::new(-hx, top_y, -hz), Vec3::new(hx, top_y + rise, 0.0), 1, Tag::Static));
+    } else {
+        b.cols.push(Collider::wedge(Vec3::new(0.0, top_y, -hz), Vec3::new(hx, top_y + rise, hz), 2, Tag::Static));
+        b.cols.push(Collider::wedge(Vec3::new(-hx, top_y, -hz), Vec3::new(0.0, top_y + rise, hz), 0, Tag::Static));
+    }
+    b.bx(Vec3::new(ix0, top_y - 0.15, iz0), Vec3::new(ix1, top_y, iz1), 0xd8dadc, mat::METAL, true);
+    let trusses = ((2.0 * len_h) / 4.5).round().max(2.0) as i32;
+    for k in 1..trusses {
+        let x = -len_h + 2.0 * len_h * k as f32 / trusses as f32;
+        let (a, c) = (map(x - 0.1, top_y - 0.55, -wid_h + WALL_T), map(x + 0.1, top_y - 0.15, wid_h - WALL_T));
+        b.bx(a.min(c), a.max(c), steel, mat::METAL, false);
+        for t in [-0.5f32, 0.5] {
+            let p = map(x, top_y - 0.55, t * wid_h);
+            b.tube(p, p - Vec3::Y * 0.6, 0.012, 0x2b2e34, mat::METAL);
+            b.mb.mat(mat::METAL).hex(0x5a5f6a);
+            b.mb.cylinder(p - Vec3::Y * 0.85, 0.32, 0.08, 0.25, 8, false, false);
+            b.mb.mat(mat::EMISSIVE).hex(0xfff1c4);
+            b.mb.cylinder(p - Vec3::Y * 0.86, 0.26, 0.26, 0.02, 8, true, true);
+        }
+    }
+
+    // --- inside: safety lines down the aisle, and crates stacked in rows either side of it
+    for sx in [-1.0f32, 1.0] {
+        let x = door_x + sx * 2.75;
+        b.bx_faces(Vec3::new(x - 0.06, FLOOR_Y + 0.02, iz0 + 0.3), Vec3::new(x + 0.06, FLOOR_Y + 0.025, iz1 - 0.3), hazard, mat::FLAT, 0b000100, false);
+    }
+    let aisle = 2.6;
+    let mut spots = vec![];
+    let mut z = iz0 + 1.6;
+    while z < iz1 - 3.0 {
+        let mut x = ix0 + 1.4;
+        while x < ix1 - 1.2 {
+            if (x - door_x).abs() > aisle + 0.9 {
+                spots.push((x, z));
+            }
+            x += 3.2;
+        }
+        z += 3.4;
+    }
+    rng.shuffle(&mut spots);
+    let keep = (spots.len() * 2 / 3).max(spots.len().min(3));
+    let crate_cols = [0xa8794au32, 0x9c6a3a, 0xb98b56, 0x8a5a34, 0x6f8fa6, 0x7f9a5c];
+    for &(x, z) in &spots[..keep] {
+        let mut y = FLOOR_Y;
+        let mut s = rng.range(1.25, 1.6);
+        for k in 0..1 + rng.below(3) {
+            let (ox, oz) = if k == 0 { (0.0, 0.0) } else { (rng.range(-0.12, 0.12), rng.range(-0.12, 0.12)) };
+            let top = y + s * rng.range(0.75, 0.95);
+            crate_box(&mut b, Vec3::new(x + ox - s / 2.0, y, z + oz - s / 2.0), Vec3::new(x + ox + s / 2.0, top, z + oz + s / 2.0), *rng.pick(&crate_cols));
+            y = top;
+            s *= rng.range(0.78, 0.92);
+        }
+    }
+    // a chest at the end of the aisle (or in a back corner), then loot on clear floor between the stacks
+    if rng.chance(0.7) {
+        let cands = [Vec3::new(door_x, FLOOR_Y, iz0 + 0.5), Vec3::new(ix0 + 0.7, FLOOR_Y, iz0 + 0.5), Vec3::new(ix1 - 0.7, FLOOR_Y, iz0 + 0.5)];
+        if let Some(p) = cands.into_iter().find(|p| floor_clear(&b, p.x, p.z, FLOOR_Y, 0.55, 0.4)) {
+            b.chests.push((p, 0.0));
+        }
+    }
+    let want = 3 + rng.below(3);
+    let mut loot: Vec<Vec3> = vec![];
+    let clear = |b: &B, loot: &[Vec3], p: Vec3| {
+        let by_door = (p.x - door_x).abs() < big_w / 2.0 && p.z > iz1 - 1.5;
+        !by_door && floor_clear(b, p.x, p.z, FLOOR_Y, 0.35, 0.35) && b.chests.iter().all(|(c, _)| c.distance(p) > 1.3) && loot.iter().all(|q| q.distance(p) > 2.0)
+    };
+    for _ in 0..60 {
+        if loot.len() >= want {
+            break;
+        }
+        let p = Vec3::new(rng.range(ix0 + 0.6, ix1 - 0.6), FLOOR_Y, rng.range(iz0 + 0.6, iz1 - 0.6));
+        if clear(&b, &loot, p) {
+            loot.push(p);
+        }
+    }
+    // the aisle is never stacked: top up there if the floor between the crates was too crowded
+    for k in 0..8 {
+        if loot.len() >= 3 {
+            break;
+        }
+        let p = Vec3::new(door_x + if k % 2 == 0 { -1.2 } else { 1.2 }, FLOOR_Y, iz0 + 2.0 + (iz1 - iz0 - 4.5) * (k / 2) as f32 / 3.0);
+        if clear(&b, &loot, p) {
+            loot.push(p);
+        }
+    }
+    b.loot.extend(loot);
+
+    let mut g = b.finish(Vec2::new(hx, hz), top_y + rise + 0.75, Vec3::new(door_x, 0.0, hz + 3.0), Vec3::new(door_x, FLOOR_Y, hz - 2.5));
+    g.entry = Some(Entry { edge: Vec3::new(door_x, FLOOR_Y, hz + 0.1), half_w: big_w / 2.0 - 0.2 });
+    g
+}
+
+/// A 20-foot shipping container, shut: 6.1 m long (along X), 2.44 m wide and 2.6 m tall, with corrugated sides, end and roof, a steel
+/// frame with corner castings, and the cargo doors with their locking bars at the +X end. `col` is its paint. One solid block.
+pub fn gen_container(col: u32) -> Geom {
+    let mut b = B::new();
+    let (hx, hz, h) = (3.05f32, 1.22f32, 2.6f32);
+    let (rib, frame) = (shade_hex(col, 0.84), shade_hex(col, 0.62));
+    // the shell, a hair inside the frame
+    b.mb.ao(0.7, 1.0);
+    b.bx(Vec3::new(-hx + 0.02, 0.02, -hz + 0.04), Vec3::new(hx - 0.02, h - 0.03, hz - 0.04), col, mat::METAL, false);
+    b.mb.ao(1.0, 1.0);
+    b.cols.push(Collider::aabb_box(Vec3::new(-hx, 0.0, -hz), Vec3::new(hx, h, hz), Tag::Static));
+    // corrugation: ribs down both long sides and the closed end, and across the roof
+    let mut x = -hx + 0.3;
+    while x < hx - 0.25 {
+        for (z0, z1, faces) in [(hz - 0.04, hz - 0.005, 0b010011u8), (-hz + 0.005, -hz + 0.04, 0b100011)] {
+            b.bx_faces(Vec3::new(x - 0.06, 0.16, z0), Vec3::new(x + 0.06, h - 0.12, z1), rib, mat::METAL, faces, false);
+        }
+        x += 0.3;
+    }
+    let mut z = -hz + 0.3;
+    while z < hz - 0.25 {
+        b.bx_faces(Vec3::new(-hx + 0.005, 0.16, z - 0.06), Vec3::new(-hx + 0.02, h - 0.12, z + 0.06), rib, mat::METAL, 0b110010, false);
+        z += 0.3;
+    }
+    let mut x = -hx + 0.35;
+    while x < hx - 0.3 {
+        b.bx_faces(Vec3::new(x - 0.08, h - 0.03, -hz + 0.12), Vec3::new(x + 0.08, h - 0.005, hz - 0.12), rib, mat::METAL, 0b000111, false);
+        x += 0.4;
+    }
+    // the frame: corner posts with castings, and rails along the top and bottom of every side
+    for (sx, sz) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        let (x0, x1) = if sx > 0.0 { (hx - 0.12, hx) } else { (-hx, -hx + 0.12) };
+        let (z0, z1) = if sz > 0.0 { (hz - 0.12, hz) } else { (-hz, -hz + 0.12) };
+        b.bx(Vec3::new(x0, 0.0, z0), Vec3::new(x1, h, z1), frame, mat::METAL, false);
+        for (y0, y1) in [(0.0, 0.15), (h - 0.15, h + 0.01)] {
+            b.bx(Vec3::new(x0 - 0.01, y0, z0 - 0.01), Vec3::new(x1 + 0.01, y1, z1 + 0.01), shade_hex(frame, 0.8), mat::METAL, false);
+        }
+    }
+    for s in [-1.0f32, 1.0] {
+        let (z0, z1) = if s > 0.0 { (hz - 0.1, hz) } else { (-hz, -hz + 0.1) };
+        let (x0, x1) = if s > 0.0 { (hx - 0.1, hx) } else { (-hx, -hx + 0.1) };
+        for (y0, y1) in [(0.0, 0.16), (h - 0.12, h)] {
+            b.bx(Vec3::new(-hx + 0.12, y0, z0), Vec3::new(hx - 0.12, y1, z1), frame, mat::METAL, false);
+            b.bx(Vec3::new(x0, y0, -hz + 0.12), Vec3::new(x1, y1, hz - 0.12), frame, mat::METAL, false);
+        }
+    }
+    // the cargo doors at +X: two leaves, each with two locking bars and their handles
+    for (za, zb) in [(-hz + 0.12, -0.01), (0.01, hz - 0.12)] {
+        b.bx(Vec3::new(hx - 0.03, 0.16, za), Vec3::new(hx - 0.005, h - 0.12, zb), shade_hex(col, 0.95), mat::METAL, false);
+        for k in [0.28f32, 0.72] {
+            let z = za + (zb - za) * k;
+            b.tube(Vec3::new(hx + 0.015, 0.2, z), Vec3::new(hx + 0.015, h - 0.16, z), 0.022, 0x9aa0a8, mat::METAL);
+            b.bx(Vec3::new(hx - 0.005, 1.05, z - 0.03), Vec3::new(hx + 0.06, 1.15, z + 0.2), 0x9aa0a8, mat::METAL, false);
+        }
+    }
+    b.finish(Vec2::new(hx, hz), h, Vec3::ZERO, Vec3::ZERO)
+}
+
+/// A tall round factory chimney of height `h` (clamped to 12..=60 m): a tapering brick shaft on a square plinth, with steel bands round
+/// it, a red-and-white top under a dark rim and a ladder up its front (+Z). One solid cylinder on a solid plinth.
+pub fn gen_smokestack(h: f32) -> Geom {
+    let h = h.clamp(12.0, 60.0);
+    let mut b = B::new();
+    let (base_h, r0, r1) = (2.4f32, 1.7f32, 1.15f32);
+    // the plinth with its capping and a small iron door
+    b.mb.ao(0.6, 1.0);
+    b.bx(Vec3::new(-2.3, -1.0, -2.3), Vec3::new(2.3, base_h, 2.3), 0x8e4b3a, mat::BRICK, true);
+    b.mb.ao(1.0, 1.0);
+    b.bx(Vec3::new(-2.45, base_h, -2.45), Vec3::new(2.45, base_h + 0.25, 2.45), 0x9b9a95, mat::STONE, false);
+    b.bx(Vec3::new(-0.5, 0.0, 2.3), Vec3::new(0.5, 1.9, 2.34), 0x2b2e34, mat::METAL, false);
+    // the shaft
+    let y0 = base_h + 0.25;
+    let r_at = |y: f32| r0 + (r1 - r0) * ((y - y0) / (h - y0)).clamp(0.0, 1.0);
+    b.mb.mat(mat::BRICK).hex(0xa65a44).ao(0.8, 1.0);
+    b.mb.cylinder(Vec3::new(0.0, y0, 0.0), r0, r1, h - y0, 16, false, false);
+    b.mb.ao(1.0, 1.0);
+    // (three drums that follow the taper, each as wide as the shaft at its foot)
+    for k in 0..3 {
+        let (ya, yb) = (y0 + (h - y0) * k as f32 / 3.0, y0 + (h - y0) * (k + 1) as f32 / 3.0);
+        b.cols.push(Collider::cyl(0.0, 0.0, r_at(ya), ya, yb, Tag::Static));
+    }
+    // red and white stripes round the top, steel bands below them
+    let stripes = h - 4.5;
+    for k in 0..3 {
+        let ya = stripes + k as f32 * 1.5;
+        b.mb.mat(mat::PLASTER).hex(if k % 2 == 0 { 0xc43b32 } else { 0xf4f1ea });
+        b.mb.cylinder(Vec3::new(0.0, ya, 0.0), r_at(ya) + 0.02, r_at(ya + 1.5) + 0.02, 1.5, 16, false, false);
+    }
+    b.mb.mat(mat::METAL).hex(0x3d3f46);
+    let mut y = y0 + 3.0;
+    while y < stripes - 1.0 {
+        b.mb.cylinder(Vec3::new(0.0, y, 0.0), r_at(y) + 0.06, r_at(y + 0.18) + 0.06, 0.18, 16, false, false);
+        y += 5.0;
+    }
+    // the rim and the dark mouth inside it
+    b.mb.cylinder(Vec3::new(0.0, h, 0.0), r1 + 0.14, r1 + 0.14, 0.3, 16, true, false);
+    b.mb.cylinder(Vec3::new(0.0, h + 0.3, 0.0), r1 + 0.14, r1 - 0.12, 0.0001, 16, false, false);
+    b.mb.mat(mat::FLAT).hex(0x141416);
+    b.mb.cylinder(Vec3::new(0.0, h + 0.2, 0.0), r1 - 0.12, r1 - 0.12, 0.1, 16, false, true);
+    // a ladder up the front, following the taper
+    let off = 0.22;
+    for sx in [-0.25f32, 0.25] {
+        b.tube(Vec3::new(sx, y0 + 0.3, r_at(y0 + 0.3) + off), Vec3::new(sx, h - 0.1, r_at(h - 0.1) + off), 0.03, 0x5a5f6a, mat::METAL);
+    }
+    let mut y = y0 + 0.6;
+    while y < h - 0.2 {
+        let z = r_at(y) + off;
+        b.tube(Vec3::new(-0.25, y, z), Vec3::new(0.25, y, z), 0.02, 0x5a5f6a, mat::METAL);
+        y += 0.5;
+    }
+    b.finish(Vec2::new(2.45, 2.45), h + 0.3, Vec3::ZERO, Vec3::ZERO)
+}
+
+/// Paint of the junkyard's car wrecks (faded further per wreck).
+const WRECK_PAINT: [u32; 9] = [0xb5463a, 0x2f6fb0, 0xd9a23b, 0x3e7e4e, 0xe8e4da, 0x5a5f6a, 0x8a3b6e, 0x2b2e34, 0xc96f2a];
+
+/// A junkyard pile of `n` (clamped to 1..=8) car wrecks crushed flat, in assorted faded colours, each lying a little askew on the one
+/// below it. Every wreck is a solid block.
+pub fn gen_wreck_stack(rng: &mut Rng, n: u32) -> Geom {
+    let mut b = B::new();
+    let mut y = 0.0f32;
+    let mut half = Vec2::ZERO;
+    for _ in 0..n.clamp(1, 8) {
+        let paint = shade_hex(*rng.pick(&WRECK_PAINT), rng.range(0.7, 0.95));
+        let (l, wd) = (rng.range(1.95, 2.25), rng.range(0.82, 0.92));
+        let (body_h, cab_h) = (rng.range(0.36, 0.48), rng.range(0.1, 0.2));
+        let yaw = rng.range(-0.2, 0.2) + if rng.chance(0.5) { PI } else { 0.0 };
+        let c = Vec3::new(rng.range(-0.2, 0.2), y, rng.range(-0.12, 0.12));
+        b.mb.push_xf(Mat4::from_translation(c) * Mat4::from_rotation_y(yaw));
+        // the squashed body with a rusty sill and black bumpers, the cabin folded down onto it with its broken windows, and the tyres
+        b.mb.mat(mat::METAL).hex(paint).ao(0.75, 1.0);
+        b.mb.box_min_max(Vec3::new(-l, 0.05, -wd), Vec3::new(l, body_h, wd));
+        b.mb.ao(1.0, 1.0);
+        b.mb.hex(0x7a4a2e);
+        b.mb.box_faces(Vec3::new(-l - 0.01, 0.05, -wd - 0.01), Vec3::new(l + 0.01, 0.16, wd + 0.01), 0b110011);
+        b.mb.hex(0x2b2e34);
+        for (x0, x1) in [(l - 0.02, l + 0.08), (-l - 0.08, -l + 0.02)] {
+            b.mb.box_min_max(Vec3::new(x0, 0.1, -wd + 0.05), Vec3::new(x1, 0.25, wd - 0.05));
+        }
+        let cab0 = -l * rng.range(0.35, 0.55);
+        b.mb.hex(shade_hex(paint, 0.85));
+        b.mb.box_min_max(Vec3::new(cab0, body_h, -wd * 0.84), Vec3::new(cab0 + l * 0.9, body_h + cab_h, wd * 0.84));
+        b.mb.mat(mat::GLASS).hex(0x2a3440);
+        b.mb.box_faces(Vec3::new(cab0 + 0.08, body_h + 0.02, -wd * 0.85), Vec3::new(cab0 + l * 0.9 - 0.08, body_h + cab_h - 0.025, wd * 0.85), 0b110000);
+        b.mb.mat(mat::FLAT).hex(0x1f2024);
+        for sx in [-0.62f32, 0.62] {
+            for sz in [-1.0f32, 1.0] {
+                b.mb.push_xf(Mat4::from_translation(Vec3::new(sx * l, 0.17, sz * (wd - 0.02))) * Mat4::from_rotation_x(FRAC_PI_2));
+                b.mb.cylinder(Vec3::new(0.0, -0.09, 0.0), 0.19, 0.19, 0.18, 8, true, true);
+                b.mb.pop_xf();
+            }
+        }
+        b.mb.pop_xf();
+        let (lo, hi) = rot_box(Vec3::new(-l - 0.08, 0.0, -wd - 0.08), Vec3::new(l + 0.08, body_h + cab_h, wd + 0.08), yaw, c);
+        b.cols.push(Collider::aabb_box(lo, hi, Tag::Static));
+        half = half.max(Vec2::new(lo.x.abs().max(hi.x.abs()), lo.z.abs().max(hi.z.abs())));
+        y += body_h + cab_h - 0.03;
+    }
+    b.finish(half, y + 0.03, Vec3::ZERO, Vec3::ZERO)
+}
+
+// ---------------------------------------------------------------------------------
 // Details
 // ---------------------------------------------------------------------------------
 
@@ -1776,6 +2551,12 @@ mod tests {
             ("lamp", gen_lamp_post(0xfff0b0)),
             ("dock", gen_dock(12.0)),
             ("fence", gen_fence(6.0, 0xf5f2ea)),
+            // (after the others, so they keep drawing the same numbers from `r`)
+            ("city tower", gen_tower(&mut r, 11.0, 10.0, 3, &st)),
+            ("warehouse", gen_warehouse(&mut r, 22.0, 16.0)),
+            ("container", gen_container(0x2f6fb0)),
+            ("smokestack", gen_smokestack(30.0)),
+            ("wrecks", gen_wreck_stack(&mut r, 3)),
         ]
     }
 
@@ -1901,6 +2682,305 @@ mod tests {
                 let nv = [Vec3::X, Vec3::Z, Vec3::NEG_X, Vec3::NEG_Z][nd as usize];
                 assert!((r - nv).length() < 1e-4, "d{d} k{k}: {r:?} vs {nv:?}");
             }
+        }
+    }
+
+    // ----- city towers, warehouses and industrial decor
+
+    use crate::game::actor::{HEIGHT, RADIUS};
+    use crate::game::env::STEP_HEIGHT;
+    use crate::game::movement::SNAP_DOWN;
+
+    /// Towers of 2 to 5 storeys on a few footprints, with the number of storeys asked for and the half footprint.
+    fn towers() -> Vec<(u32, f32, f32, Geom)> {
+        let mut r = Rng::new(21);
+        let mut out = vec![];
+        for floors in 2..=6u32 {
+            for (w, d) in [(8.5f32, 8.5f32), (11.0, 10.0), (13.0, 12.5), (9.5, 13.0), (12.0, 9.0)] {
+                let st = random_style(&mut r, floors);
+                out.push((floors, w / 2.0, d / 2.0, gen_tower(&mut r, w, d, floors, &st)));
+            }
+        }
+        out
+    }
+
+    /// Height of the floor of storey `fl` of a tower (the roof is storey `floors`).
+    fn storey_y(fl: u32) -> f32 {
+        FLOOR_Y + fl as f32 * STORY_H
+    }
+
+    /// Walk a body the size of a player (RADIUS x HEIGHT) along the (x, z) waypoints of `path` from `start`, the way the movement
+    /// code moves one: in short strides, standing on the highest collider top within STEP_HEIGHT of its feet (the terrain is y = 0).
+    /// It fails if a solid pushes it back (a wall, a rail, a step that is too high), if it drops more than SNAP_DOWN (it walked into a
+    /// hole), or if anything hangs less than 2 m above its feet. Returns where it ended up.
+    fn walk(cols: &[Collider], start: Vec3, path: &[Vec2]) -> Result<Vec3, String> {
+        let mut p = start;
+        for &to in path {
+            loop {
+                let d = to - Vec2::new(p.x, p.z);
+                let l = d.length();
+                if l < 1e-4 {
+                    break;
+                }
+                let c = Vec2::new(p.x, p.z) + d * (l.min(0.05) / l);
+                if let Some(col) = cols.iter().find(|col| col.shape.push_out(c, RADIUS, p.y, p.y + HEIGHT, STEP_HEIGHT).is_some_and(|v| v.length() > 1e-3)) {
+                    return Err(format!("blocked at {c:?} (feet {:.2}) by {:?}", p.y, col.shape));
+                }
+                let g = cols.iter().filter_map(|col| col.shape.top_at(c.x, c.y)).filter(|&t| t <= p.y + STEP_HEIGHT).fold(0.0f32, f32::max);
+                if g < p.y - SNAP_DOWN {
+                    return Err(format!("fell at {c:?} from {:.2} to {g:.2}", p.y));
+                }
+                if let Some(col) = cols.iter().find(|col| col.shape.top_at(c.x, c.y).is_some() && col.shape.bottom() > g + 0.05 && col.shape.bottom() < g + 2.0) {
+                    return Err(format!("less than 2 m of head room at {c:?} (feet {g:.2}) under {:?}", col.shape));
+                }
+                p = Vec3::new(c.x, g, c.y);
+            }
+        }
+        Ok(p)
+    }
+
+    /// The way from a tower's door to its roof: in, across the front landing to the foot of the first flight, then up every flight in
+    /// turn, turning on the landings at its ends, and out from the hatch onto the open roof.
+    fn tower_route(g: &Geom, flights: &[Flight]) -> Vec<Vec2> {
+        let (back, front) = (flights[0].z_back - 0.6, flights[0].z_front + 0.57);
+        let lane = |f: &Flight| (f.x0 + f.x1) / 2.0;
+        let z_in = front.max(g.door_in.z);
+        let mut path = vec![Vec2::new(g.door_in.x, g.door_in.z), Vec2::new(g.door_in.x, z_in), Vec2::new(lane(&flights[0]), z_in)];
+        for f in flights {
+            let (foot, head) = if f.to_back { (front, back) } else { (back, front) };
+            path.push(Vec2::new(lane(f), foot));
+            path.push(Vec2::new(lane(f), head));
+        }
+        let end = *path.last().unwrap();
+        path.push(Vec2::new(g.door_in.x, end.y));
+        path
+    }
+
+    #[test]
+    fn a_tower_can_be_climbed_from_the_street_to_the_roof() {
+        for (floors, hx, hz, g) in towers() {
+            let flights = tower_flights(hx, hz, floors);
+            assert_eq!(flights.len(), floors as usize);
+            let top = walk(&g.cols, g.door_out, &tower_route(&g, &flights)).unwrap_or_else(|e| panic!("{floors} storeys, {hx}x{hz}: {e}"));
+            assert!((top.y - storey_y(floors)).abs() < 0.01, "{floors} storeys, {hx}x{hz}: walked out onto the roof, y {}", top.y);
+            // the bounds handed to the game are those of the first flight, which rises toward -Z like a house's
+            let (lo, hi) = g.stairs.expect("a tower has stairs");
+            assert!((lo.y - FLOOR_Y).abs() < 1e-4 && (hi.y - storey_y(1)).abs() < 1e-4 && (lo.z - flights[0].z_back).abs() < 1e-4 && flights[0].to_back);
+        }
+    }
+
+    #[test]
+    fn every_flight_of_a_tower_is_made_of_low_steps_with_head_room_over_them() {
+        for (floors, hx, hz, g) in towers() {
+            let name = format!("{floors} storeys, {hx}x{hz}");
+            for (i, f) in tower_flights(hx, hz, floors).iter().enumerate() {
+                let mut steps: Vec<Aabb> = g
+                    .cols
+                    .iter()
+                    .map(|c| c.shape.aabb())
+                    .filter(|bb| bb.min.x >= f.x0 - 0.01 && bb.max.x <= f.x1 + 0.01 && bb.min.z >= f.z_back - 0.01 && bb.max.z <= f.z_front + 0.01)
+                    .filter(|bb| (bb.min.y - f.y_low).abs() < 0.01 && bb.max.y <= f.y_high + 0.01)
+                    .collect();
+                assert_eq!(steps.len(), STAIR_STEPS as usize, "{name}: flight {i}");
+                steps.sort_by(|a, b| a.max.y.total_cmp(&b.max.y));
+                let mut last = f.y_low;
+                for s in &steps {
+                    let rise = s.max.y - last;
+                    assert!(rise > 0.05 && rise <= STEP_HEIGHT, "{name}: flight {i} has a rise of {rise}");
+                    last = s.max.y;
+                    // nothing over the tread for 2 m (the steps beside it only touch its edges)
+                    let (x0, x1, z0, z1) = (s.min.x + 0.02, s.max.x - 0.02, s.min.z + 0.02, s.max.z - 0.02);
+                    for c in &g.cols {
+                        let bb = c.shape.aabb();
+                        let over = bb.min.x < x1 && bb.max.x > x0 && bb.min.z < z1 && bb.max.z > z0;
+                        assert!(
+                            !(over && bb.max.y > s.max.y + 0.01 && bb.min.y < s.max.y + 2.0),
+                            "{name}: flight {i}, step at {:.2}: only {:.2} m of head room under {:?}",
+                            s.max.y,
+                            bb.min.y - s.max.y,
+                            c.shape
+                        );
+                    }
+                    // a flight above the ground floor stands on solid slab
+                    if i > 0 {
+                        let (cx, cz) = ((s.min.x + s.max.x) / 2.0, (s.min.z + s.max.z) / 2.0);
+                        let slab = g.cols.iter().any(|c| c.shape.aabb().max.y < f.y_low + 0.01 && c.shape.top_at(cx, cz).is_some_and(|t| (t - f.y_low).abs() < 0.01));
+                        assert!(slab, "{name}: flight {i} is not standing on a slab at ({cx:.2}, {cz:.2})");
+                    }
+                }
+                assert!((last - f.y_high).abs() < 0.01, "{name}: flight {i} ends level with the floor above");
+                // the slab it arrives at is open above it
+                let (hx0, hx1, hz0, hz1) = f.hole();
+                let (cx, cz) = ((hx0 + hx1) / 2.0, (hz0 + hz1) / 2.0);
+                assert!(!g.cols.iter().any(|c| c.shape.top_at(cx, cz).is_some_and(|t| (t - f.y_high).abs() < 0.01)), "{name}: flight {i} has no opening above it");
+            }
+        }
+    }
+
+    #[test]
+    fn a_tower_keeps_to_its_footprint_and_has_loot_on_every_floor() {
+        for (floors, hx, hz, g) in towers() {
+            let name = format!("{floors} storeys, {hx}x{hz}");
+            assert_eq!((g.half.x, g.half.y), (hx, hz));
+            assert!(g.height > storey_y(floors) + PARAPET_H);
+            assert!(g.mesh.verts.iter().all(|v| v.pos.iter().chain(&v.nrm).all(|c| c.is_finite())), "{name}: NaN");
+            assert!(g.mesh.verts.len() < 20_000, "{name}: {} verts", g.mesh.verts.len());
+            for c in &g.cols {
+                let bb = c.shape.aabb();
+                assert!(bb.min.x >= -hx - 0.15 && bb.max.x <= hx + 0.15 && bb.min.z >= -hz - 0.15 && bb.max.z <= hz + 0.15, "{name}: collider outside the footprint: {:?}", c.shape);
+                assert!(bb.max.y <= g.height + 0.01, "{name}: collider above the roof: {:?}", c.shape);
+            }
+            // every spot lies indoors (or on the roof) on a floor, with nothing in it
+            let lies_clear = |p: Vec3, rx: f32, rz: f32| {
+                let ground = g.cols.iter().filter_map(|c| c.shape.top_at(p.x, p.z)).filter(|&t| t <= p.y + 0.01).fold(f32::MIN, f32::max);
+                let free = !g.cols.iter().any(|c| {
+                    let bb = c.shape.aabb();
+                    bb.min.x < p.x + rx && bb.max.x > p.x - rx && bb.min.z < p.z + rz && bb.max.z > p.z - rz && bb.min.y < p.y + 0.5 && bb.max.y > p.y + 0.05
+                });
+                (ground - p.y).abs() < 0.01 && free
+            };
+            let inside = |p: Vec3| p.x.abs() < hx - WALL_T && p.z.abs() < hz - WALL_T;
+            for &l in &g.loot {
+                assert!(inside(l) && lies_clear(l, 0.25, 0.25), "{name}: loot spot {l:?} is not on clear floor indoors");
+            }
+            for &(c, yaw) in &g.chests {
+                let (rx, rz) = if (yaw.abs() - FRAC_PI_2).abs() < 0.1 { (0.35, 0.5) } else { (0.5, 0.35) };
+                assert!(inside(c) && lies_clear(c, rx, rz) && c.y > FLOOR_Y + 1.0, "{name}: chest at {c:?} is not clear on an upper floor");
+            }
+            for fl in 0..=floors {
+                let n = g.loot.iter().filter(|l| (l.y - storey_y(fl)).abs() < 0.01).count();
+                let want = if fl == floors { 1..=1 } else { 1..=2 };
+                assert!(want.contains(&n), "{name}: {n} loot spots on storey {fl}");
+            }
+            assert_eq!(g.loot.len(), g.loot.iter().filter(|l| (0..=floors).any(|fl| (l.y - storey_y(fl)).abs() < 0.01)).count(), "{name}: loot off the floors");
+        }
+        // over many towers, some upper floors get a chest and none of the ground floors does
+        let chests: usize = towers().iter().map(|t| t.3.chests.len()).sum();
+        assert!(chests > 3, "{chests} chests in the towers");
+    }
+
+    #[test]
+    fn a_towers_front_door_is_open_and_its_walls_are_not() {
+        for (floors, hx, hz, g) in towers() {
+            let name = format!("{floors} storeys, {hx}x{hz}");
+            assert!(g.door_out.z > hz && g.door_in.z < hz - WALL_T, "{name}: the door is on the +Z side");
+            let end = walk(&g.cols, g.door_out, &[Vec2::new(g.door_in.x, g.door_in.z)]).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!((end.y - FLOOR_Y).abs() < 0.01, "{name}: walked in onto the ground floor, y {}", end.y);
+            // a ray at chest height through the doorway reaches the door_in point; beside the door, at knee height, the wall stops it
+            let dir = Vec3::NEG_Z;
+            let reach = g.door_out.z - g.door_in.z;
+            let first_hit = |o: Vec3| g.cols.iter().filter_map(|c| c.shape.raycast(o, dir, 30.0)).map(|h| h.0).fold(f32::MAX, f32::min);
+            assert!(first_hit(Vec3::new(g.door_out.x, FLOOR_Y + 1.3, g.door_out.z)) > reach, "{name}: something blocks the doorway");
+            for dx in [-1.4f32, 1.4] {
+                assert!(first_hit(Vec3::new(g.door_out.x + dx, FLOOR_Y + 0.4, g.door_out.z)) < reach, "{name}: the front wall beside the door must be solid");
+            }
+            let e = g.entry.expect("an entrance for the steps on sloping ground");
+            assert!((e.edge.x - g.door_out.x).abs() < 1e-4 && e.edge.z >= hz);
+        }
+        // the number of storeys is clamped
+        let mut r = Rng::new(4);
+        let st = random_style(&mut r, 2);
+        assert_eq!(tower_storeys(&gen_tower(&mut r, 10.0, 10.0, 0, &st)), 2);
+        assert_eq!(tower_storeys(&gen_tower(&mut r, 10.0, 10.0, 9, &st)), 6);
+    }
+
+    /// The number of storeys of a tower, from its roof height.
+    fn tower_storeys(g: &Geom) -> u32 {
+        ((g.height - 1.05 - FLOOR_Y) / STORY_H).round() as u32
+    }
+
+    #[test]
+    fn a_tower_turns_and_moves_with_place() {
+        let mut r = Rng::new(8);
+        let st = random_style(&mut r, 4);
+        let g = gen_tower(&mut r, 11.0, 11.0, 4, &st);
+        for rot in 0..4u8 {
+            let c = Vec3::new(-60.0, 3.0, 25.0);
+            let p = place(&g, c, rot, Tag::Building(3));
+            let s = p.stairs.expect("stairs survive placement");
+            assert_eq!(s.dir, rot_dir(3, rot));
+            assert!((s.max.y - s.min.y - STORY_H).abs() < 1e-3);
+            let fwd = Mat3::from_rotation_y(rot as f32 * FRAC_PI_2) * Vec3::Z;
+            assert!((p.door_out - c).dot(fwd) > g.half.y, "rot {rot}: door not on the front side");
+            assert_eq!(p.loot.len(), g.loot.len());
+        }
+    }
+
+    #[test]
+    fn a_warehouse_has_an_open_door_crates_and_loot() {
+        let mut r = Rng::new(31);
+        for (w, d) in [(16.0f32, 12.0f32), (22.0, 16.0), (28.0, 20.0), (18.0, 20.0), (40.0, 5.0)] {
+            for _ in 0..4 {
+                let g = gen_warehouse(&mut r, w, d);
+                let (hx, hz) = (g.half.x, g.half.y);
+                let name = format!("warehouse {w}x{d}");
+                assert!((hx * 2.0 - w.clamp(16.0, 28.0)).abs() < 1e-4 && (hz * 2.0 - d.clamp(12.0, 20.0)).abs() < 1e-4, "{name}: {hx}x{hz}");
+                assert!(g.height > 6.5 && g.height < 9.0, "{name}: {} m tall", g.height);
+                assert!(!g.mesh.is_empty() && g.mesh.verts.len() < 20_000, "{name}: {} verts", g.mesh.verts.len());
+                assert!(g.mesh.verts.iter().all(|v| v.pos.iter().chain(&v.nrm).all(|c| c.is_finite())), "{name}: NaN");
+                for c in &g.cols {
+                    let bb = c.shape.aabb();
+                    assert!(bb.min.x >= -hx - 0.15 && bb.max.x <= hx + 0.15 && bb.min.z >= -hz - 0.15 && bb.max.z <= hz + 0.15, "{name}: collider outside the footprint: {:?}", c.shape);
+                }
+                // in through the big door and on down the aisle to the back
+                let end = walk(&g.cols, g.door_out, &[Vec2::new(g.door_in.x, g.door_in.z), Vec2::new(g.door_in.x, -hz + 2.0)]).unwrap_or_else(|e| panic!("{name}: {e}"));
+                assert!((end.y - FLOOR_Y).abs() < 0.01, "{name}: on the floor, y {}", end.y);
+                // crates to fight round: solid blocks standing on the floor, away from the walls
+                let indoors = |bb: Aabb| bb.min.x > -hx + WALL_T + 0.1 && bb.max.x < hx - WALL_T - 0.1 && bb.min.z > -hz + WALL_T + 0.1 && bb.max.z < hz - WALL_T - 0.1;
+                let crates = g.cols.iter().filter(|c| (c.shape.bottom() - FLOOR_Y).abs() < 0.01 && c.shape.aabb().max.y < FLOOR_Y + 2.0 && indoors(c.shape.aabb())).count();
+                assert!(crates >= 3, "{name}: {crates} crates");
+                assert!((3..=5).contains(&g.loot.len()), "{name}: {} loot spots", g.loot.len());
+                for l in &g.loot {
+                    assert!(l.x.abs() < hx - WALL_T && l.z.abs() < hz - WALL_T && (l.y - FLOOR_Y).abs() < 1e-4, "{name}: loot at {l:?}");
+                    assert!(floor_clear_cols(&g.cols, l.x, l.z, l.y, 0.3), "{name}: loot at {l:?} lies inside a crate");
+                }
+                for (c, _) in &g.chests {
+                    assert!(floor_clear_cols(&g.cols, c.x, c.z, c.y, 0.4), "{name}: chest at {c:?}");
+                }
+            }
+        }
+    }
+
+    /// True if no collider rises out of the floor at `y` within `r` of (x, z).
+    fn floor_clear_cols(cols: &[Collider], x: f32, z: f32, y: f32, r: f32) -> bool {
+        !cols.iter().any(|c| {
+            let bb = c.shape.aabb();
+            bb.min.x < x + r && bb.max.x > x - r && bb.min.z < z + r && bb.max.z > z - r && bb.min.y < y + 0.5 && bb.max.y > y + 0.05
+        })
+    }
+
+    #[test]
+    fn industrial_decor_is_solid_and_sane() {
+        let mut r = Rng::new(9);
+        let mut cases = vec![("container".to_string(), gen_container(0xc0392b)), ("smokestack".into(), gen_smokestack(24.0)), ("tall smokestack".into(), gen_smokestack(55.0))];
+        for n in 1..=6 {
+            cases.push((format!("{n} wrecks"), gen_wreck_stack(&mut r, n)));
+        }
+        for (name, g) in &cases {
+            assert!(!g.mesh.is_empty() && !g.cols.is_empty(), "{name}: empty");
+            assert!(g.mesh.verts.len() < 20_000, "{name}: {} verts", g.mesh.verts.len());
+            assert!(g.mesh.verts.iter().all(|v| v.pos.iter().chain(&v.nrm).all(|c| c.is_finite())), "{name}: NaN");
+            assert!(g.loot.is_empty() && g.chests.is_empty(), "{name}: decoration holds no loot");
+            let bb = g.mesh.bounds();
+            for c in &g.cols {
+                let cb = c.shape.aabb();
+                assert!(cb.min.is_finite() && cb.max.is_finite() && cb.max.y > cb.min.y + 0.1, "{name}: {:?}", c.shape);
+                assert!(cb.max.x <= g.half.x + 0.01 && cb.min.x >= -g.half.x - 0.01 && cb.max.z <= g.half.y + 0.01 && cb.min.z >= -g.half.y - 0.01, "{name}: collider outside its half extents");
+                assert!(cb.max.y <= g.height + 0.01 && cb.max.y <= bb.max.y + 0.05, "{name}: collider above the mesh");
+            }
+        }
+        // the container is the size of a real one, and every wreck in a pile is a block of its own on the one below
+        let cb = cases[0].1.cols[0].shape.aabb();
+        assert!(((cb.max - cb.min) - Vec3::new(6.1, 2.6, 2.44)).abs().max_element() < 0.01, "{:?}", cb.max - cb.min);
+        assert!(cases[2].1.height > cases[1].1.height + 25.0);
+        let piles: Vec<&Geom> = cases[3..].iter().map(|c| &c.1).collect();
+        for (k, g) in piles.iter().enumerate() {
+            let n = (k + 1) as f32;
+            assert_eq!(g.cols.len(), k + 1);
+            assert!(g.height > 0.4 * n && g.height < 0.7 * n + 0.1, "{n} flattened wrecks pile {} m high", g.height);
+            let mut tops: Vec<(f32, f32)> = g.cols.iter().map(|c| (c.shape.bottom(), c.shape.aabb().max.y)).collect();
+            tops.sort_by(|a, b| a.0.total_cmp(&b.0));
+            assert!(tops.windows(2).all(|p| (p[1].0 - p[0].1).abs() < 0.05), "each wreck lies on the one below: {tops:?}");
         }
     }
 }
