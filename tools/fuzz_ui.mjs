@@ -15,7 +15,7 @@ const SCREENS = ['menu', 'loading', 'pause', 'over', 'inventory', 'map', 'settin
 
 const { srv, url } = await serve();
 const { browser, page, logs } = await launch({ width: 800, height: 450 });
-await page.goto(url + 'index.html?opts=' + encodeURIComponent('skipbus=1;bots=8;god=1'));
+await page.goto(url + 'index.html?opts=' + encodeURIComponent('skipbus=1;bots=8;god=1;map=island'));
 await page.waitForFunction(() => window.__game && window.__game.state === 'menu', null, { timeout: 240000 });
 
 const snapshot = () => page.evaluate((screens) => ({

@@ -7,13 +7,16 @@ const STORM_PHASES = 7; // matches PHASES in matchflow.rs
 
 // What each hotbar slot is, written under its icon (same order as WeaponKind::ALL / ConsumableKind::ALL in the game).
 const WEAPON_LABELS = ['PISTOL', 'SUBMACHINE', 'RIFLE', 'SHOTGUN', 'SNIPER', 'ROCKET'];
-const CONSUMABLE_LABELS = ['BANDAGE', 'MEDKIT', 'MINI SHIELD', 'BIG SHIELD', 'CHUG JUG'];
+const CONSUMABLE_LABELS = ['BANDAGE', 'MEDKIT', 'MINI SHIELD', 'BIG SHIELD', 'CHUG JUG', 'SLURP'];
+const UTILITY_LABELS = ['FRAG', 'IMPULSE', 'BOOGIE', 'LAUNCH PAD']; // UtilityKind::ALL
 export function slotLabel(slot) {
   if (!slot) return '';
   if (slot.t === 'p') return 'PICKAXE';
   if (slot.t === 'w') return WEAPON_LABELS[slot.k] || String(slot.n || '').toUpperCase();
+  if (slot.t === 'u') return UTILITY_LABELS[slot.k] || String(slot.n || '').toUpperCase();
   return CONSUMABLE_LABELS[slot.k] || String(slot.n || '').toUpperCase();
 }
+const stacks = (slot) => slot && (slot.t === 'c' || slot.t === 'u');
 
 function fmtTime(s) {
   s = Math.max(0, Math.ceil(s));
@@ -120,6 +123,7 @@ export class Hud {
       this.crosshair(s, W, H, S);
       this.prompt(s, W, H, S);
       this.heal(s, W, H, S);
+      this.boogie(s, W, H, S);
       this.busPrompts(s, W, H, S);
       this.notice(s, W, H, S);
       this.bannersDraw(s, W, H, S);
@@ -145,8 +149,8 @@ export class Hud {
     if (p && !s.dead && p.ph === s.ph) {
       for (let i = 0; i < 6; i++) {
         const a = p.slots[i], b = s.slots[i];
-        if (b && (!a || a.t !== b.t || a.k !== b.k || a.r !== b.r || (b.t === 'c' && b.c > a.c))) {
-          this.notices.push({ txt: b.t === 'c' ? `${b.n} x${b.c}` : b.n, r: b.r ?? 0, age: 0 });
+        if (b && (!a || a.t !== b.t || a.k !== b.k || a.r !== b.r || (stacks(b) && b.c > a.c))) {
+          this.notices.push({ txt: stacks(b) ? `${b.n} x${b.c}` : b.n, r: b.r ?? 0, age: 0 });
           this.slotFlash[i] = 1;
         }
       }
@@ -192,6 +196,19 @@ export class Hud {
     // heart / shield glyphs
     this.text('+', x - 24 * S, y + bh - 2 * S, 28 * S, '#7dff5c');
     this.text('◆', x - 26 * S, y - 30 * S + bh - 1 * S, 22 * S, '#69bcff');
+    // Slurp Juice still working: a pulsing tag over the bars
+    if (s.regen) {
+      const k = 0.6 + 0.4 * Math.sin(this.time * 6);
+      this.text('▲ SLURPING', x, y - 40 * S, 17 * S, `rgba(120,230,255,${k})`, 'left');
+    }
+  }
+
+  // A Boogie Bomb got you: you can't stop dancing for a few seconds.
+  boogie(s, W, H, S) {
+    if (!(s.boogie > 0)) return;
+    const hue = (this.time * 220) % 360;
+    this.text('BOOGIE BOMB!', W / 2, H * 0.3, 44 * S, `hsl(${hue},95%,68%)`, 'center');
+    this.text(`You can't stop dancing · ${s.boogie.toFixed(1)}s`, W / 2, H * 0.3 + 32 * S, 20 * S, '#f3e6ff', 'center');
   }
 
   // ---- hotbar -------------------------------------------------------------------------------------------------
@@ -226,7 +243,7 @@ export class Hud {
       }
       this.text(String(i + 1), x + 6 * S, y + 17 * S, 17 * S, 'rgba(255,255,255,.85)');
       if (slot && slot.t === 'w') this.text(String(slot.a), x + w - 6 * S, y + 18 * S, 17 * S, slot.a === 0 ? '#ff7d7d' : '#fff', 'right');
-      if (slot && slot.t === 'c') this.text(String(slot.c), x + w - 6 * S, y + 18 * S, 19 * S, '#fff', 'right');
+      if (stacks(slot)) this.text(String(slot.c), x + w - 6 * S, y + 18 * S, 19 * S, '#fff', 'right');
     }
     // materials
     if (s.gameMode === 'zero-build') return;
@@ -277,6 +294,15 @@ export class Hud {
       return;
     }
     const w = s.wep;
+    const held = s.slots[s.sel];
+    if (!w && held && held.t === 'u') {
+      // a grenade or a trap in hand: its name, how many, and what the mouse does
+      this.text(held.n, x, y - 54 * S, 22 * S, '#fff', 'right');
+      this.ctx.fillStyle = RARITY[held.r]; this.ctx.fillRect(x - 200 * S, y - 48 * S, 200 * S, 4 * S);
+      this.text(String(held.c), x - 112 * S, y + 14 * S, 74 * S, '#fff', 'right');
+      this.text(held.throw ? 'Click to throw' : 'Click to place', x - 100 * S, y + 4 * S, 22 * S, 'rgba(255,255,255,.85)', 'left');
+      return;
+    }
     if (!w) return;
     const ctx = this.ctx;
     // weapon name + rarity underline
@@ -613,7 +639,8 @@ export class Hud {
     // key cap
     this.skew(x + 18 * S, y + 14 * S, 34 * S, 34 * S, '#fff', -0.15);
     this.text('E', x + 35 * S, y + 42 * S, 28 * S, '#10163d', 'center', { shadow: false });
-    this.text(p.kind === 'vehicle' ? 'VEHICLE' : p.kind === 'supply' ? 'OPEN SUPPLY DROP' : p.kind === 'chest' ? 'OPEN CHEST' : p.kind === 'w' ? 'PICK UP' : 'COLLECT', x + 66 * S, y + 24 * S, 15 * S, '#b9c9ff');
+    const verb = { vehicle: 'VEHICLE', supply: 'OPEN SUPPLY DROP', chest: 'OPEN CHEST', ammobox: 'SEARCH AMMO BOX', llama: 'OPEN SUPPLY LLAMA', w: 'PICK UP', u: 'PICK UP' }[p.kind] || 'COLLECT';
+    this.text(verb, x + 66 * S, y + 24 * S, 15 * S, '#b9c9ff');
     this.text(p.txt + (p.cnt > 1 ? `  x${p.cnt}` : ''), x + 66 * S, y + 50 * S, 24 * S, col);
   }
 
@@ -706,7 +733,7 @@ export class Hud {
 }
 
 /** Draw the full-screen island map into its own canvas. */
-export function drawFullMap(canvas, mapImage, s, pois) {
+export function drawFullMap(canvas, mapImage, s, pois, info = null) {
   const ctx = canvas.getContext('2d');
   const N = canvas.width;
   ctx.clearRect(0, 0, N, N);
@@ -714,6 +741,26 @@ export function drawFullMap(canvas, mapImage, s, pois) {
   if (mapImage) ctx.drawImage(mapImage, 0, 0, N, N);
   const scale = N / WORLD;
   const toX = (x) => (x + WORLD / 2) * scale, toY = (z) => (z + WORLD / 2) * scale;
+  // the lettered grid of the recreated maps: columns A..J west to east, rows 1..10 north to south
+  if (info && info.grid > 0) {
+    const g = info.grid, x0 = -5 * g;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let k = 0; k <= 10; k++) {
+      const a = toX(x0 + k * g), b = toY(x0 + k * g);
+      ctx.moveTo(a, toY(x0)); ctx.lineTo(a, toY(-x0));
+      ctx.moveTo(toX(x0), b); ctx.lineTo(toX(-x0), b);
+    }
+    ctx.stroke();
+    ctx.font = `italic 900 22px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    for (let k = 0; k < 10; k++) {
+      ctx.fillText(String.fromCharCode(65 + k), toX(x0 + (k + 0.5) * g), toY(x0) + 16);
+      ctx.fillText(String(k + 1), toX(x0) + 16, toY(x0 + (k + 0.5) * g));
+    }
+    ctx.restore();
+  }
   const hud = { arrow: Hud.prototype.arrow, mapOverlays: Hud.prototype.mapOverlays };
   hud.mapOverlays(ctx, s, toX, toY, scale, N / 2, false, 1.4);
   // points of interest: nudge a label up or down when it would overlap another one or the player marker
@@ -725,7 +772,8 @@ export function drawFullMap(canvas, mapImage, s, pois) {
   for (const p of pois) {
     const text = p.name.toUpperCase();
     const w = ctx.measureText(text).width + 10, h = 30;
-    const x = toX(p.x);
+    // (a place on the coast keeps its whole name on the map)
+    const x = Math.min(Math.max(toX(p.x), w / 2 + 4), N - w / 2 - 4);
     let y = toY(p.z);
     for (const k of [0, -1, 1, -2, 2, -3, 3]) {
       const yy = toY(p.z) + k * h;

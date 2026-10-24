@@ -438,6 +438,32 @@ mod tests {
     }
 
     #[test]
+    fn a_player_who_leaves_during_the_bus_ride_is_replaced_by_a_bot_that_still_jumps() {
+        // The bot that takes over may pick a spot the bus has already flown past; it jumps for it rather than riding to
+        // the end of the route.
+        let mut aboard = 0;
+        for seed in 1..=6u64 {
+            for drop_at in [0.5, 0.65, 0.8] {
+                let mut g = game_cfg(GameConfig { humans: 2, bots: 6, skip_bus: false, seed, ..Default::default() });
+                g.make_remote(1);
+                let dt = 1.0 / 30.0;
+                while g.bus.active && g.bus.t < g.bus.total * drop_at {
+                    g.update(dt, &idle());
+                }
+                assert_eq!(g.actors[1].mode, MoveMode::Bus, "the guest sat tight until now");
+                g.drop_remote(1);
+                while g.bus.active {
+                    if g.bus.t + dt >= g.bus.total && g.actors[1].mode == MoveMode::Bus {
+                        aboard += 1;
+                    }
+                    g.update(dt, &idle());
+                }
+            }
+        }
+        assert_eq!(aboard, 0, "bots that took over from a leaving player rode the bus to the end");
+    }
+
+    #[test]
     fn the_last_one_standing_wins_even_if_they_play_over_the_network() {
         let mut g = room(2, 3);
         open_ground(&mut g, 1);

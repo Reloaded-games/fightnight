@@ -62,7 +62,7 @@ struct Harness {
 }
 
 fn quick_params(bots: u16, skip_bus: bool) -> StartParams {
-    StartParams { seed: 1234, mode: crate::game::GameMode::BattleRoyale, bots, difficulty: Difficulty::Normal, skip_bus, storm_speed: 1.0, start_mats: 300 }
+    StartParams { seed: 1234, mode: crate::game::GameMode::BattleRoyale, bots, difficulty: Difficulty::Normal, skip_bus, storm_speed: 1.0, start_mats: 300, map: crate::world::maps::MapKind::Island }
 }
 
 impl Harness {
@@ -89,8 +89,8 @@ impl Harness {
             }
         }
         assert_eq!(starts.len(), guests, "everybody is told the match starts");
-        let host = Host::new(World::generate(params.seed), setup.clone(), room);
-        let clients: Vec<Client> = starts.iter().map(|(_, you, setup)| Client::new(World::generate(setup.seed), *you as usize, setup.clone())).collect();
+        let host = Host::new(World::generate_map(params.seed, params.map), setup.clone(), room);
+        let clients: Vec<Client> = starts.iter().map(|(_, you, setup)| Client::new(World::generate_map(setup.seed, setup.map), *you as usize, setup.clone())).collect();
         Harness { host, clients, up: (0..guests).map(|_| Pipe::default()).collect(), down: (0..guests).map(|_| Pipe::default()).collect(), net, now: 0.0, rng: Rng::new(77), bytes_down: 0, bytes_up: 0 }
     }
 
@@ -386,11 +386,11 @@ fn a_supply_drop_comes_down_on_every_copy_and_a_guest_can_open_it() {
     // the crate is let go the way it is in a match: by the clock, in the middle of a simulation step
     h.host.game.supply_timer = 0.0;
     h.run(1.0, &idle(), &[idle()]);
-    let id = h.host.game.chests.iter().find(|c| c.supply).map(|c| c.id).expect("the host let a crate go");
+    let id = h.host.game.chests.iter().find(|c| c.is_supply()).map(|c| c.id).expect("the host let a crate go");
     // the guest has been told: the crate is there, high up and coming down, and so is the announcement
     let g = &h.clients[0].game;
     let c = g.chest_index(id).map(|i| g.chests[i].clone()).expect("the guest's copy has the crate");
-    assert!(c.supply && c.falling() && !c.opened);
+    assert!(c.is_supply() && c.falling() && !c.opened);
     assert_eq!(g.chests.len(), before + 1);
     assert!(g.toast.iter().any(|t| t.0.contains("Supply drop")), "the guest is told: {:?}", g.toast);
     assert!(g.next_id >= id, "the guest does not hand out the crate's id twice");
@@ -851,6 +851,7 @@ fn old_and_garbled_messages_change_nothing() {
             actors: vec![],
             projectiles: vec![],
             vehicles: vec![],
+            thrown: vec![],
         }))
         .encode()
     };
@@ -939,4 +940,96 @@ fn lag_compensation_lets_a_guest_hit_what_it_sees_on_a_slow_connection() {
     let without = damage_to_a_runner(false, 0.08);
     assert!(with > 3.0 * without + 100.0, "rewound shots: {with} damage; unrewound: {without}");
     assert!(with > 400.0, "a guest tracking a runner by eye lands plenty of rifle hits: {with}");
+}
+
+fn utility_slot(g: &Game, who: usize, kind: UtilityKind) -> Option<usize> {
+    g.actors[who].inv.slots.iter().position(|s| matches!(s, Some(Item::Utility { kind: k, .. }) if *k == kind))
+}
+
+/// The guest picks slot `slot`, waits for it to come up, and clicks.
+fn guest_uses(h: &mut Harness, slot: usize) {
+    h.step(1.0 / 60.0, &idle(), &[PlayerInput { select: Some(slot), ..idle() }]);
+    h.run(0.6, &idle(), &[idle()]);
+    h.step(1.0 / 60.0, &idle(), &[PlayerInput { fire: true, fire_pressed: true, ..idle() }]);
+    h.run(0.3, &idle(), &[idle()]);
+}
+
+#[test]
+fn a_guest_throws_grenades_and_rides_launch_pads_with_the_host_agreeing() {
+    let mut h = Harness::new(1, 2, true, GOOD);
+    started(&mut h);
+    for a in h.host.game.actors.iter_mut().skip(2) {
+        a.brain = None;
+    }
+    plant_guest(&mut h);
+    h.host.game.actors[1].inv.add_utility(UtilityKind::FragGrenade, 2);
+    h.host.game.actors[1].inv.add_utility(UtilityKind::LaunchPad, 1);
+    h.run(0.5, &idle(), &[idle()]);
+    let frag = utility_slot(&h.host.game, 1, UtilityKind::FragGrenade).unwrap();
+    assert_eq!(utility_slot(&h.clients[0].game, 1, UtilityKind::FragGrenade), Some(frag), "the guest's hotbar shows the grenades");
+    // a grenade: thrown on the host, seen flying on the guest's screen, gone off on both
+    guest_uses(&mut h, frag);
+    assert_eq!(h.host.game.thrown.len(), 1, "the host threw it for the guest");
+    assert_eq!(h.host.game.thrown[0].owner, 1);
+    let (ht, ct) = (h.host.game.thrown[0].clone(), h.clients[0].game.thrown.first().cloned().expect("the guest sees it fly"));
+    assert_eq!(ht.id, ct.id);
+    assert!(ht.pos.distance(ct.pos) < 1.5, "in the same place: host {:?} guest {:?}", ht.pos, ct.pos);
+    h.run(3.0, &idle(), &[idle()]);
+    assert!(h.host.game.thrown.is_empty() && h.clients[0].game.thrown.is_empty(), "gone off on both");
+    assert!(matches!(h.clients[0].game.actors[1].inv.slots[frag], Some(Item::Utility { count: 1, .. })), "one left");
+    // a Launch Pad: set down on the host, there on the guest's island too
+    let pad = utility_slot(&h.host.game, 1, UtilityKind::LaunchPad).unwrap();
+    guest_uses(&mut h, pad);
+    assert_eq!(h.host.game.traps.len(), 1, "the pad is down");
+    let (hp, cp) = (h.host.game.traps[0].clone(), h.clients[0].game.traps.first().cloned().expect("the guest has the pad"));
+    assert_eq!((hp.id, hp.pos), (cp.id, cp.pos));
+    // the guest walks onto it: its own screen launches it at once, and the host agrees
+    let walk = PlayerInput { move_axis: Vec2::new(0.0, 1.0), ..idle() };
+    let mut up = false;
+    for _ in 0..90 {
+        h.step(1.0 / 60.0, &idle(), std::slice::from_ref(&walk));
+        if h.clients[0].game.actors[1].mode == MoveMode::Glide {
+            up = true;
+            break;
+        }
+    }
+    assert!(up, "the guest flies off the pad");
+    h.run(0.3, &idle(), &[idle()]);
+    assert_eq!(h.host.game.actors[1].mode, MoveMode::Glide, "the host agrees");
+    let (hy, cy) = (h.host.game.actors[1].pos.y, h.clients[0].game.actors[1].pos.y);
+    // (the guest's own body runs a round trip ahead of the host's copy, and it is rising fast)
+    assert!(hy > hp.pos.y + 4.0 && (hy - cy).abs() < 3.0, "high in the air on both: pad {:.1} host {hy:.1} guest {cy:.1}", hp.pos.y);
+    h.run(25.0, &idle(), &[idle()]);
+    let (ha, ca) = (&h.host.game.actors[1], &h.clients[0].game.actors[1]);
+    assert_eq!((ha.mode, ca.mode), (MoveMode::Ground, MoveMode::Ground), "back on the ground");
+    assert_eq!(ha.hp, 100.0, "without fall damage");
+    assert!(ha.pos.distance(ca.pos) < 0.6, "where the host has it: {:?} vs {:?}", ha.pos, ca.pos);
+}
+
+#[test]
+fn a_guest_caught_by_a_boogie_bomb_dances_on_its_own_screen_too() {
+    let mut h = Harness::new(1, 2, true, GOOD);
+    started(&mut h);
+    for a in h.host.game.actors.iter_mut().skip(2) {
+        a.brain = None;
+    }
+    let p = plant_guest(&mut h);
+    h.run(0.3, &idle(), &[idle()]);
+    // a bot's Boogie Bomb comes down at the guest's feet
+    let id = h.host.game.new_id();
+    let y = h.host.game.world.hm.height_at(p.x + 1.0, p.z);
+    h.host.game.thrown.push(crate::game::utility::Thrown { id, kind: UtilityKind::BoogieBomb, pos: Vec3::new(p.x + 1.0, y + 0.12, p.z), vel: Vec3::new(0.0, -6.0, 0.0), owner: 2, age: 0.5, resting: false, bounced: false, spin: 0.0 });
+    h.run(0.3, &idle(), &[idle()]);
+    assert!(h.host.game.actors[1].boogie > 4.0, "the guest is caught");
+    let walk = PlayerInput { move_axis: Vec2::new(0.0, 1.0), fire: true, ..idle() };
+    let from = h.host.game.actors[1].pos;
+    h.run(2.0, &idle(), std::slice::from_ref(&walk));
+    let (ha, ca) = (&h.host.game.actors[1], &h.clients[0].game.actors[1]);
+    assert!(ha.pos.distance(from) < 0.3, "the host keeps the guest dancing in place");
+    assert!(ca.pos.distance(ha.pos) < 0.3, "and the guest's own screen does not run off and snap back: {:?} vs {:?}", ca.pos, ha.pos);
+    assert!(ca.emoting && ca.boogie > 1.0, "dancing on the guest's screen");
+    h.run(4.0, &idle(), std::slice::from_ref(&walk));
+    let (ha, ca) = (&h.host.game.actors[1], &h.clients[0].game.actors[1]);
+    assert!(ha.boogie == 0.0 && ha.pos.distance(from) > 3.0, "free again once it wears off");
+    assert!(ca.pos.distance(ha.pos) < 0.6, "on both");
 }

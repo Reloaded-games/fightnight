@@ -1,0 +1,220 @@
+//! The tables of the recreated maps (see [`super::maps`]).
+
+use super::gen::PoiKind;
+use super::maps::*;
+
+/// Fortnite Battle Royale, Chapter 1, season 4 (May to July 2018): the island the comet hit, with its 20 named
+/// locations. Positions from the Fortnite Wiki location pages and map guides, cross-checked by two independent
+/// searches; the coastline and the relief are traced from the shape of the in-game map (no source gives them in figures).
+pub static CHAPTER1: MapSpec = MapSpec {
+    name: "Chapter 1",
+    coast: &[(5.00, 0.62), (5.69, 0.62), (6.41, 0.66), (7.17, 0.74), (7.98, 0.90), (8.73, 1.27), (9.30, 1.88), (9.60, 2.66), (9.71, 3.47), (9.75, 4.25), (9.74, 5.00), (9.69, 5.74), (9.65, 6.51), (9.67, 7.38), (9.57, 8.32), (9.14, 9.14), (8.33, 9.58), (7.37, 9.65), (6.53, 9.72), (5.76, 9.75), (5.00, 9.73), (4.28, 9.54), (3.57, 9.41), (2.85, 9.21), (2.17, 8.89), (1.58, 8.42), (1.12, 7.82), (0.79, 7.15), (0.56, 6.44), (0.37, 5.73), (0.25, 5.00), (0.25, 4.24), (0.32, 3.48), (0.52, 2.72), (0.74, 1.91), (1.07, 1.07), (1.74, 0.52), (2.74, 0.57), (3.58, 0.63), (4.31, 0.65)],
+    plains: 6.0,
+    snow_line: 200.0,
+    relief: &[
+        // the Villain Lair mountain behind Snobby Shores, and the mountain between Snobby Shores and Greasy Grove
+        Relief { kind: ReliefKind::Mountain, x: 1.55, y: 4.0, r: 0.65, h: 46.0 },
+        Relief { kind: ReliefKind::Mountain, x: 1.5, y: 5.6, r: 0.55, h: 34.0 },
+        // the hills round Pleasant Park and the cemetery hills of Haunted Hills
+        Relief { kind: ReliefKind::Hill, x: 1.75, y: 3.2, r: 0.35, h: 16.0 },
+        Relief { kind: ReliefKind::Hill, x: 2.5, y: 4.45, r: 0.4, h: 24.0 },
+        Relief { kind: ReliefKind::Hill, x: 1.3, y: 2.3, r: 0.45, h: 18.0 },
+        // the big mountain between Tilted Towers and Dusty Divot, and the hill south-west of the crater
+        Relief { kind: ReliefKind::Mountain, x: 5.0, y: 5.15, r: 0.55, h: 36.0 },
+        Relief { kind: ReliefKind::Hill, x: 5.45, y: 5.8, r: 0.3, h: 16.0 },
+        // the hill Tomato Town's road tunnel goes through
+        Relief { kind: ReliefKind::Hill, x: 6.55, y: 3.95, r: 0.38, h: 22.0 },
+        // the hills round the mine of Shifty Shafts, and the mountain north of Flush Factory
+        Relief { kind: ReliefKind::Hill, x: 3.2, y: 6.8, r: 0.6, h: 26.0 },
+        Relief { kind: ReliefKind::Mountain, x: 3.3, y: 7.85, r: 0.42, h: 24.0 },
+        // the lone house on the hill, the sniper hill at Salty Springs, the hill by the prison
+        Relief { kind: ReliefKind::Hill, x: 4.6, y: 7.6, r: 0.25, h: 13.0 },
+        Relief { kind: ReliefKind::Hill, x: 5.9, y: 6.65, r: 0.22, h: 11.0 },
+        Relief { kind: ReliefKind::Hill, x: 8.0, y: 7.45, r: 0.28, h: 12.0 },
+        // the camp plateau at Lonely Lodge; the sea cliffs under Snobby Shores and the Hero Mansion
+        Relief { kind: ReliefKind::Plateau, x: 8.55, y: 4.2, r: 0.3, h: 8.0 },
+        Relief { kind: ReliefKind::Plateau, x: 0.55, y: 4.45, r: 0.55, h: 10.0 },
+        Relief { kind: ReliefKind::Plateau, x: 9.5, y: 5.1, r: 0.45, h: 10.0 },
+        // the comet crater of Dusty Divot
+        Relief { kind: ReliefKind::Crater, x: 6.0, y: 5.0, r: 0.42, h: 14.0 },
+    ],
+    lakes: &[LakeSpec { name: "Loot Lake", x: 4.05, y: 4.0, r: 0.62, island: 0.2 }],
+    rivers: &[
+        RiverSpec { name: "the river from Loot Lake to the south coast", pts: &[(4.4, 4.95), (4.3, 5.3), (4.5, 6.0), (4.8, 6.8), (5.2, 7.6), (5.35, 8.3), (5.0, 9.0), (4.95, 9.95)], width: 16.0 },
+        RiverSpec { name: "the river north past Anarchy Acres", pts: &[(6.3, 2.95), (6.25, 2.6), (6.2, 1.9), (6.3, 1.2), (6.35, 0.35)], width: 14.0 },
+        RiverSpec { name: "the river from Loot Lake north to the waterfall on the north coast", pts: &[(4.3, 3.0), (4.35, 2.75), (4.4, 2.4), (4.4, 1.7), (4.4, 0.85), (4.4, 0.45)], width: 12.0 },
+        RiverSpec { name: "the brook at Lonely Lodge", pts: &[(9.35, 3.85), (9.65, 3.82), (9.98, 3.8)], width: 8.0 },
+    ],
+    swamps: &[Area { x: 8.6, y: 8.05, r: 0.95 }],
+    woods: &[Area { x: 8.0, y: 3.0, r: 0.9 }, Area { x: 9.0, y: 4.3, r: 0.65 }, Area { x: 2.4, y: 7.5, r: 0.7 }],
+    open: &[
+        Area { x: 6.0, y: 8.0, r: 0.75 },
+        Area { x: 5.2, y: 2.0, r: 0.55 },
+        Area { x: 3.5, y: 5.0, r: 0.5 },
+        Area { x: 2.5, y: 3.0, r: 0.45 },
+        Area { x: 7.5, y: 5.5, r: 0.35 },
+        Area { x: 6.0, y: 5.0, r: 0.45 },
+        Area { x: 5.5, y: 6.5, r: 0.3 },
+    ],
+    pois: &[
+        PoiSpec { name: "Tilted Towers", kind: PoiKind::City, x: 3.5, y: 5.0, r: 75.0, axis_x: true },
+        PoiSpec { name: "Junk Junction", kind: PoiKind::Junkyard, x: 1.75, y: 0.95, r: 55.0, axis_x: true },
+        PoiSpec { name: "Haunted Hills", kind: PoiKind::Hamlet, x: 1.4, y: 2.2, r: 50.0, axis_x: true },
+        PoiSpec { name: "Pleasant Park", kind: PoiKind::Suburb, x: 2.5, y: 3.0, r: 80.0, axis_x: true },
+        PoiSpec { name: "Anarchy Acres", kind: PoiKind::Farm, x: 5.2, y: 2.0, r: 70.0, axis_x: true },
+        PoiSpec { name: "Risky Reels", kind: PoiKind::Hamlet, x: 7.5, y: 1.55, r: 45.0, axis_x: true },
+        PoiSpec { name: "Wailing Woods", kind: PoiKind::Lodge, x: 8.0, y: 3.0, r: 45.0, axis_x: true },
+        PoiSpec { name: "Tomato Town", kind: PoiKind::Town, x: 6.5, y: 3.25, r: 42.0, axis_x: true },
+        PoiSpec { name: "Lonely Lodge", kind: PoiKind::Lodge, x: 9.0, y: 4.05, r: 60.0, axis_x: false },
+        PoiSpec { name: "Loot Lake", kind: PoiKind::Lakeside, x: 4.05, y: 4.0, r: 55.0, axis_x: true },
+        PoiSpec { name: "Snobby Shores", kind: PoiKind::Mansions, x: 0.6, y: 4.4, r: 75.0, axis_x: false },
+        PoiSpec { name: "Dusty Divot", kind: PoiKind::Crater, x: 6.0, y: 5.0, r: 45.0, axis_x: true },
+        PoiSpec { name: "Retail Row", kind: PoiKind::Retail, x: 7.5, y: 5.5, r: 60.0, axis_x: true },
+        PoiSpec { name: "Salty Springs", kind: PoiKind::Town, x: 5.5, y: 6.5, r: 50.0, axis_x: true },
+        PoiSpec { name: "Shifty Shafts", kind: PoiKind::Hamlet, x: 3.5, y: 6.5, r: 45.0, axis_x: false },
+        PoiSpec { name: "Greasy Grove", kind: PoiKind::Town, x: 2.05, y: 6.45, r: 60.0, axis_x: true },
+        PoiSpec { name: "Flush Factory", kind: PoiKind::Industrial, x: 3.5, y: 8.5, r: 50.0, axis_x: true },
+        PoiSpec { name: "Fatal Fields", kind: PoiKind::Farm, x: 6.0, y: 8.0, r: 75.0, axis_x: true },
+        PoiSpec { name: "Lucky Landing", kind: PoiKind::Town, x: 5.6, y: 9.35, r: 50.0, axis_x: true },
+        PoiSpec { name: "Moisty Mire", kind: PoiKind::Swamp, x: 8.6, y: 8.05, r: 45.0, axis_x: true },
+    ],
+    roads: &[
+        RoadSpec { from: "Junk Junction", to: "Haunted Hills", paved: false },
+        RoadSpec { from: "Haunted Hills", to: "Pleasant Park", paved: true },
+        RoadSpec { from: "Pleasant Park", to: "Anarchy Acres", paved: true },
+        RoadSpec { from: "Anarchy Acres", to: "Tomato Town", paved: true },
+        RoadSpec { from: "Anarchy Acres", to: "Risky Reels", paved: true },
+        RoadSpec { from: "Tomato Town", to: "Risky Reels", paved: true },
+        RoadSpec { from: "Tomato Town", to: "Wailing Woods", paved: true },
+        RoadSpec { from: "Tomato Town", to: "Retail Row", paved: true },
+        RoadSpec { from: "Tilted Towers", to: "Dusty Divot", paved: true },
+        RoadSpec { from: "Dusty Divot", to: "Retail Row", paved: true },
+        RoadSpec { from: "Retail Row", to: "Lonely Lodge", paved: true },
+        RoadSpec { from: "Retail Row", to: "Moisty Mire", paved: true },
+        RoadSpec { from: "Dusty Divot", to: "Salty Springs", paved: true },
+        RoadSpec { from: "Retail Row", to: "Salty Springs", paved: true },
+        RoadSpec { from: "Pleasant Park", to: "Tilted Towers", paved: true },
+        RoadSpec { from: "Tilted Towers", to: "Snobby Shores", paved: true },
+        RoadSpec { from: "Snobby Shores", to: "Greasy Grove", paved: true },
+        RoadSpec { from: "Tilted Towers", to: "Greasy Grove", paved: true },
+        RoadSpec { from: "Tilted Towers", to: "Shifty Shafts", paved: true },
+        RoadSpec { from: "Greasy Grove", to: "Shifty Shafts", paved: true },
+        RoadSpec { from: "Shifty Shafts", to: "Salty Springs", paved: true },
+        RoadSpec { from: "Salty Springs", to: "Fatal Fields", paved: true },
+        RoadSpec { from: "Fatal Fields", to: "Lucky Landing", paved: true },
+        RoadSpec { from: "Lucky Landing", to: "Flush Factory", paved: true },
+        RoadSpec { from: "Flush Factory", to: "Greasy Grove", paved: true },
+        RoadSpec { from: "Fatal Fields", to: "Moisty Mire", paved: true },
+        RoadSpec { from: "Wailing Woods", to: "Lonely Lodge", paved: false },
+    ],
+};
+
+/// Fortnite Battle Royale, Chapter 2, season 1 (October 2019 to February 2020): the green island with 13 named locations,
+/// more rivers than the first one and a lake held back by the Hydro 16 dam. The grid cells of most places come from
+/// the Fortnite Wiki location pages (Sweaty Sands B3-C4, Steamy Stacks G2/H2, Salty Springs D4, Slurpy Swamp C6/C7,
+/// Lazy Lake F6, Retail Row G6/H6, Dirty Docks H4, Frenzy Farm F3/F4, Hydro 16 D7); Pleasant Park, Craggy Cliffs,
+/// Holly Hedges, Weeping Woods and Misty Meadows are placed from the wiki's "north of", "east of" notes. The coastline,
+/// the course of the rivers and the relief are estimates: no source gives them in figures.
+pub static CHAPTER2: MapSpec = MapSpec {
+    name: "Chapter 2",
+    coast: &[
+        (2.0, 0.95), (2.6, 0.5), (3.3, 0.7), (3.9, 0.6), (4.5, 0.45), (5.2, 0.55), (5.9, 0.75), (6.6, 0.75), (7.4, 0.85),
+        (8.1, 1.05), (8.7, 1.5), (9.05, 2.2), (9.0, 2.9), (8.65, 3.25), (8.3, 3.6), (8.55, 4.05), (9.05, 4.6), (9.25, 5.4),
+        (9.2, 6.3), (9.05, 7.2), (8.8, 8.0), (8.3, 8.7), (7.6, 9.05), (6.7, 9.25), (5.8, 9.3), (4.9, 9.2), (4.0, 9.0),
+        (3.1, 8.75), (2.3, 8.35), (1.6, 7.8), (1.15, 7.1), (0.9, 6.3), (0.8, 5.5), (0.75, 4.6), (0.7, 3.7), (0.8, 2.9),
+        (1.05, 2.1), (1.45, 1.45),
+    ],
+    plains: 6.0,
+    snow_line: 200.0,
+    relief: &[
+        // the sea cliffs Craggy Cliffs stands on, and the hills north and east of Pleasant Park
+        Relief { kind: ReliefKind::Plateau, x: 4.5, y: 0.95, r: 0.6, h: 11.0 },
+        Relief { kind: ReliefKind::Hill, x: 3.0, y: 1.45, r: 0.42, h: 16.0 },
+        Relief { kind: ReliefKind::Hill, x: 3.95, y: 2.0, r: 0.4, h: 18.0 },
+        // the northern hills the river comes down from, and the Scenic Spot above Frenzy Farm
+        Relief { kind: ReliefKind::Hill, x: 5.6, y: 1.55, r: 0.45, h: 20.0 },
+        Relief { kind: ReliefKind::Hill, x: 5.15, y: 2.2, r: 0.3, h: 12.0 },
+        // the high ground between Frenzy Farm, Dirty Docks, Retail Row and Lazy Lake
+        Relief { kind: ReliefKind::Mountain, x: 6.55, y: 4.3, r: 0.6, h: 28.0 },
+        Relief { kind: ReliefKind::Hill, x: 8.2, y: 2.4, r: 0.4, h: 14.0 },
+        // the basin of Lazy Lake, raised above the swamp side of the Hydro 16 dam, and the slope the village climbs
+        Relief { kind: ReliefKind::Plateau, x: 5.0, y: 6.3, r: 1.3, h: 7.0 },
+        Relief { kind: ReliefKind::Hill, x: 5.8, y: 5.55, r: 0.38, h: 12.0 },
+        // Mount Kay south of Retail Row, Mount F8 and the hills round Misty Meadows, the hills of the south-east coast
+        Relief { kind: ReliefKind::Mountain, x: 7.25, y: 7.05, r: 0.72, h: 44.0 },
+        Relief { kind: ReliefKind::Mountain, x: 5.95, y: 8.25, r: 0.5, h: 32.0 },
+        Relief { kind: ReliefKind::Hill, x: 4.15, y: 8.4, r: 0.42, h: 16.0 },
+        Relief { kind: ReliefKind::Hill, x: 8.35, y: 8.0, r: 0.45, h: 18.0 },
+        // the low hills of Weeping Woods and between Holly Hedges and Sweaty Sands
+        Relief { kind: ReliefKind::Hill, x: 3.7, y: 4.85, r: 0.4, h: 10.0 },
+        Relief { kind: ReliefKind::Hill, x: 2.3, y: 4.0, r: 0.35, h: 12.0 },
+    ],
+    lakes: &[LakeSpec { name: "Lazy Lake", x: 5.0, y: 6.3, r: 0.5, island: 0.22 }],
+    rivers: &[
+        RiverSpec {
+            name: "the river from the Hydro 16 dam through Slurpy Swamp to the sea",
+            pts: &[(4.15, 6.45), (3.7, 6.55), (3.2, 6.55), (2.7, 6.7), (2.2, 6.85), (1.6, 6.95), (0.75, 7.1)],
+            width: 16.0,
+        },
+        RiverSpec {
+            name: "the river from the northern hills past Frenzy Farm down to the dam",
+            pts: &[(4.9, 1.75), (4.75, 2.45), (4.6, 3.3), (4.75, 4.1), (4.9, 4.75), (4.45, 5.4), (4.0, 5.95), (3.85, 6.5)],
+            width: 14.0,
+        },
+    ],
+    swamps: &[Area { x: 2.4, y: 6.45, r: 0.8 }],
+    woods: &[
+        Area { x: 3.3, y: 5.1, r: 0.9 },
+        Area { x: 5.5, y: 2.05, r: 0.3 },
+        Area { x: 6.1, y: 8.1, r: 0.6 },
+        Area { x: 2.5, y: 1.9, r: 0.45 },
+        Area { x: 6.5, y: 4.4, r: 0.5 },
+    ],
+    open: &[
+        Area { x: 5.6, y: 3.1, r: 0.6 },
+        Area { x: 3.1, y: 2.3, r: 0.4 },
+        Area { x: 3.6, y: 3.6, r: 0.3 },
+        Area { x: 7.1, y: 5.6, r: 0.35 },
+        Area { x: 7.2, y: 1.6, r: 0.45 },
+        Area { x: 7.75, y: 3.6, r: 0.4 },
+        Area { x: 1.45, y: 3.1, r: 0.4 },
+        Area { x: 1.9, y: 4.9, r: 0.3 },
+        Area { x: 4.9, y: 7.75, r: 0.3 },
+    ],
+    pois: &[
+        PoiSpec { name: "Sweaty Sands", kind: PoiKind::Coastal, x: 1.45, y: 3.1, r: 65.0, axis_x: false },
+        PoiSpec { name: "Pleasant Park", kind: PoiKind::Suburb, x: 3.1, y: 2.3, r: 75.0, axis_x: true },
+        PoiSpec { name: "Craggy Cliffs", kind: PoiKind::Coastal, x: 4.5, y: 1.15, r: 55.0, axis_x: true },
+        PoiSpec { name: "Steamy Stacks", kind: PoiKind::Industrial, x: 7.2, y: 1.6, r: 70.0, axis_x: true },
+        PoiSpec { name: "Frenzy Farm", kind: PoiKind::Farm, x: 5.6, y: 3.1, r: 70.0, axis_x: true },
+        PoiSpec { name: "Salty Springs", kind: PoiKind::Town, x: 3.6, y: 3.6, r: 50.0, axis_x: true },
+        PoiSpec { name: "Dirty Docks", kind: PoiKind::Industrial, x: 7.75, y: 3.6, r: 60.0, axis_x: false },
+        PoiSpec { name: "Holly Hedges", kind: PoiKind::Suburb, x: 1.9, y: 4.9, r: 60.0, axis_x: true },
+        PoiSpec { name: "Weeping Woods", kind: PoiKind::Lodge, x: 3.3, y: 5.1, r: 50.0, axis_x: true },
+        PoiSpec { name: "Slurpy Swamp", kind: PoiKind::Swamp, x: 2.35, y: 6.15, r: 55.0, axis_x: true },
+        PoiSpec { name: "Lazy Lake", kind: PoiKind::Town, x: 5.65, y: 5.55, r: 60.0, axis_x: true },
+        PoiSpec { name: "Retail Row", kind: PoiKind::Retail, x: 7.1, y: 5.6, r: 60.0, axis_x: true },
+        PoiSpec { name: "Misty Meadows", kind: PoiKind::Town, x: 4.9, y: 7.75, r: 55.0, axis_x: true },
+    ],
+    roads: &[
+        RoadSpec { from: "Sweaty Sands", to: "Pleasant Park", paved: true },
+        RoadSpec { from: "Sweaty Sands", to: "Holly Hedges", paved: true },
+        RoadSpec { from: "Pleasant Park", to: "Salty Springs", paved: true },
+        RoadSpec { from: "Pleasant Park", to: "Craggy Cliffs", paved: true },
+        RoadSpec { from: "Craggy Cliffs", to: "Steamy Stacks", paved: true },
+        RoadSpec { from: "Steamy Stacks", to: "Dirty Docks", paved: true },
+        RoadSpec { from: "Salty Springs", to: "Holly Hedges", paved: true },
+        RoadSpec { from: "Salty Springs", to: "Frenzy Farm", paved: true },
+        RoadSpec { from: "Frenzy Farm", to: "Dirty Docks", paved: true },
+        RoadSpec { from: "Dirty Docks", to: "Retail Row", paved: true },
+        RoadSpec { from: "Frenzy Farm", to: "Lazy Lake", paved: true },
+        RoadSpec { from: "Lazy Lake", to: "Retail Row", paved: true },
+        RoadSpec { from: "Lazy Lake", to: "Misty Meadows", paved: true },
+        RoadSpec { from: "Retail Row", to: "Misty Meadows", paved: true },
+        RoadSpec { from: "Misty Meadows", to: "Slurpy Swamp", paved: true },
+        RoadSpec { from: "Slurpy Swamp", to: "Holly Hedges", paved: true },
+        RoadSpec { from: "Salty Springs", to: "Weeping Woods", paved: false },
+        RoadSpec { from: "Weeping Woods", to: "Slurpy Swamp", paved: false },
+        RoadSpec { from: "Weeping Woods", to: "Lazy Lake", paved: false },
+    ],
+};

@@ -87,7 +87,7 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
     s.push(']');
     // supply drops that nobody has opened: where they are (coming down or waiting)
     s.push_str(",\"drops\":[");
-    for (i, c) in g.chests.iter().filter(|c| c.supply && !c.opened).enumerate() {
+    for (i, c) in g.chests.iter().filter(|c| c.is_supply() && !c.opened).enumerate() {
         if i > 0 { s.push(','); }
         let _ = write!(s, "{{\"x\":{},\"z\":{},\"air\":{}}}", n(c.pos.x), n(c.pos.z), c.falling());
     }
@@ -109,6 +109,10 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
             Some(Item::Consumable { kind, count }) => {
                 let _ = write!(s, "{{\"t\":\"c\",\"k\":{},\"n\":{},\"r\":{},\"c\":{}}}", cons_index(kind), esc(kind.name()), kind.rarity().index(), count);
             }
+            Some(Item::Utility { kind, count }) => {
+                let k = UtilityKind::ALL.iter().position(|x| *x == kind).unwrap_or(0);
+                let _ = write!(s, "{{\"t\":\"u\",\"k\":{},\"n\":{},\"r\":{},\"c\":{},\"throw\":{}}}", k, esc(kind.name()), kind.rarity().index(), count, kind.def().thrown);
+            }
         }
     }
     let _ = write!(s, "],\"sel\":{},\"ammo\":[{},{},{},{},{}],\"mats\":[{},{},{}]", me.inv.selected, me.inv.ammo[0], me.inv.ammo[1], me.inv.ammo[2], me.inv.ammo[3], me.inv.ammo[4], me.inv.mats[0], me.inv.mats[1], me.inv.mats[2]);
@@ -128,6 +132,8 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
         _ => -1.0,
     };
     let _ = write!(s, ",\"heal\":{}", n(heal));
+    // a Slurp Juice still flowing, a Boogie Bomb still making the player dance
+    let _ = write!(s, ",\"regen\":{},\"boogie\":{}", me.regen > 0.0, n(me.boogie));
     let _ = write!(s, ",\"build\":{{\"on\":{},\"piece\":{},\"mat\":{},\"cost\":{}}}", me.build_mode, me.build_piece as usize, me.build_mat.index(), me.build_piece.cost());
 
     // ---- bus, storm ------------------------------------------------------------------------------------
@@ -204,13 +210,22 @@ pub fn hud_json(g: &Game, cam: &Camera, show_tags: bool) -> String {
                     PickupKind::Weapon { .. } => "w",
                     PickupKind::Ammo { .. } => "a",
                     PickupKind::Consumable { .. } => "c",
+                    PickupKind::Utility { .. } => "u",
+                    PickupKind::Mats { .. } => "m",
                 });
             } else {
                 s.push_str(",\"prompt\":null");
             }
         }
-        Some(Target::Chest(id)) if g.chest_index(id).is_some_and(|i| g.chests[i].supply) => s.push_str(",\"prompt\":{\"txt\":\"Supply Drop\",\"rar\":2,\"cnt\":1,\"kind\":\"supply\"}"),
-        Some(Target::Chest(_)) => s.push_str(",\"prompt\":{\"txt\":\"Chest\",\"rar\":4,\"cnt\":1,\"kind\":\"chest\"}"),
+        Some(Target::Chest(id)) => {
+            let (txt, rar, kind) = match g.chest_index(id).map(|i| g.chests[i].kind) {
+                Some(ChestKind::Supply) => ("Supply Drop", 2, "supply"),
+                Some(ChestKind::AmmoBox) => ("Ammo Box", 0, "ammobox"),
+                Some(ChestKind::Llama) => ("Supply Llama", 3, "llama"),
+                _ => ("Chest", 4, "chest"),
+            };
+            let _ = write!(s, ",\"prompt\":{{\"txt\":\"{txt}\",\"rar\":{rar},\"cnt\":1,\"kind\":\"{kind}\"}}");
+        }
         None => s.push_str(",\"prompt\":null"),
     } }
 
@@ -346,6 +361,34 @@ mod tests {
         assert!(j.contains("\"n\":\"Pump Shotgun\""), "{j}");
         assert!(j.contains("\"r\":3"), "epic rarity index");
         assert!(j.contains("\"txt\":\"Bolt-Action Sniper\""), "prompt for the pickup under the player: {j}");
+    }
+
+    #[test]
+    fn utility_items_a_slurp_at_work_and_a_dance_show_on_the_hud() {
+        let mut g = game(2, true);
+        g.actors[PLAYER].inv.add_utility(UtilityKind::FragGrenade, 4);
+        g.actors[PLAYER].inv.add_utility(UtilityKind::LaunchPad, 1);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let j = hud_json(&g, &cam(&g), false);
+        assert!(j.contains("{\"t\":\"u\",\"k\":0,\"n\":\"Frag Grenade\",\"r\":1,\"c\":4,\"throw\":true}"), "{j}");
+        assert!(j.contains("{\"t\":\"u\",\"k\":3,\"n\":\"Launch Pad\",\"r\":2,\"c\":1,\"throw\":false}"), "{j}");
+        assert!(j.contains("\"regen\":false,\"boogie\":0"), "{j}");
+        g.actors[PLAYER].regen = 40.0;
+        g.actors[PLAYER].boogie = 3.25;
+        let j = hud_json(&g, &cam(&g), false);
+        assert!(j.contains("\"regen\":true,\"boogie\":3.25"), "{j}");
+        // the containers each have their own prompt
+        let p = g.actors[PLAYER].pos;
+        g.chests.clear();
+        for (kind, word) in [(ChestKind::AmmoBox, "\"kind\":\"ammobox\""), (ChestKind::Llama, "\"kind\":\"llama\"")] {
+            g.chests.clear();
+            let id = g.new_id();
+            let f = yaw_forward(g.actors[PLAYER].yaw);
+            g.chests.push(Chest::of_kind(id, p + Vec3::new(f.x, 0.0, f.z) * 1.2, 0.0, kind));
+            g.update(1.0 / 60.0, &PlayerInput::default());
+            let j = hud_json(&g, &cam(&g), false);
+            assert!(j.contains(word), "{kind:?}: {}", &j[j.find("\"prompt\"").unwrap()..][..80]);
+        }
     }
 
     #[test]

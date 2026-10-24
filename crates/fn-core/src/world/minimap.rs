@@ -122,6 +122,10 @@ pub fn render(w: &World, size: usize) -> Vec<u8> {
         let roof = match b.kind {
             "barn" => [196, 84, 70],
             "windmill" => [214, 200, 170],
+            "tower block" | "clock tower" => [182, 178, 172],
+            "warehouse" => [160, 172, 184],
+            "chimney" => [168, 92, 76],
+            "wrecks" => [128, 118, 108],
             _ => [226, 214, 190],
         };
         for y in y0..=y1 {

@@ -232,6 +232,42 @@ impl Fx {
                 }
             }
             Event::Explosion { pos, radius } => self.explosion(*pos, *radius),
+            Event::Impulse { pos } => {
+                // a blue shockwave racing outwards, and a flash
+                for k in 0..28 {
+                    let a = k as f32 / 28.0 * std::f32::consts::TAU;
+                    let v = Vec3::new(a.cos(), 0.15, a.sin()) * 11.0;
+                    self.spawn(*pos, v, 0.5, 0.9, 0.45, [0.6, 1.6, 3.0, 0.9], [0.2, 0.6, 1.5, 0.0], shape::GLOW, true, 0.0, 3.0);
+                }
+                self.spawn(*pos, Vec3::ZERO, 1.0, 5.0, 0.35, [1.5, 2.5, 4.0, 1.0], [0.3, 0.8, 2.0, 0.0], shape::GLOW, true, 0.0, 0.0);
+            }
+            Event::Boogie { pos } => {
+                // disco lights in every colour
+                let colors = [[3.0, 0.6, 2.4, 1.0], [0.6, 2.6, 3.0, 1.0], [3.0, 2.6, 0.5, 1.0], [1.8, 0.8, 3.2, 1.0]];
+                for k in 0..36 {
+                    let c = colors[k % colors.len()];
+                    let v = self.rand_dir() * self.rng.range(2.0, 6.0) + Vec3::Y * 2.0;
+                    self.spawn(*pos + Vec3::Y * 0.5, v, 0.25, 0.1, 1.2, c, [c[0], c[1], c[2], 0.0], shape::STAR, true, -1.0, 1.2);
+                }
+                self.spawn(*pos + Vec3::Y * 0.5, Vec3::ZERO, 1.5, 4.0, 0.6, [2.4, 1.2, 2.8, 0.8], [1.0, 0.4, 1.4, 0.0], shape::GLOW, true, 0.0, 0.0);
+            }
+            Event::Launch { pos, .. } => {
+                // streaks of light shooting up off the pad
+                for _ in 0..14 {
+                    let v = Vec3::new(self.rng.range(-1.0, 1.0), self.rng.range(14.0, 22.0), self.rng.range(-1.0, 1.0));
+                    self.spawn(*pos + Vec3::Y * 0.3, v, 0.3, 0.05, 0.5, [0.8, 1.8, 3.2, 1.0], [0.3, 0.7, 1.6, 0.0], shape::GLOW, true, 0.0, 1.5);
+                }
+                for _ in 0..8 {
+                    let v = self.rand_dir() * 2.0;
+                    self.spawn(*pos + Vec3::Y * 0.2, Vec3::new(v.x, 0.5, v.z), 0.4, 1.4, 0.8, [0.9, 0.9, 0.9, 0.5], [0.9, 0.9, 0.9, 0.0], shape::SMOKE, false, 0.0, 1.5);
+                }
+            }
+            Event::TrapPlaced { pos, .. } => {
+                for _ in 0..6 {
+                    let v = self.rand_dir() * 1.5;
+                    self.spawn(*pos + Vec3::Y * 0.15, Vec3::new(v.x, 0.4, v.z), 0.3, 0.9, 0.6, [0.85, 0.82, 0.75, 0.45], [0.85, 0.82, 0.75, 0.0], shape::SMOKE, false, 0.0, 1.5);
+                }
+            }
             Event::HarvestHit { pos, normal, wood } => {
                 let c = if *wood { [0.82, 0.62, 0.36, 1.0] } else { [0.75, 0.75, 0.78, 1.0] };
                 for _ in 0..6 {

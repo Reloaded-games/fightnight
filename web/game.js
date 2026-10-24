@@ -12,10 +12,11 @@ const NOLOCK = q.get('nolock') === '1';
 // ------------------------------------------------------------------------------------------------
 // Settings
 // ------------------------------------------------------------------------------------------------
-const DEFAULTS = { name: 'You', mode: 'battle-royale', outfit: 'scout', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
+const DEFAULTS = { name: 'You', mode: 'battle-royale', map: 'chapter1', outfit: 'scout', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
 let cfg = { ...DEFAULTS };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('fightnight.settings') || '{}')); } catch (e) { /* storage unavailable */ }
 if (!['battle-royale', 'zero-build', 'lego'].includes(cfg.mode)) cfg.mode = DEFAULTS.mode;
+if (!['chapter1', 'chapter2', 'island'].includes(cfg.map)) cfg.map = DEFAULTS.map;
 function saveCfg() { try { localStorage.setItem('fightnight.settings', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
 
 // ------------------------------------------------------------------------------------------------
@@ -74,12 +75,17 @@ const TIPS = [
   'Walls block bullets. Build cover before you heal.',
   'Shotguns are deadly up close, snipers reward patience.',
   'You can open the glider early by pressing Space in free fall.',
+  'Frag grenades wreck builds. Throw one at a box before you push it.',
+  'A Launch Pad flings you into the sky and you glide down without fall damage.',
+  'Slurp Juice heals and shields over time; you can keep fighting while it works.',
+  'Ammo boxes are small grey crates; Supply Llamas are full of materials, ammo and items.',
+  'Eliminated players drop their materials. Walk over them to collect.',
 ];
 
 // The wasm side parses `key=value;key=value`, so the free-text player name must not contain either separator.
 function matchOptions() {
   const name = String(cfg.name || '').replace(/[;=]/g, ' ').trim().slice(0, 16) || 'You';
-  return `mode=${cfg.mode};bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};outfit=${cfg.outfit};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
+  return `mode=${cfg.mode};map=${cfg.map};bots=${cfg.bots};difficulty=${cfg.difficulty};name=${name};outfit=${cfg.outfit};quality=${cfg.quality};skipbus=${cfg.skipbus ? 1 : 0}` + (q.get('opts') ? ';' + q.get('opts') : '');
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -106,7 +112,7 @@ function note(text, ms = 6000) {
 function bindSeg(id, key) {
   const seg = $(id);
   const apply = () => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cfg[key]));
-  seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { cfg[key] = b.dataset.v; saveCfg(); apply(); click(); if (key === 'mode') applyModeUi(); if (key === 'quality' && ready) { fn.set_quality(cfg.quality); resizeAll(); } }));
+  seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { cfg[key] = b.dataset.v; saveCfg(); apply(); click(); if (key === 'mode') applyModeUi(); if (key === 'map') applyMapUi(); if (key === 'quality' && ready) { fn.set_quality(cfg.quality); resizeAll(); } }));
   apply();
 }
 function applyModeUi() {
@@ -122,6 +128,15 @@ function applyModeUi() {
     });
   }
   for (const id of ['mode-description', 'lb-mode-description']) $(id).textContent = descriptions[cfg.mode];
+}
+// The solo menu and the host's room share one map choice.
+function applyMapUi() {
+  for (const id of ['seg-map', 'lb-map']) {
+    $(id).querySelectorAll('button').forEach((b) => {
+      const selected = b.dataset.v === cfg.map;
+      b.classList.toggle('on', selected); b.setAttribute('aria-pressed', String(selected));
+    });
+  }
 }
 function bindRange(id, valId, key, fmt = (v) => v, onChange) {
   const el = $(id), val = $(valId);
@@ -145,6 +160,9 @@ function wireUi() {
   $('opt-name').addEventListener('input', () => { cfg.name = $('opt-name').value; saveCfg(); });
   bindRange('opt-bots', 'val-bots', 'bots');
   bindSeg('seg-mode', 'mode');
+  bindSeg('seg-map', 'map');
+  bindSeg('lb-map', 'map');
+  applyMapUi();
   bindSeg('seg-diff', 'difficulty');
   bindSeg('seg-outfit', 'outfit');
   bindSeg('seg-quality', 'quality');
@@ -239,8 +257,7 @@ async function boot() {
     fn.resize(gpuCanvas.width, gpuCanvas.height);
     setProgress(0.75, 'Drawing the map');
     await nextFrame();
-    buildMap();
-    pois = fn.poi_list().split(';').filter(Boolean).map((s) => { const p = s.split(','); return { name: p[0], x: +p[1], z: +p[2], kind: p[3], r: +p[4] }; });
+    loadMap();
     applyRuntimeOptions();
     fn.set_menu(true);
     resizeAll();
@@ -261,6 +278,18 @@ async function boot() {
     $('nowebgpu-msg').textContent = String(e && e.message ? e.message : e);
     show('loading', false); show('nowebgpu');
   }
+}
+
+// The map image and the names on it, for the island of the match now loaded (each match may be on another map).
+let mapKey = '';
+let mapInfo = { key: 'island', label: '', grid: 0 };
+function loadMap() {
+  const key = fn.debug('map_key');
+  if (key === mapKey && pois.length) return;
+  mapKey = key;
+  try { mapInfo = JSON.parse(fn.map_info()); } catch (e) { mapInfo = { key: 'island', label: '', grid: 0 }; }
+  buildMap();
+  pois = fn.poi_list().split(';').filter(Boolean).map((s) => { const p = s.split(','); return { name: p[0], x: +p[1], z: +p[2], kind: p[3], r: +p[4] }; });
 }
 
 function buildMap() {
@@ -309,6 +338,7 @@ async function startMatch(kind = 'solo') {
     fn.set_menu(false);
     fn.set_paused(false);
     if (kind !== 'solo') await mp.waitForStart();
+    loadMap();
     setProgress(1, 'Ready');
   } catch (e) {
     console.error(e);
@@ -454,6 +484,13 @@ function toggleOverlay(name) {
 }
 
 let wdefs = null, cdefs = null;
+// What each grenade or trap does (UtilityKind::ALL order).
+const UTILITY_INFO = [
+  'Click to throw. Explodes after a short fuse: heavy damage to players and builds nearby.',
+  'Click to throw. A shockwave that sends everyone around flying, without hurting them.',
+  'Click to throw. Everyone caught in it dances for 5 seconds and cannot shoot or build.',
+  'Click to place on the ground. Step on it to launch high into the air and glide down safely.',
+];
 let invSig = '';
 function renderInventory(force) {
   if (!hudState) return;
@@ -484,6 +521,8 @@ function renderInventory(force) {
         const d = cdefs[slot.k];
         sub = `<div class="sub">${RARITY_NAMES[slot.r]} &middot; x${slot.c}</div>` +
           (d.heal ? stat('Heals', d.heal / 100, `+${d.heal} (max ${d.maxHp})`) : '') + (d.shield ? stat('Shield', d.shield / 100, `+${d.shield} (max ${d.maxShield})`) : '') + stat('Use time', Math.min(1, d.time / 10), d.time.toFixed(1) + 's');
+      } else if (slot.t === 'u') {
+        sub = `<div class="sub">${RARITY_NAMES[slot.r]} &middot; x${slot.c}</div><div class="sub">${UTILITY_INFO[slot.k] || ''}</div>`;
       } else sub = '<div class="sub">Harvest trees, rocks and enemy structures for building materials.</div>';
       html += `<canvas width="300" height="170"></canvas><div class="name" style="color:${RARITY[rar]}">${name}</div>${sub}`;
       if (slot.t !== 'p') html += `<button class="drop" data-i="${i}">Drop</button>`;
@@ -511,7 +550,7 @@ function stat(label, frac, text) {
 
 function drawMapOverlay() {
   if (!hudState) return;
-  drawFullMap($('mapcanvas'), mapImage, hudState, pois);
+  drawFullMap($('mapcanvas'), mapImage, hudState, pois, mapInfo);
 }
 
 // ------------------------------------------------------------------------------------------------

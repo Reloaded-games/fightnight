@@ -1749,6 +1749,246 @@ pub fn supply_chute() -> MeshData {
     b.finish()
 }
 
+/// A frag grenade: an olive egg with grooves, a steel fuse head, the spoon down its side and the ring of the pin.
+/// Origin at the middle of the bottom; about 12 cm tall.
+pub fn grenade_frag() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::METAL).hex(0x5d7a3c).spec(0.35).ao(0.6, 1.0);
+    b.blob(Vec3::new(0.0, 0.055, 0.0), Vec3::new(0.045, 0.055, 0.045), 2, 0.0, 1, true);
+    b.hex(0x3e5328);
+    for k in 0..3 {
+        b.cylinder(Vec3::new(0.0, 0.028 + k as f32 * 0.024, 0.0), 0.0465, 0.0465, 0.006, 14, false, false);
+    }
+    b.hex(0xb9bec8).spec(0.9);
+    b.cylinder(Vec3::new(0.0, 0.104, 0.0), 0.016, 0.014, 0.022, 10, false, true);
+    b.box_center(Vec3::new(0.024, 0.088, 0.0), Vec3::new(0.005, 0.034, 0.011));
+    b.hex(0xe0c24a);
+    for k in 0..8 {
+        let (a0, a1) = (k as f32 / 8.0 * TAU_F, (k + 1) as f32 / 8.0 * TAU_F);
+        let c = Vec3::new(-0.026, 0.12, 0.0);
+        rod(&mut b, c + Vec3::new(a0.cos(), 0.0, a0.sin()) * 0.014, c + Vec3::new(a1.cos(), 0.0, a1.sin()) * 0.014, 0.0025);
+    }
+    b.finish()
+}
+
+/// An impulse grenade: a blue ball with a glowing band and white caps. Origin at the bottom; about 11 cm tall.
+pub fn grenade_impulse() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::METAL).hex(0x2d62c8).spec(0.6).ao(0.6, 1.0);
+    b.sphere(Vec3::new(0.0, 0.05, 0.0), 0.05, 2);
+    b.hex(0xe9eef7);
+    b.cylinder(Vec3::new(0.0, 0.088, 0.0), 0.024, 0.02, 0.02, 12, false, true);
+    b.cylinder(Vec3::new(0.0, -0.004, 0.0), 0.02, 0.024, 0.016, 12, true, false);
+    b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(0.45, 0.95, 1.0));
+    b.cylinder(Vec3::new(0.0, 0.043, 0.0), 0.0515, 0.0515, 0.013, 16, false, false);
+    for k in 0..4 {
+        let a = k as f32 * FRAC_PI_2;
+        b.box_center(Vec3::new(a.cos() * 0.036, 0.075, a.sin() * 0.036), Vec3::splat(0.006));
+    }
+    b.finish()
+}
+
+/// A Boogie Bomb: a little disco ball, mirror tiles and a few lit ones, with a silver cap. Origin at the bottom; 13 cm tall.
+pub fn boogie_bomb() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::METAL).hex(0xd8ccf5).spec(1.0).ao(0.7, 1.0);
+    b.sphere(Vec3::new(0.0, 0.055, 0.0), 0.055, 1);
+    b.mat(mat::EMISSIVE).tinted(false);
+    let lit = [0xff5fc8, 0x5fe0ff, 0xffe05f, 0xa66bff];
+    for k in 0..12 {
+        let a = k as f32 / 12.0 * TAU_F;
+        let y = 0.055 + ((k * 7 % 5) as f32 / 4.0 - 0.5) * 0.06;
+        let r = (0.055f32.powi(2) - (y - 0.055).powi(2)).max(0.0).sqrt() + 0.001;
+        b.color(hex(lit[k % lit.len()]));
+        b.box_center(Vec3::new(a.cos() * r, y, a.sin() * r), Vec3::splat(0.008));
+    }
+    b.mat(mat::METAL).tinted(true).hex(0xc4c9d4).spec(0.9);
+    b.cylinder(Vec3::new(0.0, 0.104, 0.0), 0.018, 0.015, 0.02, 10, false, true);
+    b.cylinder(Vec3::new(0.0, 0.124, 0.0), 0.004, 0.004, 0.012, 6, false, true);
+    b.finish()
+}
+
+/// The frame of a Launch Pad: a low steel square with hazard stripes round its edge and a spring in each corner.
+/// Origin at the middle of the bottom; 1.7 m across.
+pub fn launch_pad_base() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::METAL).hex(0x3b4350).spec(0.5).ao(0.6, 1.0);
+    b.box_min_max(Vec3::new(-0.85, 0.0, -0.85), Vec3::new(0.85, 0.08, 0.85));
+    b.mat(mat::FLAT).tinted(false);
+    for side in 0..4 {
+        b.with_xf(Mat4::from_rotation_y(side as f32 * FRAC_PI_2), |b| {
+            for k in 0..8 {
+                b.hex(if k % 2 == 0 { 0xf2c12e } else { 0x24272d });
+                let x0 = -0.85 + k as f32 * 0.2125;
+                b.box_min_max(Vec3::new(x0, 0.08, -0.85), Vec3::new(x0 + 0.2125, 0.115, -0.77));
+            }
+        });
+    }
+    b.mat(mat::METAL).tinted(true).hex(0xc9d1dc).spec(0.9);
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            for k in 0..4 {
+                b.cylinder(Vec3::new(sx * 0.62, 0.09 + k as f32 * 0.028, sz * 0.62), 0.065, 0.065, 0.012, 10, false, false);
+            }
+        }
+    }
+    b.finish()
+}
+
+/// The bounce plate of a Launch Pad (origin at the middle of its underside): blue, with yellow chevrons and a glowing rim.
+pub fn launch_pad_plate() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::METAL).hex(0x2f7df0).spec(0.45).ao(0.75, 1.0);
+    b.box_min_max(Vec3::new(-0.72, 0.0, -0.72), Vec3::new(0.72, 0.06, 0.72));
+    b.mat(mat::FLAT).tinted(false).hex(0xffd23f);
+    for k in 0..2 {
+        let z = -0.25 + k as f32 * 0.4;
+        for sx in [-1.0f32, 1.0] {
+            b.with_xf(Mat4::from_translation(Vec3::new(sx * 0.17, 0.062, z)) * Mat4::from_rotation_y(sx * 0.75), |b| {
+                b.box_center(Vec3::ZERO, Vec3::new(0.06, 0.004, 0.2));
+            });
+        }
+    }
+    b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(0.4, 0.8, 1.0));
+    for side in 0..4 {
+        b.with_xf(Mat4::from_rotation_y(side as f32 * FRAC_PI_2), |b| {
+            b.box_min_max(Vec3::new(-0.72, 0.06, -0.72), Vec3::new(0.72, 0.075, -0.68));
+        });
+    }
+    b.finish()
+}
+
+/// A Slurp Juice: a round flask of blue juice with a purple swirl, a cork and a label. Origin at the bottom; 18 cm tall.
+pub fn item_slurp() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::GLASS).hex(0x36b4ff).spec(0.9).ao(0.75, 1.0);
+    b.blob(Vec3::new(0.0, 0.07, 0.0), Vec3::new(0.065, 0.07, 0.065), 2, 0.0, 3, true);
+    b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(0.62, 0.36, 1.0));
+    for k in 0..3 {
+        let y = 0.04 + k as f32 * 0.03;
+        let r = (0.065f32.powi(2) * (1.0 - ((y - 0.07) / 0.07).powi(2))).max(0.0).sqrt() + 0.002;
+        b.cylinder(Vec3::new(0.0, y, 0.0), r, r, 0.008, 14, false, false);
+    }
+    b.mat(mat::GLASS).tinted(true).hex(0x7fd4ff);
+    b.cylinder(Vec3::new(0.0, 0.13, 0.0), 0.024, 0.02, 0.035, 12, false, false);
+    b.mat(mat::WOOD).hex(0xb8864a);
+    b.cylinder(Vec3::new(0.0, 0.16, 0.0), 0.022, 0.024, 0.024, 10, false, true);
+    b.mat(mat::FLAT).tinted(false).hex(0xf4f1e6);
+    b.box_center(Vec3::new(0.0, 0.07, -0.066), Vec3::new(0.03, 0.022, 0.002));
+    b.finish()
+}
+
+/// An ammo box: an olive steel case with dark rims, carrying handles and yellow stencilled marks; glowing brass inside.
+/// Origin at the middle of the bottom; 0.8 m long. The lid is [`ammo_box_lid`].
+pub fn ammo_box_base() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::METAL).hex(0x5a6a3b).spec(0.3).ao(0.55, 1.0);
+    b.box_min_max(Vec3::new(-0.4, 0.0, -0.25), Vec3::new(0.4, 0.32, 0.25));
+    b.hex(0x39432a);
+    b.box_min_max(Vec3::new(-0.41, 0.0, -0.26), Vec3::new(0.41, 0.035, 0.26));
+    b.box_min_max(Vec3::new(-0.41, 0.285, -0.26), Vec3::new(0.41, 0.32, 0.26));
+    for sx in [-1.0f32, 1.0] {
+        b.box_center(Vec3::new(sx * 0.415, 0.2, 0.0), Vec3::new(0.012, 0.025, 0.09));
+    }
+    b.mat(mat::FLAT).tinted(false).hex(0xe9c84a);
+    b.box_center(Vec3::new(-0.2, 0.16, -0.252), Vec3::new(0.11, 0.035, 0.002));
+    b.box_center(Vec3::new(0.15, 0.16, -0.252), Vec3::new(0.06, 0.035, 0.002));
+    b.mat(mat::EMISSIVE).tinted(false).color(Vec3::new(1.0, 0.75, 0.3));
+    b.box_min_max(Vec3::new(-0.36, 0.28, -0.21), Vec3::new(0.36, 0.3, 0.21));
+    b.finish()
+}
+
+/// The lid of an ammo box, hinged on the x axis at the origin (local -Z is the front).
+pub fn ammo_box_lid() -> MeshData {
+    let mut b = MeshBuilder::new();
+    b.mat(mat::METAL).hex(0x5f6f3e).spec(0.3).ao(0.6, 1.0);
+    b.box_min_max(Vec3::new(-0.41, 0.0, -0.52), Vec3::new(0.41, 0.05, 0.0));
+    b.hex(0x39432a);
+    b.box_center(Vec3::new(0.0, 0.06, -0.26), Vec3::new(0.1, 0.012, 0.02));
+    b.box_center(Vec3::new(0.0, 0.03, -0.525), Vec3::new(0.05, 0.03, 0.008));
+    b.finish()
+}
+
+/// A Supply Llama: a purple piñata llama with a striped saddle blanket and a paper fringe. Origin between its feet,
+/// facing -Z; about 1.6 m tall.
+pub fn llama() -> MeshData {
+    let mut b = MeshBuilder::new();
+    let (purple, light) = (0x8a58dc, 0xb48bf0);
+    b.mat(mat::CLOTH).hex(purple).ao(0.6, 1.0);
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            b.cylinder(Vec3::new(sx * 0.2, 0.0, sz * 0.3), 0.075, 0.085, 0.62, 8, true, false);
+        }
+    }
+    b.blob(Vec3::new(0.0, 0.82, 0.0), Vec3::new(0.3, 0.26, 0.46), 2, 0.02, 7, true);
+    rod(&mut b, Vec3::new(0.0, 0.9, -0.32), Vec3::new(0.0, 1.42, -0.48), 0.12);
+    b.hex(light);
+    b.blob(Vec3::new(0.0, 1.5, -0.56), Vec3::new(0.13, 0.13, 0.19), 2, 0.0, 9, true);
+    b.blob(Vec3::new(0.0, 1.45, -0.72), Vec3::new(0.08, 0.07, 0.08), 1, 0.0, 11, true);
+    b.hex(purple);
+    for sx in [-1.0f32, 1.0] {
+        b.cone(Vec3::new(sx * 0.07, 1.6, -0.52), 0.035, 0.14, 6);
+    }
+    b.blob(Vec3::new(0.0, 0.9, 0.48), Vec3::new(0.06, 0.08, 0.06), 1, 0.0, 13, true);
+    b.mat(mat::FLAT).tinted(false).hex(0x15121c);
+    for sx in [-1.0f32, 1.0] {
+        b.sphere(Vec3::new(sx * 0.085, 1.54, -0.68), 0.022, 1);
+    }
+    // the saddle blanket, in stripes
+    let stripes = [0xffd23f, 0xff5fa8, 0x4fd3ff, 0xffd23f, 0xff5fa8];
+    for (k, c) in stripes.iter().enumerate() {
+        b.hex(*c);
+        let z = -0.24 + k as f32 * 0.12;
+        b.box_min_max(Vec3::new(-0.31, 0.78, z), Vec3::new(0.31, 1.09, z + 0.12));
+    }
+    // paper fringe round the belly
+    let fringe = [0xff5fa8, 0xffd23f, 0x4fd3ff, 0x7cf06a];
+    for k in 0..16 {
+        b.hex(fringe[k % fringe.len()]);
+        let a = k as f32 / 16.0 * TAU_F;
+        let (x, z) = (a.cos() * 0.29, a.sin() * 0.44);
+        b.box_center(Vec3::new(x, 0.6, z), Vec3::new(0.03, 0.06, 0.03));
+    }
+    b.finish()
+}
+
+/// A stack of building material lying on the ground: planks, bricks or metal plates. Origin at the bottom; ~0.5 m long.
+pub fn mat_stack(m: u8) -> MeshData {
+    let mut b = MeshBuilder::new();
+    match m {
+        0 => {
+            b.mat(mat::WOOD).hex(0xb98450).ao(0.6, 1.0);
+            for k in 0..3 {
+                let rot = if k % 2 == 0 { 0.0 } else { FRAC_PI_2 * 0.35 };
+                b.with_xf(Mat4::from_translation(Vec3::new(0.0, 0.035 + k as f32 * 0.07, 0.0)) * Mat4::from_rotation_y(rot), |b| {
+                    b.box_center(Vec3::new(0.0, 0.0, -0.08), Vec3::new(0.25, 0.03, 0.065));
+                    b.box_center(Vec3::new(0.0, 0.0, 0.08), Vec3::new(0.25, 0.03, 0.065));
+                });
+            }
+        }
+        1 => {
+            b.mat(mat::STONE).hex(0xb87a62).ao(0.55, 1.0);
+            for k in 0..2 {
+                for j in 0..2 {
+                    let off = if k % 2 == 0 { 0.0 } else { 0.06 };
+                    b.box_center(Vec3::new(-0.1 + j as f32 * 0.21 - off, 0.05 + k as f32 * 0.1, 0.0), Vec3::new(0.1, 0.045, 0.07));
+                }
+            }
+        }
+        _ => {
+            b.mat(mat::METAL).hex(0x9fb4cf).spec(0.85).ao(0.6, 1.0);
+            for k in 0..3 {
+                b.box_center(Vec3::new(0.0, 0.02 + k as f32 * 0.045, 0.0), Vec3::new(0.22 - k as f32 * 0.02, 0.018, 0.16 - k as f32 * 0.015));
+            }
+            b.hex(0x5f6f86);
+            for (x, z) in [(-0.17, -0.11), (0.17, -0.11), (-0.17, 0.11), (0.17, 0.11)] {
+                b.sphere(Vec3::new(x, 0.022, z), 0.012, 0);
+            }
+        }
+    }
+    b.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

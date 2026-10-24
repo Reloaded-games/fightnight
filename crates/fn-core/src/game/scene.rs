@@ -53,7 +53,7 @@ fn casts_shadow(m: MeshId) -> bool {
     use MeshId::*;
     matches!(
         m,
-        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | SupplyCrate | SupplyChute | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat | VehicleBody | VehicleWheel | VehicleSport
+        CharTorso | CharTrim | CharPelvis | CharHead | CharArmUp | CharArmLow | CharLegUp | CharLegLow | CharBoot | CharBackpack | Glider | PieceWall | PieceFloor | PieceRamp | PieceRoof | ChestBase | ChestLid | SupplyCrate | SupplyChute | AmmoBoxBase | AmmoBoxLid | Llama | LaunchPadBase | LaunchPadPlate | Bus | Hair1 | Hair2 | Hair3 | Cap | Beanie | Helmet | Hat | VehicleBody | VehicleWheel | VehicleSport
     )
 }
 
@@ -79,15 +79,34 @@ pub fn floor_item_size(kind: &PickupKind) -> f32 {
     match kind {
         PickupKind::Weapon { .. } => 0.0,
         PickupKind::Ammo { .. } => 0.5,
+        PickupKind::Mats { .. } => 0.6,
+        PickupKind::Utility { kind, .. } => {
+            if kind.def().thrown {
+                0.42
+            } else {
+                0.75
+            }
+        }
         PickupKind::Consumable { kind, .. } => match kind {
             ConsumableKind::Bandage => 0.5,
             ConsumableKind::MedKit => 0.62,
             ConsumableKind::ShieldSmall => 0.5,
             ConsumableKind::ShieldBig => 0.58,
             ConsumableKind::ChugJug => 0.66,
+            ConsumableKind::Slurp => 0.55,
         },
     }
 }
+
+/// How big a utility item looks in the hand, and in flight.
+fn held_utility_size(kind: UtilityKind) -> f32 {
+    if kind.def().thrown {
+        0.17
+    } else {
+        0.62
+    }
+}
+const THROWN_SIZE: f32 = 0.26;
 
 /// How long a healing item is in the player's hand.
 pub const HELD_ITEM_SIZE: f32 = 0.3;
@@ -199,6 +218,9 @@ impl Scene {
         self.pieces(g, &fr, cp);
         self.ghost_piece(g);
         self.projectiles(g);
+        self.thrown(g, &fr, cp);
+        self.traps(g, &fr, cp);
+        self.aim_preview(g);
         self.felled(g, cp);
         g.fx.emit(&mut self.particles, &mut self.particles_add);
         self.finish();
@@ -302,6 +324,7 @@ impl Scene {
                 Some(Item::Weapon { rarity, .. }) => (lin(Vec3::ONE.lerp(rarity.color(), 0.55)), m),
                 // the props are modelled at their real size; in a hand a bandage would vanish
                 Some(Item::Consumable { .. }) => (WHITE, m * Mat4::from_scale(Vec3::splat(self.fit_to(mesh, HELD_ITEM_SIZE)))),
+                Some(Item::Utility { kind, .. }) => (WHITE, m * Mat4::from_scale(Vec3::splat(self.fit_to(mesh, held_utility_size(*kind))))),
                 _ => (WHITE, m),
             };
             put(self, mesh, m, tint);
@@ -350,6 +373,8 @@ impl Scene {
                 PickupKind::Weapon { rarity, .. } => (1.3, lin(Vec3::ONE.lerp(rarity.color(), 0.5)), rarity.color(), 4.8),
                 PickupKind::Ammo { kind, .. } => (fit_scale(half, floor_item_size(&p.kind)), lin(kind.color()), kind.color(), 2.4),
                 PickupKind::Consumable { kind, .. } => (fit_scale(half, floor_item_size(&p.kind)), WHITE, kind.rarity().color(), 3.2),
+                PickupKind::Utility { kind, .. } => (fit_scale(half, floor_item_size(&p.kind)), WHITE, kind.rarity().color(), 3.2),
+                PickupKind::Mats { mat, .. } => (fit_scale(half, floor_item_size(&p.kind)), WHITE, mat.color(), 2.0),
             };
             let bob = if p.grounded { 0.07 * (t * 2.3 + p.spin * 3.0).sin() } else { 0.0 };
             let lift = (half.y * scale + 0.3).max(0.42);
@@ -396,12 +421,48 @@ impl Scene {
         }
     }
 
+    /// A green ammo box: its lid swings up when it is opened.
+    fn ammo_box(&mut self, c: &Chest, fr: &Frustum, cp: Vec3) {
+        if c.pos.distance(cp) > 160.0 || !fr.intersects_sphere(c.pos + Vec3::Y * 0.4, 1.0) {
+            return;
+        }
+        let base = Mat4::from_translation(c.pos) * Mat4::from_rotation_y(c.yaw + std::f32::consts::PI);
+        self.push(MeshId::AmmoBoxBase, base, WHITE);
+        let open = ease(c.open_t) * 1.8;
+        self.push(MeshId::AmmoBoxLid, base * Mat4::from_translation(Vec3::new(0.0, 0.32, 0.26)) * Mat4::from_rotation_x(open), WHITE);
+    }
+
+    /// A Supply Llama: it sways a little where it stands, and bursts (shrinks away in a flash) when it is opened.
+    fn llama(&mut self, c: &Chest, fr: &Frustum, cp: Vec3, t: f32) {
+        if c.open_t >= 1.0 || c.pos.distance(cp) > 260.0 || !fr.intersects_sphere(c.pos + Vec3::Y * 0.9, 1.6) {
+            return;
+        }
+        let sway = (t * 1.3 + c.id as f32).sin() * 0.04;
+        let burst = if c.opened { 1.0 - ease(c.open_t) } else { 1.0 };
+        let m = Mat4::from_translation(c.pos) * Mat4::from_rotation_y(c.yaw) * Mat4::from_rotation_z(sway) * Mat4::from_scale(Vec3::new(burst, burst * (1.0 + 0.15 * (1.0 - burst)), burst));
+        self.push(MeshId::Llama, m, WHITE);
+        if c.opened {
+            self.particles_add.push(Particle::billboard(c.pos + Vec3::Y * 1.0, 2.6, [2.4, 1.2, 3.0, 0.6 * burst], shape::GLOW, 0.0, 0.0));
+        }
+    }
+
     fn chests(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
         let t = g.time;
         for c in &g.chests {
-            if c.supply {
-                self.supply_crate(c, fr, cp, t);
-                continue;
+            match c.kind {
+                ChestKind::Supply => {
+                    self.supply_crate(c, fr, cp, t);
+                    continue;
+                }
+                ChestKind::AmmoBox => {
+                    self.ammo_box(c, fr, cp);
+                    continue;
+                }
+                ChestKind::Llama => {
+                    self.llama(c, fr, cp, t);
+                    continue;
+                }
+                ChestKind::Treasure => {}
             }
             let d = c.pos.distance(cp);
             if d > 230.0 || !fr.intersects_sphere(c.pos + Vec3::Y * 3.0, 5.0) {
@@ -469,6 +530,76 @@ impl Scene {
         let col = if pl.valid { [0.2, 0.75, 1.0, 1.0] } else { [1.0, 0.22, 0.18, 1.0] };
         self.ghost.push(Instance::from_mat4(m, col));
         self.ghost_mesh = Some(crate::lego_models::mapped_mesh(mesh, self.mode) as u16);
+    }
+
+    // ---- grenades, Launch Pads -----------------------------------------------------------------------------------------------
+
+    fn thrown(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
+        for th in &g.thrown {
+            if th.pos.distance(cp) > 250.0 || !fr.intersects_sphere(th.pos, 1.0) {
+                continue;
+            }
+            let mesh = rig::utility_model(th.kind);
+            let k = self.fit_to(mesh, THROWN_SIZE);
+            let (center, _) = self.centers[crate::lego_models::mapped_mesh(mesh, self.mode) as usize];
+            let m = Mat4::from_translation(th.pos) * Mat4::from_rotation_y(th.spin) * Mat4::from_rotation_x(th.spin * 0.7) * Mat4::from_scale(Vec3::splat(k)) * Mat4::from_translation(-center);
+            self.push(mesh, m, WHITE);
+            // a blinking light so a grenade on the ground is easy to see
+            let blink = 0.5 + 0.5 * (th.age * if th.resting { 14.0 } else { 9.0 }).sin();
+            let c = match th.kind {
+                UtilityKind::FragGrenade => [3.0, 0.5, 0.3, 0.55 * blink],
+                UtilityKind::ImpulseGrenade => [0.6, 1.8, 3.0, 0.55 * blink],
+                UtilityKind::BoogieBomb => [2.6, 0.8, 2.6, 0.55 * blink],
+                UtilityKind::LaunchPad => [1.0, 1.0, 1.0, 0.0],
+            };
+            self.particles_add.push(Particle::billboard(th.pos + Vec3::Y * 0.08, 0.5, c, shape::GLOW, 0.0, 0.0));
+        }
+    }
+
+    fn traps(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
+        for tr in &g.traps {
+            if tr.pos.distance(cp) > 220.0 || !fr.intersects_sphere(tr.pos + Vec3::Y * 0.3, 1.5) {
+                continue;
+            }
+            let base = Mat4::from_translation(tr.pos) * Mat4::from_rotation_y(tr.yaw);
+            self.push(MeshId::LaunchPadBase, base, WHITE);
+            // the plate springs up when it throws someone
+            let lift = 0.13 + 0.42 * ease(tr.bounce);
+            self.push(MeshId::LaunchPadPlate, base * Mat4::from_translation(Vec3::Y * lift), WHITE);
+            let pulse = 0.75 + 0.25 * (g.time * 3.0 + tr.id as f32).sin();
+            self.particles_add.push(Particle::billboard(tr.pos + Vec3::Y * 0.35, 1.9, [0.35 * pulse, 0.9 * pulse, 2.2 * pulse, 0.35], shape::GLOW, 0.0, 0.0));
+        }
+    }
+
+    /// While the player holds something to throw, the arc it would fly; while they hold a Launch Pad, where it would go.
+    fn aim_preview(&mut self, g: &Game) {
+        let a = &g.actors[g.local];
+        if !a.alive || a.mode != MoveMode::Ground || a.build_mode || a.boogie > 0.0 {
+            return;
+        }
+        let Some(Item::Utility { kind, .. }) = a.inv.selected_item().copied() else { return };
+        let env = g.env();
+        if kind.def().thrown {
+            let (_, dir) = g.shot_ray(g.local);
+            let (origin, vel) = utility::throw_start(a.pos, a.yaw, dir, a.vel);
+            let pts = utility::predict_arc(&env, origin, vel, 3.0);
+            for (k, p) in pts.iter().enumerate().skip(2) {
+                if k % 2 == 0 {
+                    self.particles_add.push(Particle::billboard(*p, 0.16, [1.6, 1.6, 1.8, 0.7], shape::GLOW, 0.0, 0.0));
+                }
+            }
+            if let Some(end) = pts.last() {
+                self.particles_add.push(Particle::billboard(*end + Vec3::Y * 0.05, 0.9, [2.0, 1.4, 0.5, 0.6], shape::GLOW, 0.0, 0.0));
+            }
+        } else {
+            let f = yaw_forward(a.yaw);
+            let at = Vec3::new(a.pos.x + f.x * 1.6, a.pos.y, a.pos.z + f.z * 1.6);
+            let gnd = env.ground(at.x, at.z, a.pos.y + 1.0, 1.2);
+            let m = Mat4::from_translation(Vec3::new(at.x, gnd.y, at.z)) * Mat4::from_rotation_y(a.yaw);
+            let mut i = Instance::from_mat4(m, [0.6, 0.9, 1.4, 1.0]);
+            i.params = [0.3, 0.45, 0.0, 0.0];
+            self.push_i(MeshId::LaunchPadBase, i);
+        }
     }
 
     // ---- projectiles, felled trees ----------------------------------------------------------------------------------------------
@@ -558,14 +689,25 @@ mod tests {
         for mode in [GameMode::BattleRoyale, GameMode::Lego] {
             let mut scene = Scene::new(&meshes);
             scene.mode = mode;
-            let kinds: Vec<PickupKind> = ConsumableKind::ALL.iter().map(|&kind| PickupKind::Consumable { kind, count: 1 }).chain(AmmoKind::ALL.iter().map(|&kind| PickupKind::Ammo { kind, amount: 1 })).collect();
+            let kinds: Vec<PickupKind> = ConsumableKind::ALL
+                .iter()
+                .map(|&kind| PickupKind::Consumable { kind, count: 1 })
+                .chain(AmmoKind::ALL.iter().map(|&kind| PickupKind::Ammo { kind, amount: 1 }))
+                .chain(UtilityKind::ALL.iter().map(|&kind| PickupKind::Utility { kind, count: 1 }))
+                .chain(Mat::ALL.iter().map(|&mat| PickupKind::Mats { mat, amount: 30 }))
+                .collect();
             for kind in kinds {
                 let mesh = rig::pickup_model(&kind);
                 let (_, half) = scene.centers[crate::lego_models::mapped_mesh(mesh, mode) as usize];
                 let on_floor = half.max_element() * 2.0 * fit_scale(half, floor_item_size(&kind));
                 assert!((0.4..=0.8).contains(&on_floor), "{mode:?} {kind:?} is {on_floor:.2} m on the ground");
-                let in_hand = half.max_element() * 2.0 * scene.fit_to(mesh, HELD_ITEM_SIZE);
-                assert!((0.22..=0.4).contains(&in_hand), "{mode:?} {kind:?} is {in_hand:.2} m in the hand");
+                // (a grenade fits in a fist, a Launch Pad is carried like a tray; materials are never held)
+                let (in_hand, fits) = match kind {
+                    PickupKind::Utility { kind, .. } => (half.max_element() * 2.0 * scene.fit_to(mesh, held_utility_size(kind)), 0.15..=0.65),
+                    PickupKind::Mats { .. } => continue,
+                    _ => (half.max_element() * 2.0 * scene.fit_to(mesh, HELD_ITEM_SIZE), 0.22..=0.4),
+                };
+                assert!(fits.contains(&in_hand), "{mode:?} {kind:?} is {in_hand:.2} m in the hand");
             }
         }
     }
@@ -667,6 +809,42 @@ mod tests {
         assert!(g.placement_preview.is_some());
         assert_eq!(scene.ghost_batches.len(), 1);
         assert_eq!(scene.ghost_instances.len(), 1);
+    }
+
+    #[test]
+    fn grenades_launch_pads_ammo_boxes_and_llamas_are_drawn() {
+        use crate::game::utility::{Thrown, Trap};
+        let mut g = game(2, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        let p = g.actors[PLAYER].pos;
+        let ground = |g: &Game, x: f32, z: f32| Vec3::new(x, g.world.hm.height_at(x, z), z);
+        g.thrown.push(Thrown { id: 9001, kind: UtilityKind::FragGrenade, pos: p + Vec3::new(0.0, 1.5, -6.0), vel: Vec3::new(0.0, 2.0, -15.0), owner: 1, age: 0.4, resting: false, bounced: false, spin: 1.0 });
+        g.traps.push(Trap { id: 9002, kind: UtilityKind::LaunchPad, pos: ground(&g, p.x + 2.0, p.z - 7.0), yaw: 0.3, owner: 1, bounce: 0.5 });
+        g.chests.clear();
+        g.chests.push(Chest::of_kind(9003, ground(&g, p.x - 2.0, p.z - 8.0), 0.0, ChestKind::AmmoBox));
+        g.chests.push(Chest::of_kind(9004, ground(&g, p.x + 4.0, p.z - 10.0), 0.0, ChestKind::Llama));
+        let meshes = build_all();
+        let mut scene = Scene::new(&meshes);
+        let cam = Camera::look(p + Vec3::new(0.0, 3.0, 5.0), Vec3::new(0.0, -0.15, -1.0).normalize(), 0.0, 70f32.to_radians(), 1.6, 0.1);
+        let count = |scene: &Scene, mesh: MeshId| scene.batches.iter().filter(|b| b.mesh == mesh as u16).map(|b| b.count).sum::<u32>();
+        scene.build(&g, &cam);
+        for (mesh, n) in [(MeshId::Grenade, 1), (MeshId::LaunchPadBase, 1), (MeshId::LaunchPadPlate, 1), (MeshId::AmmoBoxBase, 1), (MeshId::AmmoBoxLid, 1), (MeshId::Llama, 1)] {
+            assert_eq!(count(&scene, mesh), n, "{mesh:?}");
+        }
+        assert!(scene.instances.iter().all(|i| i.is_sane()));
+        // holding a grenade shows where a throw would go
+        let glow_before = scene.particles_add.len();
+        g.actors[PLAYER].inv.add_utility(UtilityKind::ImpulseGrenade, 2);
+        let slot = g.actors[PLAYER].inv.slots.iter().position(|s| matches!(s, Some(Item::Utility { .. }))).unwrap();
+        g.select_slot(PLAYER, slot);
+        scene.build(&g, &cam);
+        assert!(scene.particles_add.len() > glow_before + 5, "the throw arc is drawn");
+        assert_eq!(count(&scene, MeshId::ImpulseGrenade), 1, "the grenade in the hand");
+        // an opened llama bursts and is gone
+        g.chests[1].opened = true;
+        g.chests[1].open_t = 1.0;
+        scene.build(&g, &cam);
+        assert_eq!(count(&scene, MeshId::Llama), 0);
     }
 
     #[test]

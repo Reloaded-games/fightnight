@@ -138,6 +138,7 @@ pub enum ConsumableKind {
     ShieldSmall,
     ShieldBig,
     ChugJug,
+    Slurp,
 }
 
 pub struct ConsumableDef {
@@ -149,10 +150,16 @@ pub struct ConsumableDef {
     pub max_shield: f32,
     pub use_time: f32,
     pub stack: u32,
+    /// The healing comes over time instead of at once: `heal` points in all, health first and then shield (see
+    /// [`REGEN_RATE`]).
+    pub over_time: bool,
 }
 
+/// Health (and then shield) points a second that a Slurp Juice gives back after it is drunk.
+pub const REGEN_RATE: f32 = 2.0;
+
 impl ConsumableKind {
-    pub const ALL: [ConsumableKind; 5] = [ConsumableKind::Bandage, ConsumableKind::MedKit, ConsumableKind::ShieldSmall, ConsumableKind::ShieldBig, ConsumableKind::ChugJug];
+    pub const ALL: [ConsumableKind; 6] = [ConsumableKind::Bandage, ConsumableKind::MedKit, ConsumableKind::ShieldSmall, ConsumableKind::ShieldBig, ConsumableKind::ChugJug, ConsumableKind::Slurp];
     pub fn def(self) -> &'static ConsumableDef {
         &CONSUMABLES[self as usize]
     }
@@ -166,6 +173,7 @@ impl ConsumableKind {
             ConsumableKind::ShieldSmall => Vec3::new(0.45, 0.75, 1.0),
             ConsumableKind::ShieldBig => Vec3::new(0.25, 0.55, 1.0),
             ConsumableKind::ChugJug => Vec3::new(0.62, 0.45, 1.0),
+            ConsumableKind::Slurp => Vec3::new(0.35, 0.55, 1.0),
         }
     }
     /// Default rarity colour used for beams / backgrounds.
@@ -176,16 +184,66 @@ impl ConsumableKind {
             ConsumableKind::MedKit => Rarity::Uncommon,
             ConsumableKind::ShieldBig => Rarity::Rare,
             ConsumableKind::ChugJug => Rarity::Epic,
+            ConsumableKind::Slurp => Rarity::Epic,
         }
     }
 }
 
-pub static CONSUMABLES: [ConsumableDef; 5] = [
-    ConsumableDef { name: "Bandage", heal: 15.0, shield: 0.0, max_hp: 75.0, max_shield: 0.0, use_time: 3.4, stack: 15 },
-    ConsumableDef { name: "Medkit", heal: 100.0, shield: 0.0, max_hp: 100.0, max_shield: 0.0, use_time: 7.5, stack: 3 },
-    ConsumableDef { name: "Mini Shield", heal: 0.0, shield: 25.0, max_hp: 0.0, max_shield: 50.0, use_time: 2.4, stack: 6 },
-    ConsumableDef { name: "Shield Potion", heal: 0.0, shield: 50.0, max_hp: 0.0, max_shield: 100.0, use_time: 4.8, stack: 2 },
-    ConsumableDef { name: "Chug Jug", heal: 100.0, shield: 100.0, max_hp: 100.0, max_shield: 100.0, use_time: 10.0, stack: 1 },
+pub static CONSUMABLES: [ConsumableDef; 6] = [
+    ConsumableDef { name: "Bandage", heal: 15.0, shield: 0.0, max_hp: 75.0, max_shield: 0.0, use_time: 3.4, stack: 15, over_time: false },
+    ConsumableDef { name: "Medkit", heal: 100.0, shield: 0.0, max_hp: 100.0, max_shield: 0.0, use_time: 7.5, stack: 3, over_time: false },
+    ConsumableDef { name: "Mini Shield", heal: 0.0, shield: 25.0, max_hp: 0.0, max_shield: 50.0, use_time: 2.4, stack: 6, over_time: false },
+    ConsumableDef { name: "Shield Potion", heal: 0.0, shield: 50.0, max_hp: 0.0, max_shield: 100.0, use_time: 4.8, stack: 2, over_time: false },
+    ConsumableDef { name: "Chug Jug", heal: 100.0, shield: 100.0, max_hp: 100.0, max_shield: 100.0, use_time: 10.0, stack: 1, over_time: false },
+    // 75 points over 37.5 seconds: health first, whatever is left over goes to the shield
+    ConsumableDef { name: "Slurp Juice", heal: 75.0, shield: 75.0, max_hp: 100.0, max_shield: 100.0, use_time: 2.0, stack: 2, over_time: true },
+];
+
+/// Grenades, the Boogie Bomb and the Launch Pad: things that are thrown or set down rather than fired or drunk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum UtilityKind {
+    FragGrenade,
+    ImpulseGrenade,
+    BoogieBomb,
+    LaunchPad,
+}
+
+pub struct UtilityDef {
+    pub name: &'static str,
+    pub stack: u32,
+    pub rarity: Rarity,
+    /// Thrown (with an arc) rather than set down at your feet.
+    pub thrown: bool,
+    /// How many are found together.
+    pub found: u32,
+}
+
+impl UtilityKind {
+    pub const ALL: [UtilityKind; 4] = [UtilityKind::FragGrenade, UtilityKind::ImpulseGrenade, UtilityKind::BoogieBomb, UtilityKind::LaunchPad];
+    pub fn def(self) -> &'static UtilityDef {
+        &UTILITIES[self as usize]
+    }
+    pub fn name(self) -> &'static str {
+        self.def().name
+    }
+    pub fn rarity(self) -> Rarity {
+        self.def().rarity
+    }
+    pub fn color(self) -> Vec3 {
+        match self {
+            UtilityKind::FragGrenade => Vec3::new(0.45, 0.6, 0.3),
+            UtilityKind::ImpulseGrenade => Vec3::new(0.35, 0.65, 1.0),
+            UtilityKind::BoogieBomb => Vec3::new(0.95, 0.4, 0.85),
+            UtilityKind::LaunchPad => Vec3::new(0.3, 0.6, 1.0),
+        }
+    }
+}
+
+pub static UTILITIES: [UtilityDef; 4] = [
+    UtilityDef { name: "Frag Grenade", stack: 6, rarity: Rarity::Uncommon, thrown: true, found: 3 },
+    UtilityDef { name: "Impulse Grenade", stack: 6, rarity: Rarity::Rare, thrown: true, found: 3 },
+    UtilityDef { name: "Boogie Bomb", stack: 4, rarity: Rarity::Epic, thrown: true, found: 2 },
+    UtilityDef { name: "Launch Pad", stack: 1, rarity: Rarity::Rare, thrown: false, found: 1 },
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -218,6 +276,7 @@ pub enum Item {
     Pickaxe,
     Weapon { kind: WeaponKind, rarity: Rarity, ammo: u32 },
     Consumable { kind: ConsumableKind, count: u32 },
+    Utility { kind: UtilityKind, count: u32 },
 }
 
 impl Item {
@@ -226,6 +285,7 @@ impl Item {
             Item::Pickaxe => Rarity::Common,
             Item::Weapon { rarity, .. } => *rarity,
             Item::Consumable { kind, .. } => kind.rarity(),
+            Item::Utility { kind, .. } => kind.rarity(),
         }
     }
     pub fn name(&self) -> &'static str {
@@ -233,6 +293,38 @@ impl Item {
             Item::Pickaxe => "Harvesting Tool",
             Item::Weapon { kind, .. } => kind.name(),
             Item::Consumable { kind, .. } => kind.name(),
+            Item::Utility { kind, .. } => kind.name(),
+        }
+    }
+    /// How many a stackable item (healing, utility) holds; `None` for the pickaxe and weapons.
+    pub fn count(&self) -> Option<u32> {
+        match self {
+            Item::Consumable { count, .. } | Item::Utility { count, .. } => Some(*count),
+            Item::Pickaxe | Item::Weapon { .. } => None,
+        }
+    }
+    /// How many of it fit in one slot.
+    pub fn stack(&self) -> Option<u32> {
+        match self {
+            Item::Consumable { kind, .. } => Some(kind.def().stack),
+            Item::Utility { kind, .. } => Some(kind.def().stack),
+            Item::Pickaxe | Item::Weapon { .. } => None,
+        }
+    }
+    /// The same stackable item with another count.
+    pub fn with_count(&self, count: u32) -> Item {
+        match *self {
+            Item::Consumable { kind, .. } => Item::Consumable { kind, count },
+            Item::Utility { kind, .. } => Item::Utility { kind, count },
+            other => other,
+        }
+    }
+    /// Whether two items stack with each other.
+    pub fn same_kind(&self, other: &Item) -> bool {
+        match (self, other) {
+            (Item::Consumable { kind: a, .. }, Item::Consumable { kind: b, .. }) => a == b,
+            (Item::Utility { kind: a, .. }, Item::Utility { kind: b, .. }) => a == b,
+            _ => false,
         }
     }
 }
@@ -251,8 +343,15 @@ pub fn roll_weapon(rng: &mut Rng) -> WeaponKind {
 }
 
 pub fn roll_consumable(rng: &mut Rng) -> ConsumableKind {
-    let w = [42.0, 14.0, 26.0, 12.0, 2.5];
+    let w = [42.0, 14.0, 26.0, 12.0, 2.5, 6.0];
     ConsumableKind::ALL[rng.weighted(&w)]
+}
+
+/// A utility item and how many of it are found together.
+pub fn roll_utility(rng: &mut Rng) -> (UtilityKind, u32) {
+    let w = [50.0, 25.0, 13.0, 12.0];
+    let kind = UtilityKind::ALL[rng.weighted(&w)];
+    (kind, kind.def().found)
 }
 
 /// A loot drop description produced by the tables (the game turns it into a pickup).
@@ -261,27 +360,36 @@ pub enum Drop {
     Weapon { kind: WeaponKind, rarity: Rarity },
     Ammo { kind: AmmoKind, amount: u32 },
     Consumable { kind: ConsumableKind, count: u32 },
+    Utility { kind: UtilityKind, count: u32 },
+    Mats { mat: Mat, amount: u32 },
+}
+
+fn consumable_drop(rng: &mut Rng, kind: ConsumableKind) -> Drop {
+    let count = match kind {
+        ConsumableKind::Bandage => rng.range_i(3, 7) as u32,
+        ConsumableKind::ShieldSmall => rng.range_i(1, 3) as u32,
+        _ => 1,
+    };
+    Drop::Consumable { kind, count }
 }
 
 pub fn roll_floor_loot(rng: &mut Rng) -> Drop {
     let r = rng.f32();
-    if r < 0.42 {
+    if r < 0.40 {
         Drop::Weapon { kind: roll_weapon(rng), rarity: roll_rarity(rng, 0.0) }
-    } else if r < 0.68 {
+    } else if r < 0.65 {
         let kind = *rng.pick(&AmmoKind::ALL[..4]);
         Drop::Ammo { kind, amount: kind.box_amount() }
-    } else {
+    } else if r < 0.92 {
         let kind = roll_consumable(rng);
-        let count = match kind {
-            ConsumableKind::Bandage => rng.range_i(3, 7) as u32,
-            ConsumableKind::ShieldSmall => rng.range_i(1, 3) as u32,
-            _ => 1,
-        };
-        Drop::Consumable { kind, count }
+        consumable_drop(rng, kind)
+    } else {
+        let (kind, count) = roll_utility(rng);
+        Drop::Utility { kind, count }
     }
 }
 
-/// Chest loot: a stronger weapon, ammo for it, and a healing item.
+/// Chest loot: a stronger weapon, ammo for it, and a healing item; sometimes a second weapon or a grenade or the like.
 pub fn roll_chest_loot(rng: &mut Rng) -> Vec<Drop> {
     let kind = roll_weapon(rng);
     let rarity = roll_rarity(rng, 0.8).max(Rarity::Uncommon);
@@ -293,6 +401,45 @@ pub fn roll_chest_loot(rng: &mut Rng) -> Vec<Drop> {
     v.push(Drop::Consumable { kind: c, count });
     if rng.chance(0.35) {
         v.push(Drop::Weapon { kind: roll_weapon(rng), rarity: roll_rarity(rng, 0.5) });
+    }
+    if rng.chance(0.3) {
+        let (kind, count) = roll_utility(rng);
+        v.push(Drop::Utility { kind, count });
+    }
+    v
+}
+
+/// An ammo box: two kinds of ammunition, a box and a half of each (rockets now and then).
+pub fn roll_ammo_box_loot(rng: &mut Rng) -> Vec<Drop> {
+    let first = *rng.pick(&AmmoKind::ALL[..4]);
+    let mut second = if rng.chance(0.1) { AmmoKind::Rockets } else { *rng.pick(&AmmoKind::ALL[..4]) };
+    for _ in 0..8 {
+        if second != first {
+            break;
+        }
+        second = *rng.pick(&AmmoKind::ALL[..4]);
+    }
+    [first, second].iter().map(|&kind| Drop::Ammo { kind, amount: (kind.box_amount() * 3).div_ceil(2) }).collect()
+}
+
+/// A Supply Llama: building materials, ammunition of every kind, good healing and a couple of utility items. No weapons.
+pub fn roll_llama_loot(rng: &mut Rng) -> Vec<Drop> {
+    let mut v: Vec<Drop> = Mat::ALL.iter().map(|&mat| Drop::Mats { mat, amount: 250 }).collect();
+    for kind in AmmoKind::ALL {
+        v.push(Drop::Ammo { kind, amount: (kind.box_amount() * 2).min(kind.cap()) });
+    }
+    for _ in 0..2 {
+        let kind = *rng.pick(&[ConsumableKind::ShieldBig, ConsumableKind::Slurp, ConsumableKind::MedKit, ConsumableKind::ShieldSmall]);
+        let count = match kind {
+            ConsumableKind::ShieldSmall => 3,
+            ConsumableKind::ShieldBig | ConsumableKind::Slurp => 2,
+            _ => 1,
+        };
+        v.push(Drop::Consumable { kind, count });
+    }
+    for _ in 0..2 {
+        let (kind, count) = roll_utility(rng);
+        v.push(Drop::Utility { kind, count });
     }
     v
 }

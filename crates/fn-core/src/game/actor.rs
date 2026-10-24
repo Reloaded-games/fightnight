@@ -148,6 +148,9 @@ pub struct AnimState {
     pub emote_clock: f32,
 }
 
+/// Building materials a player can carry of each kind.
+pub const MAT_CAP: u32 = 999;
+
 #[derive(Clone, Debug)]
 pub struct Inventory {
     /// Slot 0 is always the harvesting tool; 1..=5 hold weapons and consumables.
@@ -223,29 +226,44 @@ impl Inventory {
 
     /// Add consumables; returns how many could not be taken.
     pub fn add_consumable(&mut self, kind: ConsumableKind, count: u32) -> u32 {
-        let stack = kind.def().stack;
+        self.add_stack(Item::Consumable { kind, count })
+    }
+
+    /// Add grenades, Port-a-Forts or Launch Pads; returns how many could not be taken.
+    pub fn add_utility(&mut self, kind: UtilityKind, count: u32) -> u32 {
+        self.add_stack(Item::Utility { kind, count })
+    }
+
+    /// Add a stackable item (a healing or utility item, carrying its count): topping up part-filled stacks of the same kind
+    /// first, then filling free slots. Returns how many could not be taken.
+    pub fn add_stack(&mut self, item: Item) -> u32 {
+        let (Some(count), Some(stack)) = (item.count(), item.stack()) else { return 0 };
         let mut left = count;
         for i in 1..6 {
-            if let Some(Item::Consumable { kind: k, count: c }) = &mut self.slots[i] {
-                if *k == kind && *c < stack {
-                    let add = (stack - *c).min(left);
-                    *c += add;
-                    left -= add;
+            if let Some(it) = &mut self.slots[i] {
+                if it.same_kind(&item) {
+                    let c = it.count().unwrap_or(stack);
+                    if c < stack {
+                        let add = (stack - c).min(left);
+                        *it = it.with_count(c + add);
+                        left -= add;
+                    }
                 }
             }
         }
         while left > 0 {
             let Some(i) = self.free_slot() else { break };
             let add = left.min(stack);
-            self.slots[i] = Some(Item::Consumable { kind, count: add });
+            self.slots[i] = Some(item.with_count(add));
             left -= add;
         }
         left
     }
 
-    /// Whether the item in hand (a weapon or a healing item, never the harvesting tool) can be traded for something found on the ground.
+    /// Whether the item in hand (a weapon, a healing or a utility item, never the harvesting tool) can be traded for something
+    /// found on the ground.
     pub fn can_swap_selected(&self) -> bool {
-        self.selected != 0 && matches!(self.slots[self.selected], Some(Item::Weapon { .. } | Item::Consumable { .. }))
+        self.selected != 0 && matches!(self.slots[self.selected], Some(Item::Weapon { .. } | Item::Consumable { .. } | Item::Utility { .. }))
     }
 
     /// Put `item` where the item in hand is and return what it replaced (with its slot). Nothing happens unless [`Self::can_swap_selected`].
@@ -268,7 +286,7 @@ impl Inventory {
     }
 
     pub fn add_mats(&mut self, m: Mat, amount: u32) {
-        self.mats[m.index()] = (self.mats[m.index()] + amount).min(999);
+        self.mats[m.index()] = (self.mats[m.index()] + amount).min(MAT_CAP);
     }
 
     pub fn take_slot(&mut self, i: usize) -> Option<Item> {
@@ -282,10 +300,10 @@ impl Inventory {
         it
     }
 
-    /// Remove one consumable from a slot (clears the slot when it hits zero).
+    /// Remove one consumable or utility item from a slot (clears the slot when it hits zero).
     pub fn use_one(&mut self, i: usize) {
-        if let Some(Item::Consumable { count, .. }) = &mut self.slots[i] {
-            *count -= 1;
+        if let Some(Item::Consumable { count, .. } | Item::Utility { count, .. }) = &mut self.slots[i] {
+            *count = count.saturating_sub(1);
             if *count == 0 {
                 self.slots[i] = None;
                 if self.selected == i {
@@ -386,6 +404,12 @@ pub struct Actor {
     pub melee_pending: bool,
     /// Dancing: the weapon is holstered and the body plays the emote until the actor does anything else.
     pub emoting: bool,
+    /// Points of health (then shield) a Slurp Juice still has to give back.
+    pub regen: f32,
+    /// Thrown into the air by an impulse: the landing does no fall damage.
+    pub launched: bool,
+    /// Seconds a Boogie Bomb still keeps the actor dancing (no moving, shooting or building).
+    pub boogie: f32,
 }
 
 impl Actor {
@@ -439,6 +463,9 @@ impl Actor {
             melee_t: 0.0,
             melee_pending: false,
             emoting: false,
+            regen: 0.0,
+            launched: false,
+            boogie: 0.0,
         }
     }
 

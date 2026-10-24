@@ -74,6 +74,14 @@ pub enum Event {
     Built { actor: usize, pos: Vec3, piece: PieceKind, mat: Mat },
     PieceDestroyed { pos: Vec3, mat: Mat },
     Explosion { pos: Vec3, radius: f32 },
+    /// An impulse grenade went off: a shockwave that throws people, without hurting them.
+    Impulse { pos: Vec3 },
+    /// A Boogie Bomb went off: a disco ball's worth of light, and everyone near starts dancing.
+    Boogie { pos: Vec3 },
+    /// `actor` stepped on a Launch Pad and is flying.
+    Launch { actor: usize, pos: Vec3 },
+    /// `actor` set a Launch Pad down.
+    TrapPlaced { actor: usize, pos: Vec3 },
     /// The actor swung the pickaxe.
     Swing { actor: usize },
     BusJump { actor: usize, pos: Vec3 },

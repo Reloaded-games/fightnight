@@ -25,14 +25,23 @@ impl Game {
             if !rng.chance(p) {
                 continue;
             }
-            let kind = PickupKind::from_drop(roll_floor_loot(&mut rng));
+            let Some(drop) = self.suits_mode(roll_floor_loot(&mut rng)) else { continue };
+            let kind = PickupKind::from_drop(drop);
             let id = self.new_id();
             self.pickups.push(Pickup { id, pos: s.pos, vel: Vec3::ZERO, kind, age: 0.0, grounded: true, spin: rng.range(0.0, std::f32::consts::TAU) });
         }
         let chests = self.world.chest_spots.clone();
         for c in chests {
             let id = self.new_id();
-            self.chests.push(Chest::on_ground(id, c.pos, c.yaw));
+            self.chests.push(Chest::of_kind(id, c.pos, c.yaw, c.kind));
+        }
+    }
+
+    /// What a drop becomes in this match's mode: without building there are no materials to find.
+    pub fn suits_mode(&self, d: Drop) -> Option<Drop> {
+        match d {
+            Drop::Mats { .. } if !self.cfg.mode.can_build() => None,
+            d => Some(d),
         }
     }
 
@@ -75,8 +84,14 @@ impl Game {
                 continue;
             }
             let d = ch.pos.distance(c);
-            // (the crate is a good deal bigger than a chest)
-            let reach = INTERACT_RANGE + if ch.supply { 1.0 } else { 0.4 };
+            // (a supply crate or a llama is a good deal bigger than a chest, an ammo box a little smaller)
+            let reach = INTERACT_RANGE
+                + match ch.kind {
+                    ChestKind::Supply => 1.0,
+                    ChestKind::Llama => 0.8,
+                    ChestKind::AmmoBox => 0.2,
+                    ChestKind::Treasure => 0.4,
+                };
             if d < reach && best.is_none_or(|b| d < b.0 + 0.3) {
                 best = Some((d, Target::Chest(ch.id)));
             }
@@ -125,17 +140,29 @@ impl Game {
             return;
         }
         self.chests[idx].opened = true;
-        let (pos, yaw) = (self.chests[idx].pos, self.chests[idx].yaw);
-        let supply = self.chests[idx].supply;
+        let (pos, yaw, kind) = (self.chests[idx].pos, self.chests[idx].yaw, self.chests[idx].kind);
         self.events.push(Event::ChestOpen { pos });
-        // a supply crate is opened with a clatter that carries
-        self.events.push(Event::Noise { pos, radius: if supply { 80.0 } else { 30.0 }, source: by });
+        // a supply crate or a llama is opened with a clatter that carries
+        let loud = match kind {
+            ChestKind::Supply => 80.0,
+            ChestKind::Llama => 50.0,
+            ChestKind::Treasure => 30.0,
+            ChestKind::AmmoBox => 20.0,
+        };
+        self.events.push(Event::Noise { pos, radius: loud, source: by });
         let mut rng = self.rng.fork(self.chests[idx].id as u64);
-        let drops = if supply { roll_supply_loot(&mut rng) } else { roll_chest_loot(&mut rng) };
+        let drops = match kind {
+            ChestKind::Supply => roll_supply_loot(&mut rng),
+            ChestKind::Llama => roll_llama_loot(&mut rng),
+            ChestKind::AmmoBox => roll_ammo_box_loot(&mut rng),
+            ChestKind::Treasure => roll_chest_loot(&mut rng),
+        };
+        let drops: Vec<Drop> = drops.into_iter().filter_map(|d| self.suits_mode(d)).collect();
         let n = drops.len();
+        // a llama bursts in every direction; the others fan their loot out in front
+        let step = if n > 6 { std::f32::consts::TAU / n as f32 } else { 0.55 };
         for (k, d) in drops.into_iter().enumerate() {
-            // fan the loot out in front of the chest
-            let spread = (k as f32 - (n as f32 - 1.0) / 2.0) * 0.55;
+            let spread = (k as f32 - (n as f32 - 1.0) / 2.0) * step;
             let out = Vec3::new((yaw + spread).sin(), 0.0, (yaw + spread).cos());
             let id = self.new_id();
             let vel = out * rng.range(2.2, 3.4) + Vec3::Y * rng.range(5.0, 6.5);
@@ -197,19 +224,19 @@ impl Game {
                 self.events.push(Event::Pickup { actor: who, pos: ppos, sound: PickupSound::Ammo, name: ak.name(), rarity: Rarity::Common, count: added });
                 true
             }
-            PickupKind::Consumable { kind: ck, count } => {
-                let left = self.actors[who].inv.add_consumable(ck, count);
+            PickupKind::Consumable { .. } | PickupKind::Utility { .. } => {
+                let Some(item) = kind.item() else { return false };
+                let (count, stack) = (kind.count(), item.stack().unwrap_or(1));
+                let sound = if matches!(item, Item::Consumable { .. }) { PickupSound::Heal } else { PickupSound::Weapon };
+                let left = self.actors[who].inv.add_stack(item);
                 if left >= count {
                     // nowhere to put it: trade it for the item in hand, the way a full inventory takes a weapon
-                    let Some((_, old)) = self.actors[who].inv.swap_selected(Item::Consumable { kind: ck, count: count.min(ck.def().stack) }) else { return false };
-                    let dropped = match old {
-                        Item::Weapon { kind, rarity, ammo } => PickupKind::Weapon { kind, rarity, ammo },
-                        Item::Consumable { kind, count } => PickupKind::Consumable { kind, count },
-                        Item::Pickaxe => return true,
-                    };
-                    if count > ck.def().stack {
+                    let take = count.min(stack);
+                    let Some((_, old)) = self.actors[who].inv.swap_selected(item.with_count(take)) else { return false };
+                    let Some(dropped) = PickupKind::of_item(old) else { return true };
+                    if count > stack {
                         // (a stack found on the ground is never bigger than a slot holds, but a hand-made one could be)
-                        self.pickups[idx].kind = PickupKind::Consumable { kind: ck, count: count - ck.def().stack };
+                        self.pickups[idx].kind = PickupKind::of_item(item.with_count(count - stack)).unwrap_or(kind);
                     } else {
                         self.pickups.remove(idx);
                     }
@@ -221,15 +248,33 @@ impl Game {
                         a.ads = false;
                         self.events.push(Event::WeaponSwitch { actor: who, pos: apos });
                     }
-                    self.events.push(Event::Pickup { actor: who, pos: ppos, sound: PickupSound::Heal, name: ck.name(), rarity: ck.rarity(), count: count.min(ck.def().stack) });
+                    self.events.push(Event::Pickup { actor: who, pos: ppos, sound, name: item.name(), rarity: item.rarity(), count: take });
                     return true;
                 }
                 if left == 0 {
                     self.pickups.remove(idx);
-                } else if let PickupKind::Consumable { count: c, .. } = &mut self.pickups[idx].kind {
-                    *c = left;
+                } else if let Some(rest) = PickupKind::of_item(item.with_count(left)) {
+                    self.pickups[idx].kind = rest;
                 }
-                self.events.push(Event::Pickup { actor: who, pos: ppos, sound: PickupSound::Heal, name: ck.name(), rarity: ck.rarity(), count: count - left });
+                self.events.push(Event::Pickup { actor: who, pos: ppos, sound, name: item.name(), rarity: item.rarity(), count: count - left });
+                true
+            }
+            PickupKind::Mats { mat, amount } => {
+                if !self.cfg.mode.can_build() {
+                    return false;
+                }
+                let have = self.actors[who].inv.mats[mat.index()];
+                let added = amount.min(MAT_CAP.saturating_sub(have));
+                if added == 0 {
+                    return false;
+                }
+                self.actors[who].inv.add_mats(mat, added);
+                if added >= amount {
+                    self.pickups.remove(idx);
+                } else if let PickupKind::Mats { amount: a, .. } = &mut self.pickups[idx].kind {
+                    *a -= added;
+                }
+                self.events.push(Event::Pickup { actor: who, pos: ppos, sound: PickupSound::Material, name: mat.name(), rarity: Rarity::Common, count: added });
                 true
             }
         }
@@ -241,11 +286,7 @@ impl Game {
         let a = &self.actors[who];
         let fwd = yaw_forward(a.yaw);
         let pos = a.pos + Vec3::Y * 1.2 + fwd * 0.7;
-        let pk = match item {
-            Item::Weapon { kind, rarity, ammo } => PickupKind::Weapon { kind, rarity, ammo },
-            Item::Consumable { kind, count } => PickupKind::Consumable { kind, count },
-            Item::Pickaxe => return,
-        };
+        let Some(pk) = PickupKind::of_item(item) else { return };
         let id = self.spawn_pickup(pos, pk, true);
         if let Some(i) = self.pickup_index(id) {
             let v = fwd * 3.0 + Vec3::Y * 2.5;
@@ -259,13 +300,19 @@ impl Game {
         let pos = self.actors[who].pos + Vec3::Y * 0.8;
         let slots = self.actors[who].inv.slots;
         for item in slots.iter().skip(1).flatten() {
-            let pk = match *item {
-                Item::Weapon { kind, rarity, ammo } => PickupKind::Weapon { kind, rarity, ammo },
-                Item::Consumable { kind, count } => PickupKind::Consumable { kind, count },
-                Item::Pickaxe => continue,
-            };
+            let Some(pk) = PickupKind::of_item(*item) else { continue };
             self.spawn_pickup(pos, pk, true);
         }
+        // and their building materials, as in Fortnite
+        if self.cfg.mode.can_build() {
+            for mat in Mat::ALL {
+                let have = self.actors[who].inv.mats[mat.index()];
+                if have > 0 {
+                    self.spawn_pickup(pos, PickupKind::Mats { mat, amount: have }, true);
+                }
+            }
+        }
+        self.actors[who].inv.mats = [0; 3];
         let ammo = self.actors[who].inv.ammo;
         for k in AmmoKind::ALL {
             let have = ammo[k.index()];
@@ -302,12 +349,18 @@ impl Game {
 }
 
 /// Whether the inventory has room for (some of) a pickup: a weapon needs a free slot or a weapon to swap with,
-/// ammo needs headroom under the cap, a consumable needs a free slot, a part-filled stack of its kind or the item in hand to trade for.
+/// ammo and materials need headroom under the cap, a healing or utility item needs a free slot, a part-filled stack of its
+/// kind or the item in hand to trade for.
 pub fn can_take(inv: &Inventory, kind: &PickupKind) -> bool {
     match *kind {
         PickupKind::Weapon { .. } => inv.free_slot().is_some() || (1..6).any(|i| matches!(inv.slots[i], Some(Item::Weapon { .. }))),
         PickupKind::Ammo { kind, .. } => inv.ammo[kind.index()] < kind.cap(),
-        PickupKind::Consumable { kind, .. } => inv.free_slot().is_some() || inv.can_swap_selected() || (1..6).any(|i| matches!(inv.slots[i], Some(Item::Consumable { kind: k, count }) if k == kind && count < kind.def().stack)),
+        PickupKind::Mats { mat, .. } => inv.mats[mat.index()] < MAT_CAP,
+        PickupKind::Consumable { .. } | PickupKind::Utility { .. } => {
+            let Some(item) = kind.item() else { return false };
+            let stack = item.stack().unwrap_or(1);
+            inv.free_slot().is_some() || inv.can_swap_selected() || (1..6).any(|i| inv.slots[i].is_some_and(|it| it.same_kind(&item) && it.count().unwrap_or(stack) < stack))
+        }
     }
 }
 
@@ -315,15 +368,16 @@ pub fn can_take(inv: &Inventory, kind: &PickupKind) -> bool {
 fn why_not_taken(inv: &Inventory, kind: &PickupKind) -> String {
     match *kind {
         PickupKind::Ammo { kind, .. } => format!("{} full", kind.name()),
-        PickupKind::Consumable { .. } if inv.selected == 0 => "Inventory full. Select an item to swap with it".to_string(),
-        PickupKind::Weapon { .. } | PickupKind::Consumable { .. } => "Inventory full".to_string(),
+        PickupKind::Mats { mat, .. } => format!("{} full", mat.name()),
+        PickupKind::Consumable { .. } | PickupKind::Utility { .. } if inv.selected == 0 => "Inventory full. Select an item to swap with it".to_string(),
+        PickupKind::Weapon { .. } | PickupKind::Consumable { .. } | PickupKind::Utility { .. } => "Inventory full".to_string(),
     }
 }
 
-/// Physics for loose items; auto-pickup of ammo; chest animation.
+/// Physics for loose items; auto-pickup of ammo and materials; chest animation.
 pub fn update_pickups(g: &mut Game, dt: f32) {
     step_loose_items(g, dt);
-    // auto-pickup ammo for anyone standing on it
+    // auto-pickup ammo and materials for anyone standing on them
     let n = g.actors.len();
     for i in 0..n {
         let a = &g.actors[i];
@@ -332,7 +386,7 @@ pub fn update_pickups(g: &mut Game, dt: f32) {
         }
         let c = a.pos + Vec3::Y * 0.5;
         // a box that cannot be taken (ammo type at the cap) must not hide the ones lying on top of it
-        let in_reach: Vec<usize> = g.pickups.iter().enumerate().filter(|(_, p)| p.grounded && matches!(p.kind, PickupKind::Ammo { .. }) && p.pos.distance(c) < 1.35 && can_take(&a.inv, &p.kind)).map(|(k, _)| k).collect();
+        let in_reach: Vec<usize> = g.pickups.iter().enumerate().filter(|(_, p)| p.grounded && p.kind.auto_pickup() && p.pos.distance(c) < 1.35 && can_take(&a.inv, &p.kind)).map(|(k, _)| k).collect();
         if let Some(&k) = in_reach.first() {
             g.pickup_item(i, k);
         }
@@ -430,11 +484,12 @@ mod tests {
     #[test]
     fn opening_a_chest_pops_a_weapon_and_ammo() {
         let mut g = game(2, true);
-        let c = g.chests[0].clone();
+        let ci = g.chests.iter().position(|c| c.kind == ChestKind::Treasure).expect("a golden chest");
+        let c = g.chests[ci].clone();
         g.actors[PLAYER].pos = c.pos + Vec3::new(0.0, 0.0, 1.5);
         let before = g.pickups.len();
         assert!(g.interact(PLAYER));
-        assert!(g.chests[0].opened);
+        assert!(g.chests[ci].opened);
         assert!(g.pickups.len() >= before + 3, "chest drops >= 3 items");
         let new: Vec<_> = g.pickups.iter().rev().take(3).collect();
         assert!(new.iter().any(|p| matches!(p.kind, PickupKind::Weapon { .. })));
@@ -581,6 +636,79 @@ mod tests {
         assert!(g.actors[PLAYER].build_mode);
     }
 
+    /// What lies around after opening a container of `kind` set down on open ground.
+    fn loot_of(kind: ChestKind, mode: GameMode) -> Vec<PickupKind> {
+        let mut g = super::super::testutil::game_cfg(GameConfig { bots: 1, skip_bus: true, seed: 7, mode, ..Default::default() });
+        let p = super::super::testutil::free_spot(&g);
+        g.chests.clear();
+        g.pickups.clear();
+        let id = g.new_id();
+        g.chests.push(Chest::of_kind(id, p, 0.0, kind));
+        g.open_chest(0, PLAYER);
+        g.pickups.iter().map(|p| p.kind).collect()
+    }
+
+    #[test]
+    fn ammo_boxes_hold_ammo_and_supply_llamas_a_bit_of_everything() {
+        let ammo = loot_of(ChestKind::AmmoBox, GameMode::BattleRoyale);
+        assert_eq!(ammo.len(), 2, "two boxes of ammunition: {ammo:?}");
+        assert!(ammo.iter().all(|k| matches!(k, PickupKind::Ammo { .. })));
+        assert_ne!(ammo[0].name(), ammo[1].name(), "of two kinds");
+        let llama = loot_of(ChestKind::Llama, GameMode::BattleRoyale);
+        let mats: Vec<Mat> = llama.iter().filter_map(|k| if let PickupKind::Mats { mat, amount } = k { assert!(*amount >= 200); Some(*mat) } else { None }).collect();
+        assert_eq!(mats, Mat::ALL.to_vec(), "every material");
+        let ammo = llama.iter().filter(|k| matches!(k, PickupKind::Ammo { .. })).count();
+        assert_eq!(ammo, AmmoKind::ALL.len(), "every kind of ammunition");
+        assert_eq!(llama.iter().filter(|k| matches!(k, PickupKind::Consumable { .. })).count(), 2, "healing");
+        assert_eq!(llama.iter().filter(|k| matches!(k, PickupKind::Utility { .. })).count(), 2, "and utility items");
+        assert!(!llama.iter().any(|k| matches!(k, PickupKind::Weapon { .. })), "but no weapons");
+        // where nobody can build, a llama keeps its materials
+        let zb = loot_of(ChestKind::Llama, GameMode::ZeroBuild);
+        assert!(!zb.iter().any(|k| matches!(k, PickupKind::Mats { .. })) && zb.len() == llama.len() - 3);
+    }
+
+    #[test]
+    fn eliminated_players_drop_their_materials_and_walking_over_them_collects_them() {
+        for mode in [GameMode::BattleRoyale, GameMode::ZeroBuild] {
+            let mut g = super::super::testutil::game_cfg(GameConfig { bots: 2, skip_bus: true, seed: 7, mode, ..Default::default() });
+            g.storm.active = false;
+            let p = super::super::testutil::free_spot(&g);
+            for (k, dx) in [(PLAYER, 0.0), (1, 6.0), (2, 300.0)] {
+                let y = g.world.hm.height_at(p.x + dx, p.z);
+                let a = &mut g.actors[k];
+                a.pos = Vec3::new(p.x + dx, y, p.z);
+                a.vel = Vec3::ZERO;
+                a.mode = MoveMode::Ground;
+                a.on_ground = true;
+                a.peak_y = y;
+                a.brain = None;
+            }
+            g.pickups.clear();
+            g.actors[PLAYER].inv.mats = [100, 0, 0];
+            g.actors[1].inv.mats = if mode.can_build() { [200, 40, 0] } else { [0; 3] };
+            g.eliminate(1, Some(PLAYER), WeaponKind::Pistol.name(), false);
+            assert_eq!(g.actors[1].inv.mats, [0; 3]);
+            let dropped: Vec<(Mat, u32)> = g.pickups.iter().filter_map(|p| if let PickupKind::Mats { mat, amount } = p.kind { Some((mat, amount)) } else { None }).collect();
+            if !mode.can_build() {
+                assert!(dropped.is_empty(), "no materials in zero build");
+                continue;
+            }
+            assert_eq!(dropped, vec![(Mat::Wood, 200), (Mat::Stone, 40)], "what they carried, and nothing they did not");
+            // the pile lands, and the player walks over it
+            for _ in 0..90 {
+                g.update(1.0 / 60.0, &PlayerInput::default());
+            }
+            let piles: Vec<Vec3> = g.pickups.iter().filter(|p| matches!(p.kind, PickupKind::Mats { .. })).map(|p| p.pos).collect();
+            for at in piles {
+                g.actors[PLAYER].pos = Vec3::new(at.x, g.world.hm.height_at(at.x, at.z), at.z);
+                for _ in 0..20 {
+                    g.update(1.0 / 60.0, &PlayerInput::default());
+                }
+            }
+            assert_eq!(g.actors[PLAYER].inv.mats, [300, 40, 0], "picked up just by walking over them");
+        }
+    }
+
     #[test]
     fn chest_loot_stays_on_the_chests_floor_instead_of_snapping_onto_the_ceiling() {
         // items pop up ~1.5 m; the ground probe used to reach 1.5 m above them, so under a low ceiling the slab's top
@@ -596,7 +724,8 @@ mod tests {
             for _ in 0..240 {
                 g.update(1.0 / 60.0, &PlayerInput::default());
             }
-            for p in g.pickups.iter().filter(|p| !before.contains(&p.id)) {
+            // (the bot that fell from the sky dropped its materials far away: those are not the chest's)
+            for p in g.pickups.iter().filter(|p| !before.contains(&p.id) && Vec2::new(p.pos.x - c.pos.x, p.pos.z - c.pos.z).length() < 8.0) {
                 total += 1;
                 if p.pos.y - c.pos.y > 1.2 {
                     high.push((ci, p.pos.y - c.pos.y));

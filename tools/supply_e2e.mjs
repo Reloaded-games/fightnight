@@ -13,7 +13,7 @@ const hud = () => page.evaluate(() => JSON.parse(window.__game.fn.hud()));
 const frames = async (n) => { const f0 = await page.evaluate(() => window.__game.frames); await page.waitForFunction((t) => window.__game.frames >= t, f0 + n, { timeout: 120000 }); };
 
 try {
-  await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=3;god=1'));
+  await page.goto(url + 'index.html?nolock=1&autostart=1&quality=low&opts=' + encodeURIComponent('skipbus=1;bots=3;god=1;map=island'));
   await page.waitForFunction(() => window.__game?.state === 'playing', null, { timeout: 240000 });
   await dbg('freeze_bots');
   await frames(2);

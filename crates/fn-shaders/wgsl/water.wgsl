@@ -9,6 +9,8 @@ struct VOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) wpos: vec3<f32>,
     @location(1) level: f32,
+    // centre (x, z) and the radius of the round body of water inside the square (the game's lake water ends there)
+    @location(2) disc: vec3<f32>,
 };
 
 @vertex
@@ -21,6 +23,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, v: VIn) -> VOut {
     let p = vec3<f32>(v.body.x + c.x * v.body.w, v.body.y, v.body.z + c.y * v.body.w);
     o.wpos = p;
     o.level = v.body.y;
+    o.disc = vec3<f32>(v.body.x, v.body.z, v.body.w * (1.3 / 1.35));
     o.clip = G.view_proj * vec4<f32>(p, 1.0);
     return o;
 }
@@ -37,7 +40,7 @@ fn fs_main(i: VOut) -> @location(0) vec4<f32> {
     let t = G.cam_pos.w;
     let ground = select(-40.0, terrain_height(i.wpos.xz), abs(i.wpos.x) < G.world.x - 2.0 && abs(i.wpos.z) < G.world.x - 2.0);
     let depth = i.level - ground;
-    if (depth < 0.0) { discard; }
+    if (depth < 0.0 || distance(i.wpos.xz, i.disc.xy) > i.disc.z) { discard; }
 
     let V = normalize(G.cam_pos.xyz - i.wpos);
     // perturbed normal from the height-field of waves

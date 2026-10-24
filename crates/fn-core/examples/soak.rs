@@ -1,7 +1,9 @@
 #![allow(clippy::manual_is_multiple_of)] // `is_multiple_of` needs a newer compiler than the minimum supported one
 //! Run a bots-only match headlessly and print a timeline:
 //! `cargo run -p fn-core --release --example soak -- <bots> <seconds> <storm_speed> [bus]`
+//! (`MAP=chapter1` or `MAP=chapter2` in the environment plays it on a recreated map)
 use fn_core::game::*;
+use fn_core::world::maps::MapKind;
 use fn_core::world::World;
 use std::collections::BTreeMap;
 
@@ -13,9 +15,10 @@ fn main() {
     let bus = args.get(4).is_some_and(|s| s == "bus");
     let follow: Option<usize> = args.get(5).and_then(|s| s.parse().ok());
     let t0 = std::time::Instant::now();
-    let world = World::generate(1234);
-    println!("world {:?}", t0.elapsed());
-    let mut g = Game::new(world, GameConfig { bots, skip_bus: !bus, seed: 5, storm_speed: speed, god_mode: true, ..Default::default() });
+    let map = std::env::var("MAP").ok().and_then(|s| MapKind::from_key(&s)).unwrap_or_default();
+    let world = World::generate_map(1234, map);
+    println!("world {:?} ({})", t0.elapsed(), map.label());
+    let mut g = Game::new(world, GameConfig { bots, skip_bus: !bus, seed: 5, storm_speed: speed, god_mode: true, map, ..Default::default() });
     let t0 = std::time::Instant::now();
     let inp = PlayerInput::default();
     let mut t = 0.0f32;

@@ -41,6 +41,7 @@
       <h3>Match</h3>
       <div class="field mode-field"><label>Game mode</label><div class="seg modes" id="seg-mode"><button data-v="battle-royale" class="on">Battle Royale</button><button data-v="zero-build">Zero Build</button><button data-v="lego">LEGO</button></div></div>
       <p class="mode-description" id="mode-description">Loot, build cover and outlast the storm.</p>
+      <div class="field"><label>Map</label><div class="seg maps" id="seg-map"><button data-v="chapter1" class="on">Chapter 1</button><button data-v="chapter2">Chapter 2</button><button data-v="island">Original</button></div></div>
       <div class="field"><label for="opt-name">Name</label><input type="text" id="opt-name" maxlength="16" value="You" spellcheck="false"></div>
       <div class="field"><label>Solo character</label><div class="seg" id="seg-outfit"><button data-v="scout" class="on">Scout</button><button data-v="ranger">Ranger</button><button data-v="pilot">Pilot</button><button data-v="vanguard">Vanguard</button></div></div>
       <div class="field"><label>Bots</label><span><input type="range" id="opt-bots" min="9" max="59" step="5" value="39"> <span class="val" id="val-bots">39</span></span></div>
@@ -56,7 +57,7 @@
 <section id="mp" class="screen" style="z-index:25;background:rgba(5,8,35,.86);backdrop-filter:blur(6px)">
   <div class="panel" style="width:min(640px,94vw)">
     <h3>Multiplayer</h3>
-    <p class="mp-note">The player who opens the room is the host. Friends join with a code, and the host chooses the mode and starts the match. Up to 8 players can explore the island with bots and vehicles.</p>
+    <p class="mp-note">The player who opens a room is the host: they choose the mode and the map and start the match. Friends find a public room in the list, or type the code of a private one. Up to 8 players, with bots and vehicles.</p>
     <p class="mp-note">Keep the host's game open while playing: their browser runs the match.</p>
     <div class="mp-choices">
       <button class="btn primary" id="btn-mp-host" style="font-size:36px;padding:14px 44px"><span>Host a game</span></button>
@@ -72,24 +73,43 @@
     <h3 id="lobby-title">Your room</h3>
     <div class="players" id="lobby-players"></div>
     <div id="lobby-host" class="hidden">
-      <p class="mp-note">Invite each friend with a code: send them the invite, they send you back a reply, paste it in and press Connect. They show up in the list above. Start when everybody is in.</p>
-      <div id="invites"></div>
-      <button class="btn ghost small" id="btn-add-invite"><span>+ Invite a player</span></button>
+      <div class="room-box">
+        <div class="room-code-wrap"><small>Room code</small><div class="room-code" id="room-code" aria-live="polite">&middot;&middot;&middot;&middot;&middot;&middot;</div></div>
+        <div class="room-vis">
+          <div class="seg" id="lb-visibility"><button data-v="public" class="on" aria-pressed="true">Public</button><button data-v="private" aria-pressed="false">Private</button></div>
+          <p class="mp-note" id="room-vis-note">Listed under "Join a game": anyone can join.</p>
+        </div>
+      </div>
+      <p class="mp-note">Players join by themselves, from the room list or by typing the code, and show up above. Start when everybody is in.</p>
+      <details class="manual" id="manual-host"><summary>No internet room service? Invite with copied codes instead</summary>
+        <p class="mp-note">Send each friend an invite, they send you back a reply, paste it in and press Connect.</p>
+        <div id="invites"></div>
+        <button class="btn ghost small" id="btn-add-invite"><span>+ Invite a player</span></button>
+      </details>
       <div class="lobby-settings">
         <div class="field mode-field"><label>Game mode</label><div class="seg modes" id="lb-mode"><button data-v="battle-royale" class="on">Battle Royale</button><button data-v="zero-build">Zero Build</button><button data-v="lego">LEGO</button></div></div>
         <p class="mode-description" id="lb-mode-description">Loot, build cover and outlast the storm.</p>
+        <div class="field"><label>Map</label><div class="seg maps" id="lb-map"><button data-v="chapter1" class="on">Chapter 1</button><button data-v="chapter2">Chapter 2</button><button data-v="island">Original</button></div></div>
         <div class="field"><label>Bots</label><span><input type="range" id="lb-bots" min="0" max="59" step="5" value="30"> <span class="val" id="lb-val-bots">30</span></span></div>
         <div class="field"><label>Difficulty</label><div class="seg" id="lb-diff"><button data-v="easy">Easy</button><button data-v="normal" class="on">Normal</button><button data-v="hard">Hard</button></div></div>
         <div class="field"><label for="lb-skipbus">Skip the bus</label><input type="checkbox" id="lb-skipbus"></div>
       </div>
     </div>
     <div id="lobby-guest" class="hidden">
-      <label class="mp-label" for="join-invite">1. Paste the host's invite code</label>
-      <textarea id="join-invite" rows="3" spellcheck="false" placeholder="FN1...."></textarea>
-      <div class="mp-actions"><button class="btn small" id="btn-join-continue"><span>Continue</span></button></div>
-      <label class="mp-label" for="join-reply">2. Send this reply code back to the host</label>
-      <textarea id="join-reply" rows="3" readonly spellcheck="false" placeholder="(appears after step 1)"></textarea>
-      <div class="mp-actions"><button class="btn small ghost" id="btn-copy-reply"><span>Copy reply</span></button></div>
+      <div id="join-pick">
+        <div class="rooms-head"><span class="mp-label">Open rooms</span><span class="rooms-status" id="rooms-status">Looking for rooms...</span></div>
+        <div class="room-list" id="room-list"></div>
+        <label class="mp-label" for="join-code">Private room? Type its code</label>
+        <div class="code-row"><input type="text" id="join-code" maxlength="9" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123"><button class="btn small" id="btn-join-code"><span>Join</span></button></div>
+        <details class="manual" id="manual-guest"><summary>Got a long invite code instead? Join with it</summary>
+          <label class="mp-label" for="join-invite">1. Paste the host's invite code</label>
+          <textarea id="join-invite" rows="3" spellcheck="false" placeholder="FN1...."></textarea>
+          <div class="mp-actions"><button class="btn small" id="btn-join-continue"><span>Continue</span></button></div>
+          <label class="mp-label" for="join-reply">2. Send this reply code back to the host</label>
+          <textarea id="join-reply" rows="3" readonly spellcheck="false" placeholder="(appears after step 1)"></textarea>
+          <div class="mp-actions"><button class="btn small ghost" id="btn-copy-reply"><span>Copy reply</span></button></div>
+        </details>
+      </div>
     </div>
     <div id="lobby-msg" class="mp-msg"></div>
     <div class="mp-actions" style="justify-content:center;margin-top:12px">

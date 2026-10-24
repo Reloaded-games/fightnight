@@ -1,4 +1,5 @@
-//! Dump a top-down map of the generated world: `cargo run -p fn-core --release --example dump_map -- <seed> <out.png>`
+//! Dump a top-down map of the generated world: `cargo run -p fn-core --release --example dump_map -- <seed> <out.png> [map]`
+//! (`map`: island, chapter1 or chapter2; the recreated maps get the map grid and the names of their places drawn on).
 use fn_core::math::*;
 use fn_core::world::props::*;
 use fn_core::world::*;
@@ -7,8 +8,9 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let seed: u32 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1234);
     let out = args.get(2).cloned().unwrap_or_else(|| "map.png".into());
+    let map = args.get(3).and_then(|s| maps::MapKind::from_key(s)).unwrap_or_default();
     let t0 = std::time::Instant::now();
-    let w = World::generate(seed);
+    let w = World::generate_map(seed, map);
     println!("world generated in {:?}", t0.elapsed());
     let mut counts = std::collections::BTreeMap::new();
     for c in &w.chunk_props {
@@ -111,6 +113,122 @@ fn main() {
             put(x, y + d, [255, 215, 0]);
         }
     }
+    for r in &w.layout.rivers {
+        for seg in r.pts.windows(2) {
+            for k in 0..=40 {
+                let (x, y) = to_px(seg[0].lerp(seg[1], k as f32 / 40.0));
+                put(x, y, [40, 90, 200]);
+            }
+        }
+    }
+    if map != maps::MapKind::Island {
+        // the map grid, labelled like the game's map: columns A..J, rows 1..10
+        for k in 0..=10 {
+            let a = maps::grid_to_world(k as f32, 0.0);
+            let b = maps::grid_to_world(k as f32, 10.0);
+            let (x, y0) = to_px(a);
+            let (_, y1) = to_px(b);
+            for y in y0..=y1 {
+                put(x, y, [255, 255, 255]);
+            }
+            let a = maps::grid_to_world(0.0, k as f32);
+            let b = maps::grid_to_world(10.0, k as f32);
+            let (x0, y) = to_px(a);
+            let (x1, _) = to_px(b);
+            for x in x0..=x1 {
+                put(x, y, [255, 255, 255]);
+            }
+        }
+        for k in 0..10 {
+            let (x, y) = to_px(maps::grid_to_world(k as f32 + 0.45, 0.0));
+            text(&mut px, size, x, y + 4, &((b'A' + k as u8) as char).to_string(), [255, 255, 255], 2);
+            let (x, y) = to_px(maps::grid_to_world(0.0, k as f32 + 0.45));
+            text(&mut px, size, x + 4, y, &(k + 1).to_string(), [255, 255, 255], 2);
+        }
+        for p in &w.layout.pois {
+            let (x, y) = to_px(p.center);
+            let r = (p.radius / WORLD_SIZE * size as f32) as i32;
+            for k in 0..64 {
+                let a = k as f32 / 64.0 * std::f32::consts::TAU;
+                let (cx, cy) = (x + (a.cos() * r as f32) as i32, y + (a.sin() * r as f32) as i32);
+                let o = (cy.clamp(0, size as i32 - 1) as usize * size + cx.clamp(0, size as i32 - 1) as usize) * 4;
+                px[o..o + 3].copy_from_slice(&[255, 255, 0]);
+            }
+            let label = p.name.to_uppercase();
+            let wpx = label.len() as i32 * 6 * 2;
+            text(&mut px, size, x - wpx / 2 + 1, y - 7 + 1, &label, [0, 0, 0], 2);
+            text(&mut px, size, x - wpx / 2, y - 7, &label, [255, 255, 255], 2);
+        }
+    }
     std::fs::write(&out, fn_core::png::encode_rgba(size as u32, size as u32, &px)).unwrap();
     println!("wrote {out}");
+}
+
+/// A 5x7 pixel font for the labels: capitals, digits and a little punctuation.
+fn glyph(c: char) -> [u8; 7] {
+    match c {
+        'A' => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+        'B' => [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
+        'C' => [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
+        'D' => [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
+        'E' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
+        'F' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
+        'G' => [0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F],
+        'H' => [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+        'I' => [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E],
+        'J' => [0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C],
+        'K' => [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
+        'L' => [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
+        'M' => [0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11],
+        'N' => [0x11, 0x11, 0x19, 0x15, 0x13, 0x11, 0x11],
+        'O' => [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
+        'P' => [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
+        'Q' => [0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D],
+        'R' => [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
+        'S' => [0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E],
+        'T' => [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
+        'U' => [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
+        'V' => [0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04],
+        'W' => [0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0A],
+        'X' => [0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11],
+        'Y' => [0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04],
+        'Z' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
+        '0' => [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
+        '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
+        '2' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
+        '3' => [0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E],
+        '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
+        '5' => [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E],
+        '6' => [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E],
+        '7' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+        '8' => [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
+        '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C],
+        '\'' => [0x04, 0x04, 0x08, 0x00, 0x00, 0x00, 0x00],
+        '-' => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00],
+        '.' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C],
+        _ => [0; 7],
+    }
+}
+
+/// Write `s` with its top left corner at (x, y), each font pixel `scale` image pixels.
+fn text(px: &mut [u8], size: usize, x: i32, y: i32, s: &str, col: [u8; 3], scale: i32) {
+    for (k, c) in s.chars().enumerate() {
+        let g = glyph(c);
+        for (row, bits) in g.iter().enumerate() {
+            for colx in 0..5 {
+                if bits & (0x10 >> colx) == 0 {
+                    continue;
+                }
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        let (px_x, px_y) = (x + (k as i32 * 6 + colx) * scale + dx, y + row as i32 * scale + dy);
+                        if px_x >= 0 && px_y >= 0 && (px_x as usize) < size && (px_y as usize) < size {
+                            let o = (px_y as usize * size + px_x as usize) * 4;
+                            px[o..o + 3].copy_from_slice(&col);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

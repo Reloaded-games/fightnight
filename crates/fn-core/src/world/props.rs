@@ -234,7 +234,9 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
             let jz = hash2f(gx, gz, seed ^ 0x55) - 0.5;
             let p = Vec2::new(-WORLD_HALF + (gx as f32 + 0.5 + jx * 0.9) * step, -WORLD_HALF + (gz as f32 + 0.5 + jz * 0.9) * step);
             let h = hm.height_at(p.x, p.y);
-            if h < 0.9 {
+            // (swamp trees stand on the mud between the pools)
+            let bog = painter.swamp(p.x, p.y);
+            if h < if bog > 0.3 { 0.15 } else { 0.9 } {
                 continue;
             }
             let d_coast = base.coast_dist(p.x, p.y);
@@ -245,7 +247,7 @@ pub fn scatter_nature(base: &BaseTerrain, layout: &Layout, hm: &Heightmap, paint
             if slope > 0.62 {
                 continue;
             }
-            let forest = painter.forest(p.x, p.y);
+            let forest = painter.forest(p.x, p.y).max(bog * 0.75);
             let aut = painter.autumn(p.x, p.y);
             let beach = h < 4.2 && d_coast < 70.0;
             let mut prob = 0.04 + 0.75 * forest.powf(1.05);

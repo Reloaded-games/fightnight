@@ -72,7 +72,7 @@ if ($LASTEXITCODE -ne 0 -or $pendingChanges.Count -ne 0) {
 # archives or any files left over by a previous local build.
 $runtimeFiles = @(
     'index.html', 'game.js', 'hud.js', 'icons.js', 'audio.js', 'style.css',
-    'net.js', 'multiplayer.js', 'pkg/fightnight.js', 'pkg/fightnight_bg.wasm'
+    'net.js', 'rooms.js', 'multiplayer.js', 'pkg/fightnight.js', 'pkg/fightnight_bg.wasm'
 )
 foreach ($relativePath in $runtimeFiles) {
     $sourcePath = Join-Path $distRoot $relativePath

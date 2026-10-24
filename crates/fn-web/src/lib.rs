@@ -57,6 +57,7 @@ fn parse_opts(opts: &str) -> (GameConfig, String) {
             "name" => cfg.player_name = v.chars().take(18).collect::<String>().trim().to_string(),
             "outfit" => cfg.player_outfit = match v { "ranger" => 1, "pilot" => 2, "vanguard" => 3, _ => 0 },
             "seed" => cfg.seed = v.parse().unwrap_or(1234),
+            "map" => cfg.map = fn_core::world::maps::MapKind::from_key(v).unwrap_or_default(),
             "skipbus" => cfg.skip_bus = v == "1",
             "god" => cfg.god_mode = v == "1",
             "storm" => cfg.storm_speed = v.parse().unwrap_or(1.0),
@@ -72,7 +73,7 @@ fn parse_opts(opts: &str) -> (GameConfig, String) {
 }
 
 /// Create the match (the first call also creates the renderer). Heavy: generates the island.
-/// Options: `bots=39;difficulty=normal;name=You;seed=1234;skipbus=0;god=0;storm=1;quality=high`.
+/// Options: `bots=39;difficulty=normal;name=You;seed=1234;map=chapter1;skipbus=0;god=0;storm=1;quality=high`.
 #[wasm_bindgen]
 pub fn start_match(opts: &str) -> Result<String, JsValue> {
     let (cfg, quality) = parse_opts(opts);
@@ -179,6 +180,17 @@ pub fn poi_list() -> String {
     with_app(String::new(), |app| app.mode.game().world.layout.pois.iter().map(|q| format!("{},{:.1},{:.1},{:?},{:.0}", q.name, q.center.x, q.center.y, q.kind, q.radius)).collect::<Vec<_>>().join(";"))
 }
 
+/// Which island the match is on: `{"key":"chapter1","label":"Chapter 1","grid":172.8}` (`grid` is the size of a cell of
+/// the map grid in metres, 0 when the island has no lettered grid).
+#[wasm_bindgen]
+pub fn map_info() -> String {
+    with_app(String::new(), |app| {
+        let map = app.mode.game().world.map;
+        let grid = if map.spec().is_some() { fn_core::world::maps::GRID_CELL } else { 0.0 };
+        format!("{{\"key\":\"{}\",\"label\":\"{}\",\"grid\":{}}}", map.key(), map.label(), grid)
+    })
+}
+
 #[wasm_bindgen]
 pub fn ground_height(x: f32, z: f32) -> f32 {
     with_app(0.0, |app| app.mode.game().world.height_at(x, z))
@@ -232,6 +244,12 @@ pub fn consumable_defs() -> String {
 
 fn now_ms() -> u32 {
     web_sys::window().and_then(|w| w.performance()).map(|p| p.now() as u32).unwrap_or(0)
+}
+
+/// The network protocol's version: only players with the same one can play together (the room list keeps them apart).
+#[wasm_bindgen]
+pub fn net_version() -> u32 {
+    fn_core::net::proto::VERSION as u32
 }
 
 /// Open a room for other players; `name` is the host's name.

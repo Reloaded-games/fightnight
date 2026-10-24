@@ -25,7 +25,7 @@ pub fn first_delay(storm_speed: f32) -> f32 {
 /// Let a crate fall for `dt` seconds (and count the time since it touched down). The host and every guest's copy of the match
 /// run this the same way, so a crate announced once lands in the same place at the same time everywhere.
 pub fn fall_step(c: &mut Chest, dt: f32) {
-    if !c.supply {
+    if !c.is_supply() {
         return;
     }
     if c.falling() {
@@ -82,7 +82,7 @@ pub fn launch(g: &mut Game, at: Vec2) -> u32 {
     let h = g.world.hm.height_at(at.x, at.y);
     let id = g.new_id();
     let yaw = g.rng.range(0.0, std::f32::consts::TAU);
-    g.chests.push(Chest { id, pos: Vec3::new(at.x, h + DROP_HEIGHT, at.y), yaw, open_t: 0.0, opened: false, supply: true, land_y: h, since_land: 0.0 });
+    g.chests.push(Chest { id, pos: Vec3::new(at.x, h + DROP_HEIGHT, at.y), yaw, open_t: 0.0, opened: false, kind: ChestKind::Supply, land_y: h, since_land: 0.0 });
     g.supply_drops += 1;
     g.toast("Supply drop incoming. Follow the blue beam", 6.0, 0);
     id
@@ -103,7 +103,7 @@ mod tests {
     }
 
     fn supply_crates(g: &Game) -> Vec<&Chest> {
-        g.chests.iter().filter(|c| c.supply).collect()
+        g.chests.iter().filter(|c| c.is_supply()).collect()
     }
 
     #[test]
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn a_falling_crate_is_slowest_near_the_ground_and_never_goes_through_it() {
-        let mut c = Chest { id: 1, pos: Vec3::new(0.0, 100.0 + DROP_HEIGHT, 0.0), yaw: 0.0, open_t: 0.0, opened: false, supply: true, land_y: 100.0, since_land: 0.0 };
+        let mut c = Chest { id: 1, pos: Vec3::new(0.0, 100.0 + DROP_HEIGHT, 0.0), yaw: 0.0, open_t: 0.0, opened: false, kind: ChestKind::Supply, land_y: 100.0, since_land: 0.0 };
         let (mut high, mut low) = (0.0, 0.0);
         let mut prev = c.pos.y;
         let mut t = 0.0;

@@ -1,5 +1,6 @@
-// Multiplayer end-to-end test: two browsers, one hosts and one joins through the real invite/reply exchange over WebRTC,
-// then they play a little and check each other. Exits non-zero on failure.
+// Multiplayer end-to-end test: two browsers, one hosts and one joins through the hand-copied invite/reply exchange (the way
+// in when the room service cannot be reached; rooms_e2e.mjs tests rooms), then they play a little and check each other.
+// Exits non-zero on failure.
 //   node mp_e2e.mjs            (needs `scripts/build.sh` first)
 import { serve, launch } from './browser.mjs';
 
@@ -28,7 +29,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {
   for (const who of ['host', 'guest']) {
-    await pages[who].goto(url + 'index.html?nolock=1&quality=low');
+    // (no room service in this test: a broker nobody listens on)
+    await pages[who].goto(url + 'index.html?nolock=1&quality=low&rooms=ws://127.0.0.1:9');
     await pages[who].waitForFunction(() => window.__game && window.__game.state === 'menu', null, { timeout: 240000 });
     await pages[who].evaluate(() => { document.getElementById('opt-name').value = ''; });
   }
@@ -37,10 +39,14 @@ try {
   // ---- the host opens a room and makes an invite -----------------------------------------------------------------------
   await pages.host.evaluate(() => { window.__game.cfg.name = 'Hosty'; window.__game.cfg.bots = 6; window.__game.cfg.skipbus = true; });
   await pages.host.click('#seg-mode button[data-v="lego"]');
+  // (the original island: the rest of the test walks to places on it)
+  await pages.host.click('#seg-map button[data-v="island"]');
   await pages.host.click('#btn-multi');
   await pages.host.click('#btn-mp-host');
   check('the room creator is identified as the host', (await pages.host.textContent('#lobby-title')).includes('You are the host'));
   check('the host can choose LEGO in its room', await pages.host.getAttribute('#lb-mode button[data-v="lego"]', 'aria-pressed') === 'true');
+  // without the room service the copied-code invite opens by itself
+  await pages.host.waitForFunction(() => document.getElementById('manual-host').open, null, { timeout: 30000 });
   await pages.host.waitForFunction(() => document.querySelector('#invites .inv')?.value.startsWith('FN1.'), null, { timeout: 30000 });
   const invite = await pages.host.evaluate(() => document.querySelector('#invites .inv').value);
   check('the host gets an invite code', invite.startsWith('FN1.') && invite.length > 100, `${invite.length} characters`);
@@ -48,9 +54,11 @@ try {
   // ---- the guest answers it ---------------------------------------------------------------------------------------------------
   await pages.guest.evaluate(() => { window.__game.cfg.name = 'Gus'; });
   await pages.guest.click('#seg-mode button[data-v="zero-build"]');
+  await pages.guest.click('#seg-map button[data-v="chapter2"]');
   await pages.guest.click('#btn-multi');
   await pages.guest.click('#btn-mp-join');
   check('a guest cannot start the host room', !(await pages.guest.isVisible('#btn-lobby-start')));
+  await pages.guest.waitForFunction(() => document.getElementById('manual-guest').open, null, { timeout: 30000 });
   await pages.guest.fill('#join-invite', invite);
   await pages.guest.click('#btn-join-continue');
   await pages.guest.waitForFunction(() => document.getElementById('join-reply').value.startsWith('FN1.'), null, { timeout: 30000 });
@@ -79,6 +87,8 @@ try {
   const modeHuds = await Promise.all(['host', 'guest'].map((who) => pages[who].evaluate(() => ({ mode: window.__game.hud.gameMode, world: window.__game.hud.worldSize }))));
   check('both HUDs show the host LEGO mode despite the guest choosing Zero Build', modeHuds.every((h) => h.mode === 'lego'), JSON.stringify(modeHuds));
   check('both players use the expanded island', modeHuds.every((h) => h.world === 1920), JSON.stringify(modeHuds));
+  const maps = await Promise.all(['host', 'guest'].map((who) => pages[who].evaluate(() => JSON.parse(window.__game.fn.debug('state')).map)));
+  check('the host chooses the island for both players, whatever the guest picked', maps.every((m) => m === 'island'), maps.join(' / '));
 
   // ---- the guest walks; the host sees it -----------------------------------------------------------------------------------
   await dbg('host', 'tp 52 28'); // the host stays out of the way
@@ -156,7 +166,8 @@ try {
   check('the guest\'s actor carries on as a bot', g2.human === false, JSON.stringify(g2));
 
   for (const who of ['host', 'guest']) {
-    const bad = logs[who].filter((l) => /error|panick|unreachable/i.test(l) && !/WebGPU is experimental|favicon|404|Failed to load resource|\bICE\b|\bstun\b/i.test(l));
+    // (the room service is out of reach on purpose here, and the browser says so)
+    const bad = logs[who].filter((l) => /error|panick|unreachable/i.test(l) && !/WebGPU is experimental|favicon|404|Failed to load resource|\bICE\b|\bstun\b|WebSocket connection to 'ws:\/\/127\.0\.0\.1:9\//i.test(l));
     check(`no console errors on the ${who}`, bad.length === 0, bad.slice(0, 3).join(' | '));
   }
 } catch (e) {
