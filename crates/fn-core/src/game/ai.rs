@@ -500,16 +500,15 @@ impl Brain {
             let crowd = g.actors.iter().filter(|o| o.brain.as_ref().and_then(|b| b.land).is_some_and(|l| l.distance(poi.center) < spread + 60.0)).count() as f32;
             let w = kind_w / (1.0 + d / 140.0) / (1.0 + 0.55 * crowd);
             let mut p = poi.center + self.rng.in_disc(poi.radius * 0.6);
-            let mut d_land = d;
             if let Some(l) = g.world.layout.lakes.iter().find(|l| l.island > 0.0 && l.center.distance(p) < l.radius * 1.1) {
                 let dir = (p - l.center).try_normalize().unwrap_or(Vec2::X);
                 p = l.center + dir * (l.radius * 1.2);
-                // (the jump is timed by how far the landing spot is from the bus route; a stretch of shore out of reach
-                // of the bus is no landing spot)
-                d_land = point_segment_dist(p, s, e).0;
-                if d_land > 300.0 {
-                    continue;
-                }
+            }
+            // the jump is timed by how far the landing spot itself (not the middle of the place) is from the bus route; a
+            // spot out of reach of the bus is no landing spot
+            let d_land = point_segment_dist(p, s, e).0;
+            if d_land > 300.0 {
+                continue;
             }
             cands.push((p, d_land, w));
         }
@@ -530,7 +529,7 @@ impl Brain {
         let weights: Vec<f32> = cands.iter().map(|c| c.2).collect();
         let k = self.rng.weighted(&weights);
         let (p, d, _) = cands[k];
-        self.jump_dist = (d.max(70.0) + self.rng.range(15.0, 150.0)).min(370.0);
+        self.jump_dist = (d.max(70.0) + self.rng.range(15.0, 150.0)).min(370.0).max(d + 15.0);
         p
     }
 
@@ -544,7 +543,9 @@ impl Brain {
         let mut it = base_intent(&g.actors[i]);
         it.yaw = yaw_of(land - bus_xz);
         it.pitch = -0.25;
-        if bus_xz.distance(land) <= self.jump_dist && g.bus.t > 2.5 + (i % 9) as f32 * 0.25 {
+        // (and once the spot is behind the bus it only gets further away: time to go)
+        let passed = (land - bus_xz).dot(g.bus.dir) < 0.0;
+        if (bus_xz.distance(land) <= self.jump_dist || passed) && g.bus.t > 2.5 + (i % 9) as f32 * 0.25 {
             it.exit_bus = true;
         }
         it
@@ -1885,6 +1886,30 @@ mod tests {
             cells.insert(((a.pos.x / 120.0).floor() as i32, (a.pos.z / 120.0).floor() as i32));
         }
         assert!(cells.len() >= 4, "bots landed in {} regions", cells.len());
+    }
+
+    #[test]
+    fn every_bot_jumps_before_the_bus_reaches_the_end_of_its_route() {
+        // A bot used to time its jump by how far the middle of the place was from the route, then aim for a spot somewhere
+        // in that place; when the spot lay further out than the slack it drew, the bus never came close enough and the bot
+        // rode to the end of the route and was dropped there, often over the sea.
+        use crate::world::maps::MapKind;
+        for map in MapKind::ALL {
+            let mut aboard = 0;
+            for seed in 1..=12u64 {
+                let w = crate::world::World::generate_map(seed as u32, map);
+                let mut g = Game::new(w, GameConfig { bots: 39, seed, god_mode: true, map, ..Default::default() });
+                let inp = PlayerInput::default();
+                let dt = 1.0 / 30.0;
+                while g.bus.active {
+                    if g.bus.t + dt >= g.bus.total {
+                        aboard += g.actors.iter().skip(1).filter(|a| a.mode == MoveMode::Bus).count();
+                    }
+                    g.update(dt, &inp);
+                }
+            }
+            assert_eq!(aboard, 0, "{map:?}: bots still on the bus at the end of its route");
+        }
     }
 
     fn soak(bots: usize, seconds: f32, speed: f32) -> Game {
