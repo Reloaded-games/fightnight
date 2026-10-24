@@ -625,10 +625,23 @@ fn plan_industrial(pl: &mut Planner, pi: usize, poi: &Poi) {
     }
     // the site office
     let office = gen_shop(&mut pl.rng, 10.0, 8.0);
+    let mut built = false;
     for k in 0..8 {
         let p = c + dir_of(k as f32 / 8.0 * std::f32::consts::TAU + 1.1) * r * 0.25;
         if pl.place(&office, p, facing_rot(c - p), pi, "shop", 1.5, false).is_some() {
+            built = true;
             break;
+        }
+    }
+    if !built {
+        // a crowded yard: the free lot nearest its middle
+        let n = (r * 0.6 / 3.0) as i32;
+        let mut lots: Vec<Vec2> = (-n..=n).flat_map(|i| (-n..=n).map(move |j| Vec2::new(i as f32, j as f32) * 3.0)).filter(|o| o.length() > 1.0 && o.length() < r * 0.6).collect();
+        lots.sort_by(|a, b| a.length().total_cmp(&b.length()));
+        for o in lots {
+            if pl.place(&office, c + o, facing_rot(-o), pi, "shop", 1.5, false).is_some() {
+                break;
+            }
         }
     }
     // chimneys

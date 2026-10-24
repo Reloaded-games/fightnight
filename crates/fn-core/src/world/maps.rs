@@ -420,6 +420,10 @@ mod tests {
                             assert!(!hit, "{map:?} seed {seed}: a {} stands on a street of {}", b.kind, poi.name);
                         }
                     }
+                    // every factory yard keeps its site office
+                    if poi.kind == PoiKind::Industrial {
+                        assert!(w.buildings.iter().any(|b| b.poi == pi && b.kind == "shop"), "{map:?} seed {seed}: {} has no office", poi.name);
+                    }
                     // nothing is put down in front of a door
                     for b in w.buildings.iter().filter(|b| b.poi == pi && b.door_out.distance(b.door_in) > 0.5) {
                         let d = b.door_out;
@@ -461,6 +465,29 @@ mod tests {
             stranded += g.actors.iter().skip(1).filter(|a| a.alive && Vec2::new(a.pos.x, a.pos.z).distance(lake.center) < lake.radius * 0.35).count();
         }
         assert_eq!(stranded, 0, "bots still on the island in Loot Lake after 150 s");
+    }
+
+    #[test]
+    fn bots_landing_on_the_shore_of_loot_lake_jump_off_the_bus_in_time() {
+        use crate::game::{actor::MoveMode, Game, GameConfig, PlayerInput};
+        let (mut aboard, mut landers) = (0, 0);
+        for seed in 1..=24u64 {
+            let w = World::generate_map(seed as u32, MapKind::Chapter1);
+            let lake = w.layout.lakes.iter().find(|l| l.island > 0.0).unwrap().clone();
+            let mut g = Game::new(w, GameConfig { bots: 39, seed, god_mode: true, map: MapKind::Chapter1, ..Default::default() });
+            let inp = PlayerInput::default();
+            let dt = 1.0 / 30.0;
+            let shore = |a: &crate::game::actor::Actor| a.brain.as_ref().and_then(|b| b.landing()).is_some_and(|p| p.distance(lake.center) < lake.radius * 1.5);
+            while g.bus.active {
+                if g.bus.t + dt >= g.bus.total {
+                    aboard += g.actors.iter().skip(1).filter(|a| a.mode == MoveMode::Bus && shore(a)).count();
+                    landers += g.actors.iter().skip(1).filter(|a| shore(a)).count();
+                }
+                g.update(dt, &inp);
+            }
+        }
+        assert!(landers > 20, "only {landers} bots chose Loot Lake");
+        assert_eq!(aboard, 0, "{aboard} of {landers} bots heading for Loot Lake were still on the bus at the end of its route");
     }
 
     #[test]

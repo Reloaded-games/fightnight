@@ -236,8 +236,8 @@ impl World {
             for _ in 0..n {
                 let p = poi.center + rng.in_disc(poi.radius * 0.85);
                 let h = hm.height_at(p.x, p.y);
-                // (not on the bed of a lake either)
-                let wet = layout.lakes.iter().any(|l| l.center.distance(p) < l.radius * 1.3 && h < l.level + 0.2);
+                // (on a recreated map not on the bed of a lake either; the original island keeps the loot it always had)
+                let wet = spec.is_some() && layout.lakes.iter().any(|l| l.center.distance(p) < l.radius * 1.3 && h < l.level + 0.2);
                 if h < 2.0 || wet || splat.sample(p)[splat::CH_ASPHALT] > 0.3 {
                     continue;
                 }

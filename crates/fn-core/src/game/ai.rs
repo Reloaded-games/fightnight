@@ -164,6 +164,11 @@ pub struct Brain {
 }
 
 impl Brain {
+    /// Where the bot means to land (once it has picked a spot on the bus).
+    pub fn landing(&self) -> Option<Vec2> {
+        self.land
+    }
+
     pub fn new(rng: &mut Rng, d: Difficulty) -> Brain {
         let mut r = rng.fork(0xB07);
         let skill = Skill::new(d, &mut r);
@@ -488,15 +493,25 @@ impl Brain {
                 PoiKind::Station => 1.0,
                 PoiKind::Hamlet => 0.8,
             };
-            let crowd = g.actors.iter().filter(|o| o.brain.as_ref().and_then(|b| b.land).is_some_and(|l| l.distance(poi.center) < poi.radius + 60.0)).count() as f32;
+            // a place round a lake with an island in it (Loot Lake): bots come down on its shore, not on the island or in
+            // the water, so the shore is where it gets crowded
+            let islet = g.world.layout.lakes.iter().find(|l| l.island > 0.0 && l.center.distance(poi.center) < l.radius * 0.5);
+            let spread = islet.map_or(poi.radius, |l| l.radius * 1.2);
+            let crowd = g.actors.iter().filter(|o| o.brain.as_ref().and_then(|b| b.land).is_some_and(|l| l.distance(poi.center) < spread + 60.0)).count() as f32;
             let w = kind_w / (1.0 + d / 140.0) / (1.0 + 0.55 * crowd);
             let mut p = poi.center + self.rng.in_disc(poi.radius * 0.6);
-            // a place round a lake with an island in it (Loot Lake): come down on the shore, not on the island or in the water
+            let mut d_land = d;
             if let Some(l) = g.world.layout.lakes.iter().find(|l| l.island > 0.0 && l.center.distance(p) < l.radius * 1.1) {
                 let dir = (p - l.center).try_normalize().unwrap_or(Vec2::X);
                 p = l.center + dir * (l.radius * 1.2);
+                // (the jump is timed by how far the landing spot is from the bus route; a stretch of shore out of reach
+                // of the bus is no landing spot)
+                d_land = point_segment_dist(p, s, e).0;
+                if d_land > 300.0 {
+                    continue;
+                }
             }
-            cands.push((p, d, w));
+            cands.push((p, d_land, w));
         }
         // sometimes drop somewhere quiet instead
         for _ in 0..3 {
