@@ -459,6 +459,17 @@ impl App {
                 g.eliminate(me, Some(1), WeaponKind::AssaultRifle.name(), false);
                 "ok".into()
             }
+            "leave_bus" => {
+                // make rider N (default: the first bot still on the bus) jump off it now, for screenshots of the jump
+                let i = parts.get(1).and_then(|s| s.parse::<usize>().ok()).or_else(|| (1..g.actors.len()).find(|&i| g.actors[i].mode == MoveMode::Bus));
+                match i.filter(|&i| i < g.actors.len()) {
+                    Some(i) => {
+                        fn_core::game::matchflow::leave_bus(g, i);
+                        format!("{i}")
+                    }
+                    None => "nobody on the bus".into(),
+                }
+            }
             "kill_bots" => {
                 for i in 1..g.actors.len() {
                     g.actors[i].alive = false;

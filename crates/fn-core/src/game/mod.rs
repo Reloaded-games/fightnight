@@ -38,6 +38,19 @@ use pieces::*;
 
 pub const PLAYER: usize = 0;
 
+/// The lowest the view can pitch while riding the bus. The camera looks down over the roof from behind and above; looking
+/// any steeper would raise it up beside the balloon, with the envelope between it and the bus.
+pub const BUS_PITCH_MIN: f32 = -0.75;
+
+/// How far down and up the view can pitch when moving in `mode`.
+pub fn pitch_limits(mode: MoveMode) -> (f32, f32) {
+    match mode {
+        MoveMode::Bus => (BUS_PITCH_MIN, 1.5),
+        MoveMode::Freefall | MoveMode::Glide => (-1.45, 1.5),
+        _ => (-1.5, 1.5),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Difficulty {
     Easy,
@@ -692,9 +705,9 @@ impl Game {
         let (yaw, pitch);
         {
             let a = &mut self.actors[self.local];
-            let freefall = matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
+            let (lo, hi) = pitch_limits(a.mode);
             a.yaw -= input.look.x;
-            a.pitch = (a.pitch + input.look.y).clamp(if freefall { -1.45 } else { -1.5 }, 1.5);
+            a.pitch = (a.pitch + input.look.y).clamp(lo, hi);
             yaw = a.yaw;
             pitch = a.pitch;
         }
@@ -921,7 +934,7 @@ impl Game {
     pub fn camera(&self, aspect: f32) -> Camera {
         let idx = self.camera_actor();
         let a = &self.actors[idx];
-        let (mut pivot, dir) = self.camera_pivot(idx);
+        let (mut pivot, mut dir) = self.camera_pivot(idx);
         let env = self.env();
         let airborne = matches!(a.mode, MoveMode::Freefall | MoveMode::Glide | MoveMode::Bus);
         let mut back = if airborne { 7.5 } else { lerp(self.cam_dist, self.cam_dist * 0.62, a.anim.aim) };
@@ -936,6 +949,8 @@ impl Game {
             pivot.y += 1.4;
             lift = 3.0;
             aim_low = 4.0;
+            // looking further down would bring the camera up beside the balloon with the envelope between it and the bus
+            dir = look_dir(a.yaw, a.pitch.max(BUS_PITCH_MIN));
         }
         let want = pivot - dir * back + Vec3::Y * lift;
         // pull the camera in when something is behind the player

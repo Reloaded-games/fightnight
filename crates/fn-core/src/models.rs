@@ -1487,12 +1487,101 @@ fn tube(b: &mut MeshBuilder, p0: Vec3, p1: Vec3, r: f32, seg: u32) {
 /// Height of the Battle Bus's flat roof above the bus's origin. The riders stand on it (see `game::scene`).
 pub const BUS_ROOF_Y: f32 = 1.21;
 
+/// The bus body's cross-section, right half, for [`loft`]: blue below a yellow stripe and the window band, white roof.
+const BUS_BODY: [(Vec2, u8); 13] = [
+    (Vec2::new(0.0, -1.1), 0),
+    (Vec2::new(1.36, -1.1), 0),
+    (Vec2::new(1.47, -1.04), 0),
+    (Vec2::new(1.5, -0.92), 0),
+    (Vec2::new(1.5, -0.52), 1),
+    (Vec2::new(1.5, -0.4), 0),
+    (Vec2::new(1.5, -0.05), 2),
+    (Vec2::new(1.455, 0.72), 3),
+    (Vec2::new(1.44, 0.95), 3),
+    (Vec2::new(1.4, 1.08), 3),
+    (Vec2::new(1.32, 1.17), 3),
+    (Vec2::new(1.2, BUS_ROOF_Y), 3),
+    (Vec2::new(0.0, BUS_ROOF_Y), 3),
+];
+/// Where the body starts and ends along Z, and how far its front and back are rounded over.
+const BUS_BODY_Z: [f32; 2] = [-4.3, 4.3];
+const BUS_BODY_ROUND: [f32; 2] = [0.3, 0.45];
+/// The bonnet's cross-section, its length and the rounding of its nose.
+const BUS_BONNET: [(Vec2, u8); 8] = [
+    (Vec2::new(0.0, -1.1), 0),
+    (Vec2::new(1.3, -1.1), 0),
+    (Vec2::new(1.38, -1.02), 0),
+    (Vec2::new(1.4, -0.5), 0),
+    (Vec2::new(1.36, -0.3), 0),
+    (Vec2::new(1.26, -0.19), 0),
+    (Vec2::new(1.1, -0.14), 0),
+    (Vec2::new(0.0, -0.12), 0),
+];
+const BUS_BONNET_Z: [f32; 2] = [-5.55, -4.0];
+const BUS_BONNET_ROUND: [f32; 2] = [0.16, 0.0];
+
+/// The bus's painted shell: the body and the bonnet, each a closed, rounded loft. Everything else on the bus sits on it.
+fn bus_shell(b: &mut MeshBuilder, paint: &dyn Fn(&mut MeshBuilder, u8)) {
+    loft(b, &BUS_BODY, BUS_BODY_Z[0], BUS_BODY_Z[1], BUS_BODY_ROUND, 3, paint);
+    loft(b, &BUS_BONNET, BUS_BONNET_Z[0], BUS_BONNET_Z[1], BUS_BONNET_ROUND, 3, paint);
+}
+
+/// How far out the side of a cross-section (`half`, as for [`loft`]) is at height `y`.
+fn outline_x(half: &[(Vec2, u8)], y: f32) -> f32 {
+    let mut x = 0.0f32;
+    for w in half.windows(2) {
+        let (a, c) = (w[0].0, w[1].0);
+        if y < a.y.min(c.y) || y > a.y.max(c.y) {
+            continue;
+        }
+        x = x.max(if (c.y - a.y).abs() < 1e-6 { a.x.max(c.x) } else { a.x + (c.x - a.x) * (y - a.y) / (c.y - a.y) });
+    }
+    x
+}
+
+/// The balloon's envelope: the mouth's height above the bus's origin, the height from the mouth to the crown, the widest
+/// radius, and its profile as (height fraction from the mouth up to the crown, radius fraction) at the seams between gores.
+const BALLOON_MOUTH_Y: f32 = 5.4;
+const BALLOON_HEIGHT: f32 = 13.4;
+const BALLOON_RADIUS: f32 = 6.2;
+const BALLOON_SHAPE: [(f32, f32); 13] = [(0.0, 0.14), (0.06, 0.22), (0.15, 0.38), (0.27, 0.58), (0.4, 0.79), (0.52, 0.94), (0.63, 1.0), (0.73, 0.98), (0.82, 0.9), (0.89, 0.76), (0.95, 0.55), (0.985, 0.3), (1.0, 0.0)];
+/// How far the middle of a gore bulges out past its seams.
+const BALLOON_BULGE: f32 = 1.035;
+
+/// The widest the balloon is at height `y` above the bus's origin (to the middle of a gore; the skirt below the mouth
+/// counts), or `None` above or below it.
+pub fn bus_envelope_radius(y: f32) -> Option<f32> {
+    let h = (y - BALLOON_MOUTH_Y) / BALLOON_HEIGHT;
+    if (-0.5 / BALLOON_HEIGHT..0.0).contains(&h) {
+        return Some(0.98);
+    }
+    BALLOON_SHAPE.windows(2).find(|w| (w[0].0..=w[1].0).contains(&h)).map(|w| {
+        let k = (h - w[0].0) / (w[1].0 - w[0].0);
+        lerp(w[0].1, w[1].1, k) * BALLOON_RADIUS * BALLOON_BULGE
+    })
+}
+
+/// Radius of the cables that hold the bus under its balloon.
+pub const BUS_CABLE_R: f32 = 0.04;
+
+/// The four cables between the balloon and the bus, as (top, bottom) points on their centre lines in the bus's frame. They
+/// hang from the envelope's seams, well out from the bus, and come down outside the roof's edge to the sides of the bus
+/// just under it, so they never cross the roof deck that the riders stand on (see `game::scene::bus_rider_spot`).
+pub fn bus_cables() -> [(Vec3, Vec3); 4] {
+    let (h, r) = BALLOON_SHAPE[3];
+    let t = r * BALLOON_RADIUS * std::f32::consts::FRAC_1_SQRT_2;
+    let y = BALLOON_MOUTH_Y + h * BALLOON_HEIGHT;
+    [(1.0f32, 1.0f32), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)].map(|(sx, sz)| (Vec3::new(sx * t, y, sz * t), Vec3::new(sx * 1.47, 0.85, if sz > 0.0 { 3.72 } else { -3.85 })))
+}
+
 /// The Battle Bus hanging under its hot-air balloon. Origin at the centre of the bus body; the front faces -Z.
 ///
 /// A blue bus with rounded ends and a white roof: a row of windows framed by pillars and a chrome sill wraps round into
 /// the windscreen and the rear window; a short bonnet carries the grille, round headlights and the front bumper; a door
 /// on the right, tail lights, a rear bumper and a ladder up the back to a roof rack with luggage at its front. Four
-/// cables run from the roof's corners up to the burner under a striped envelope.
+/// cables run from the envelope down to the sides of the bus; the burner hangs under the envelope's mouth.
+///
+/// Everything bolted onto the body sits on its surface, even where the ends round over (see the tests).
 pub fn bus() -> MeshData {
     let mut b = MeshBuilder::new();
     const BLUE: u32 = 0x2f7fe6;
@@ -1514,28 +1603,9 @@ pub fn bus() -> MeshData {
     let lamp = |b: &mut MeshBuilder, rgb: u32| {
         b.mat(mat::EMISSIVE).hex(rgb);
     };
-    let (zf, zr) = (-4.3f32, 4.3f32);
+    let [zf, zr] = BUS_BODY_Z;
     let p = Vec2::new;
-    // ---- body: blue below a yellow stripe and the window band, white roof ----------------------------------------------
-    let body = [
-        (p(0.0, -1.1), 0),
-        (p(1.36, -1.1), 0),
-        (p(1.47, -1.04), 0),
-        (p(1.5, -0.92), 0),
-        (p(1.5, -0.52), 1),
-        (p(1.5, -0.4), 0),
-        (p(1.5, -0.05), 2),
-        (p(1.455, 0.72), 3),
-        (p(1.44, 0.95), 3),
-        (p(1.4, 1.08), 3),
-        (p(1.32, 1.17), 3),
-        (p(1.2, BUS_ROOF_Y), 3),
-        (p(0.0, BUS_ROOF_Y), 3),
-    ];
-    loft(&mut b, &body, zf, zr, [0.3, 0.45], 3, &paint);
-    // bonnet
-    let bonnet = [(p(0.0, -1.1), 0), (p(1.3, -1.1), 0), (p(1.38, -1.02), 0), (p(1.4, -0.5), 0), (p(1.36, -0.3), 0), (p(1.26, -0.19), 0), (p(1.1, -0.14), 0), (p(0.0, -0.12), 0)];
-    loft(&mut b, &bonnet, -5.55, -4.0, [0.28, 0.0], 3, &paint);
+    bus_shell(&mut b, &paint);
 
     // ---- the window row: pillars between the panes and a chrome sill below them; wheel wells and mirrors ------------------
     let (sill, header) = (p(1.5, -0.05), p(1.455, 0.72));
@@ -1557,19 +1627,28 @@ pub fn bus() -> MeshData {
         b.pop_xf();
         chrome(&mut b);
         b.box_faces(Vec3::new(1.49, -0.09, -3.86), Vec3::new(1.535, -0.02, 3.88), 0b111101);
-        // dark wheel wells behind the tyres
+        // dark wheel wells behind the tyres, laid onto the side of the bonnet (front) and the body (back) where they curve
+        // in towards the bottom
         dark(&mut b);
-        for (x, z) in [(1.405f32, -4.65f32), (1.505, 2.85)] {
-            let r = 0.7;
-            let c = b.vert(Vec3::new(x, -1.1, z), Vec3::X, 0.4);
-            let rim: Vec<u32> = (0..=10)
-                .map(|k| {
-                    let a = k as f32 / 10.0 * PI;
-                    b.vert(Vec3::new(x, -1.1 + a.sin() * r, z + a.cos() * r), Vec3::X, 0.55)
-                })
-                .collect();
-            for k in 0..10 {
-                b.tri(c, rim[k], rim[k + 1]);
+        for (outline, zc, r) in [(&BUS_BONNET[..], -4.65f32, 0.66f32), (&BUS_BODY[..], 2.85, 0.7)] {
+            let on_side = |y: f32, z: f32| Vec3::new(outline_x(outline, y) + 0.004, y, z);
+            let hub = b.vert(on_side(-1.1, zc), Vec3::X, 0.4);
+            let mut inner: Vec<u32> = vec![hub; 11];
+            for rr in [0.3, 0.52, r] {
+                let ring: Vec<u32> = (0..=10)
+                    .map(|k| {
+                        let a = k as f32 / 10.0 * PI;
+                        b.vert(on_side(-1.1 + a.sin() * rr, zc + a.cos() * rr), Vec3::X, 0.55)
+                    })
+                    .collect();
+                for k in 0..10 {
+                    if inner[k] == inner[k + 1] {
+                        b.tri(inner[k], ring[k], ring[k + 1]);
+                    } else {
+                        b.quad(inner[k], ring[k], ring[k + 1], inner[k + 1]);
+                    }
+                }
+                inner = ring;
             }
         }
         // a mirror on an arm at each front corner
@@ -1585,7 +1664,7 @@ pub fn bus() -> MeshData {
     b.box_faces(Vec3::new(1.495, -1.0, -3.21), Vec3::new(1.528, -0.06, -3.15), 0b111101);
     b.box_faces(Vec3::new(1.495, -1.04, -3.8), Vec3::new(1.528, -0.94, -2.56), 0b111101);
     b.mat(mat::METAL).hex(0x4a5059).spec(0.5);
-    b.box_min_max(Vec3::new(1.3, -1.2, -3.75), Vec3::new(1.62, -1.12, -2.6));
+    b.box_min_max(Vec3::new(1.3, -1.2, -3.75), Vec3::new(1.62, -1.09, -2.6));
 
     // ---- wheels: tyres with chrome hubs ----------------------------------------------------------------------------------
     for s in [1.0f32, -1.0] {
@@ -1602,72 +1681,86 @@ pub fn bus() -> MeshData {
         }
     }
 
-    // ---- front: grille, headlights, indicators, bumper and plate; windscreen pillar, wipers and the destination sign ------
-    let zn = -5.55;
+    // ---- front: grille, headlights, indicators, bumper and plate on the flat of the bonnet's nose; windscreen pillar,
+    // wipers and the destination sign ------------------------------------------------------------------------------------
+    let zn = BUS_BONNET_Z[0];
     dark(&mut b);
-    b.box_center(Vec3::new(0.0, -0.55, zn - 0.008), Vec3::new(0.56, 0.28, 0.012));
+    b.box_center(Vec3::new(0.0, -0.6, zn - 0.008), Vec3::new(0.5, 0.25, 0.012));
     chrome(&mut b);
-    for y in [-0.73f32, -0.61, -0.49, -0.37] {
-        b.box_center(Vec3::new(0.0, y, zn - 0.02), Vec3::new(0.56, 0.022, 0.016));
+    for y in [-0.79f32, -0.67, -0.55, -0.43] {
+        b.box_center(Vec3::new(0.0, y, zn - 0.018), Vec3::new(0.5, 0.011, 0.008));
     }
-    b.box_center(Vec3::new(0.0, -0.25, zn - 0.02), Vec3::new(0.62, 0.035, 0.024));
-    b.box_center(Vec3::new(0.0, -0.85, zn - 0.02), Vec3::new(0.62, 0.035, 0.024));
+    b.box_center(Vec3::new(0.0, -0.33, zn - 0.016), Vec3::new(0.56, 0.03, 0.016));
+    b.box_center(Vec3::new(0.0, -0.865, zn - 0.016), Vec3::new(0.56, 0.02, 0.016));
     for s in [1.0f32, -1.0] {
-        b.push_xf(Mat4::from_translation(Vec3::new(s * 0.9, -0.42, zn)) * rot_x(-FRAC_PI_2));
+        b.push_xf(Mat4::from_translation(Vec3::new(s * 0.88, -0.55, zn)) * rot_x(-FRAC_PI_2));
         chrome(&mut b);
-        b.cylinder(Vec3::ZERO, 0.2, 0.19, 0.05, 12, false, true);
+        b.cylinder(Vec3::ZERO, 0.17, 0.16, 0.05, 12, false, true);
         lamp(&mut b, 0xfff3c4);
-        b.cylinder(Vec3::ZERO, 0.145, 0.13, 0.075, 12, false, true);
+        b.cylinder(Vec3::ZERO, 0.125, 0.11, 0.075, 12, false, true);
         b.pop_xf();
         lamp(&mut b, 0xffa529);
-        b.box_center(Vec3::new(s * 0.9, -0.74, zn - 0.01), Vec3::new(0.11, 0.05, 0.014));
+        b.box_center(Vec3::new(s * 0.88, -0.8, zn - 0.01), Vec3::new(0.1, 0.035, 0.014));
     }
+    // the bumper reaches back into the nose, where it rounds over at the bottom, and wraps round the corners
     chrome(&mut b);
-    b.box_center(Vec3::new(0.0, -0.98, -5.6), Vec3::new(1.3, 0.12, 0.1));
+    b.box_min_max(Vec3::new(-1.3, -1.11, -5.72), Vec3::new(1.3, -0.89, -5.42));
     for s in [1.0f32, -1.0] {
-        b.box_center(Vec3::new(s * 1.3, -0.98, -5.42), Vec3::new(0.1, 0.12, 0.2));
+        b.box_min_max(Vec3::new(s * 1.3 - 0.1, -1.11, -5.62), Vec3::new(s * 1.3 + 0.1, -0.89, -5.3));
     }
     b.mat(mat::FLAT).hex(0xf2f0e6);
-    b.box_center(Vec3::new(0.0, -0.97, -5.705), Vec3::new(0.3, 0.085, 0.006));
+    b.box_center(Vec3::new(0.0, -1.0, -5.724), Vec3::new(0.3, 0.075, 0.004));
     paint(&mut b, 0);
-    b.box_center(Vec3::new(0.0, 0.335, zf - 0.012), Vec3::new(0.05, 0.39, 0.014));
+    b.box_center(Vec3::new(0.0, 0.2975, zf - 0.012), Vec3::new(0.05, 0.4275, 0.014));
     dark(&mut b);
     for s in [1.0f32, -1.0] {
-        b.push_xf(Mat4::from_translation(Vec3::new(s * 0.5, 0.03, zf - 0.03)) * Mat4::from_rotation_z(s * 0.35));
+        // the wipers rest at the foot of the windscreen, their inner ends on the bonnet
+        b.push_xf(Mat4::from_translation(Vec3::new(s * 0.5, 0.012, zf - 0.01)) * Mat4::from_rotation_z(s * 0.35));
         b.box_center(Vec3::ZERO, Vec3::new(0.36, 0.014, 0.012));
         b.pop_xf();
     }
     lamp(&mut b, 0xffcf5a);
     b.box_center(Vec3::new(0.0, 0.81, zf - 0.008), Vec3::new(0.62, 0.065, 0.01));
 
-    // ---- back: tail lights, an engine grille, the bumper, a plate and a ladder up to the roof -----------------------------
+    // ---- back: tail lights and an engine grille on the flat of the rear, the bumper, a plate and a ladder up to the roof --
     for s in [1.0f32, -1.0] {
         lamp(&mut b, 0xff2a1e);
-        b.box_center(Vec3::new(s * 0.8, -0.63, zr + 0.01), Vec3::new(0.13, 0.19, 0.014));
+        b.box_center(Vec3::new(s * 0.85, -0.42, zr + 0.012), Vec3::new(0.1, 0.18, 0.014));
         lamp(&mut b, 0xffa529);
-        b.box_center(Vec3::new(s * 0.8, -0.3, zr + 0.01), Vec3::new(0.13, 0.06, 0.014));
+        b.box_center(Vec3::new(s * 0.85, -0.12, zr + 0.012), Vec3::new(0.1, 0.05, 0.014));
     }
     dark(&mut b);
-    b.box_center(Vec3::new(0.0, -0.66, zr + 0.006), Vec3::new(0.42, 0.2, 0.01));
+    b.box_center(Vec3::new(0.0, -0.42, zr + 0.006), Vec3::new(0.25, 0.18, 0.01));
     chrome(&mut b);
-    for y in [-0.78f32, -0.66, -0.54] {
-        b.box_center(Vec3::new(0.0, y, zr + 0.018), Vec3::new(0.42, 0.022, 0.012));
+    for y in [-0.53f32, -0.42, -0.31] {
+        b.box_center(Vec3::new(0.0, y, zr + 0.018), Vec3::new(0.25, 0.02, 0.012));
     }
-    b.box_center(Vec3::new(0.0, -1.0, zr + 0.05), Vec3::new(1.4, 0.12, 0.1));
+    // the bumper reaches into the body where the rear rounds over at the bottom
+    b.box_min_max(Vec3::new(-1.4, -1.13, 4.0), Vec3::new(1.4, -0.89, 4.37));
     b.mat(mat::FLAT).hex(0xf2f0e6);
-    b.box_center(Vec3::new(0.0, -0.99, zr + 0.155), Vec3::new(0.3, 0.085, 0.006));
+    b.box_center(Vec3::new(0.0, -1.0, 4.376), Vec3::new(0.3, 0.085, 0.006));
+    // the ladder stands on the flat of the rear, follows the rounding over the top and lies along the roof
     b.mat(mat::METAL).hex(0x9aa3ad).spec(0.7);
-    for x in [-0.95f32, -0.65] {
-        tube(&mut b, Vec3::new(x, -0.95, zr + 0.07), Vec3::new(x, 0.98, zr + 0.07), 0.028, 6);
-        tube(&mut b, Vec3::new(x, 0.98, zr + 0.07), Vec3::new(x, 1.36, zr - 0.42), 0.028, 6);
-        tube(&mut b, Vec3::new(x, 1.36, zr - 0.42), Vec3::new(x, 1.36, zr - 0.8), 0.028, 6);
+    let (rr, ry_top) = (BUS_BODY_ROUND[1], BUS_ROOF_Y - BUS_BODY_ROUND[1]);
+    let (lz, bend) = (zr + 0.025, rr + 0.025);
+    for x in [-0.6f32, -0.34] {
+        tube(&mut b, Vec3::new(x, -0.6, lz), Vec3::new(x, ry_top, lz), 0.028, 6);
+        let arc = |k: usize| {
+            let a = k as f32 / 4.0 * FRAC_PI_2;
+            Vec3::new(x, ry_top + a.sin() * bend, zr - rr + a.cos() * bend)
+        };
+        for k in 0..4 {
+            tube(&mut b, arc(k), arc(k + 1), 0.028, 6);
+        }
+        tube(&mut b, arc(4), arc(4) - Vec3::Z * 0.4, 0.028, 6);
     }
-    for k in 0..6 {
-        let y = -0.78 + k as f32 * 0.3;
-        tube(&mut b, Vec3::new(-0.95, y, zr + 0.07), Vec3::new(-0.65, y, zr + 0.07), 0.022, 4);
+    for k in 0..5 {
+        let y = -0.5 + k as f32 * 0.28;
+        tube(&mut b, Vec3::new(-0.6, y, lz), Vec3::new(-0.34, y, lz), 0.022, 4);
     }
 
-    // ---- roof rack: rails on posts, slats underfoot and luggage strapped down at the front ---------------------------------
+    // ---- roof rack: rails on posts, runners along the sides and luggage strapped down at the front; the deck where the
+    // riders stand stays clear --------------------------------------------------------------------------------------------
     let ry = BUS_ROOF_Y;
     let (rx, rz0, rz1, rh) = (1.1f32, -3.75f32, 3.6f32, 0.32f32);
     b.mat(mat::METAL).hex(0x2e333b).spec(0.6);
@@ -1677,33 +1770,25 @@ pub fn bus() -> MeshData {
             let z = lerp(rz0, rz1, k as f32 / 4.0);
             tube(&mut b, Vec3::new(s * rx, ry, z), Vec3::new(s * rx, ry + rh, z), 0.03, 6);
         }
+        tube(&mut b, Vec3::new(s * 1.0, ry + 0.022, rz0), Vec3::new(s * 1.0, ry + 0.022, rz1), 0.025, 6);
     }
     for z in [rz0, rz1] {
         tube(&mut b, Vec3::new(-rx, ry + rh, z), Vec3::new(rx, ry + rh, z), 0.035, 6);
     }
-    for k in 0..6 {
-        let z = lerp(rz0 + 0.3, rz1 - 0.3, k as f32 / 5.0);
-        tube(&mut b, Vec3::new(-rx, ry + 0.03, z), Vec3::new(rx, ry + 0.03, z), 0.03, 6);
-    }
     b.mat(mat::CLOTH).ao(0.75, 1.0);
     b.hex(0x9c6233);
-    b.box_center(Vec3::new(-0.52, ry + 0.22, -3.38), Vec3::new(0.34, 0.2, 0.22));
+    b.box_center(Vec3::new(-0.52, ry + 0.197, -3.38), Vec3::new(0.34, 0.2, 0.22));
     b.hex(0x27a7a0);
-    b.box_center(Vec3::new(0.36, ry + 0.17, -3.4), Vec3::new(0.3, 0.15, 0.2));
+    b.box_center(Vec3::new(0.36, ry + 0.147, -3.4), Vec3::new(0.3, 0.15, 0.2));
     b.hex(0xd64933);
-    b.box_center(Vec3::new(-0.46, ry + 0.5, -3.4), Vec3::new(0.2, 0.08, 0.15));
+    b.box_center(Vec3::new(-0.46, ry + 0.474, -3.4), Vec3::new(0.2, 0.08, 0.15));
     b.mat(mat::FLAT).hex(0x2b2118).ao(1.0, 1.0);
-    for x in [-0.62f32, 0.36] {
-        b.box_center(Vec3::new(x, ry + 0.2, -3.39), Vec3::new(0.04, 0.215, 0.235));
-    }
+    b.box_center(Vec3::new(-0.62, ry + 0.2, -3.38), Vec3::new(0.04, 0.21, 0.235));
+    b.box_center(Vec3::new(0.36, ry + 0.15, -3.4), Vec3::new(0.04, 0.16, 0.215));
 
     // ---- balloon: sixteen pillowy gores, a white crown, the skirt and load ring at the mouth, the burner and the cables ----
-    let mouth_y = 5.4f32;
-    let height = 13.4f32;
-    let rad = 6.2f32;
-    // (height fraction from the mouth up to the crown, radius fraction) of the envelope
-    const SHAPE: [(f32, f32); 13] = [(0.0, 0.14), (0.06, 0.22), (0.15, 0.38), (0.27, 0.58), (0.4, 0.79), (0.52, 0.94), (0.63, 1.0), (0.73, 0.98), (0.82, 0.9), (0.89, 0.76), (0.95, 0.55), (0.985, 0.3), (1.0, 0.0)];
-    let prof: Vec<Vec2> = SHAPE.iter().map(|&(h, r)| p(r * rad, mouth_y + h * height)).collect();
+    let (mouth_y, height, rad) = (BALLOON_MOUTH_Y, BALLOON_HEIGHT, BALLOON_RADIUS);
+    let prof: Vec<Vec2> = BALLOON_SHAPE.iter().map(|&(h, r)| p(r * rad, mouth_y + h * height)).collect();
     let prof_n: Vec<Vec2> = (0..prof.len())
         .map(|k| {
             let d = prof[(k + 1).min(prof.len() - 1)] - prof[k.saturating_sub(1)];
@@ -1721,7 +1806,7 @@ pub fn bus() -> MeshData {
             let ao = 0.7 + 0.3 * (k as f32 / 6.0).min(1.0);
             let mut ids = [0u32; 3];
             // each gore bulges between its seams: the middle stands out and the normals at the seams lean away from it
-            for (c, (a, bulge, tilt)) in [(a0, 1.0, -0.28f32), ((a0 + a1) * 0.5, 1.035, 0.0), (a1, 1.0, 0.28)].into_iter().enumerate() {
+            for (c, (a, bulge, tilt)) in [(a0, 1.0, -0.28f32), ((a0 + a1) * 0.5, BALLOON_BULGE, 0.0), (a1, 1.0, 0.28)].into_iter().enumerate() {
                 let (sa, ca) = a.sin_cos();
                 let radial = Vec3::new(ca, 0.0, sa);
                 let tangent = Vec3::new(-sa, 0.0, ca);
@@ -1758,11 +1843,12 @@ pub fn bus() -> MeshData {
     for x in [-0.2f32, 0.2] {
         b.cylinder(Vec3::new(x, fy + 0.28, 0.0), 0.12, 0.0, 0.55, 8, false, false);
     }
-    // the cables from the frame down to the corners of the roof
-    b.mat(mat::FLAT).hex(0x3b3530);
-    for c in corners {
-        let anchor = Vec3::new(c.x.signum() * 1.4, 1.08, if c.z > 0.0 { 3.72 } else { -3.85 });
-        tube(&mut b, c, anchor, 0.04, 6);
+    // the cables from the envelope's seams down to brackets on the sides of the bus
+    for (top, bottom) in bus_cables() {
+        b.mat(mat::FLAT).hex(0x3b3530);
+        tube(&mut b, top, bottom, BUS_CABLE_R, 6);
+        chrome(&mut b);
+        b.box_center(Vec3::new(bottom.x.signum() * 1.47, bottom.y, bottom.z), Vec3::new(0.042, 0.06, 0.06));
     }
     b.finish()
 }
@@ -2339,10 +2425,101 @@ mod tests {
         assert!((-5.9..-5.5).contains(&body.min.z) && (4.3..4.6).contains(&body.max.z), "length {:?}", (body.min.z, body.max.z));
         assert!((-1.8..-1.6).contains(&bb.min.y) && (18.5..19.2).contains(&bb.max.y), "height {:?}", (bb.min.y, bb.max.y));
         assert!((6.0..6.8).contains(&bb.max.x), "balloon radius {}", bb.max.x);
-        // nothing but the rack's slats rises out of the roof deck where the riders stand (from 3 m behind the windscreen to the back)
-        let deck: Vec<&Vertex> = m.verts.iter().filter(|v| v.pos[0].abs() < 1.0 && (-3.0..3.4).contains(&v.pos[2]) && v.pos[1] > BUS_ROOF_Y - 0.01 && v.pos[1] < 4.0).collect();
-        assert!(deck.iter().all(|v| v.pos[1] < BUS_ROOF_Y + 0.07), "something stands on the deck: {:?}", deck.iter().map(|v| v.pos).find(|p| p[1] >= BUS_ROOF_Y + 0.07));
+        // the deck where the riders stand is clear: nothing rises out of the roof between the rack's runners, from behind the
+        // luggage at the front to the back
+        let deck: Vec<&Vertex> = m.verts.iter().filter(|v| v.pos[0].abs() < 0.95 && (-3.1..3.4).contains(&v.pos[2]) && v.pos[1] > BUS_ROOF_Y + 0.004 && v.pos[1] < 4.0).collect();
+        assert!(deck.is_empty(), "something stands on the deck: {:?}", deck.first().map(|v| v.pos));
         assert!(m.verts.iter().any(|v| v.pos[0] == 0.0 && v.pos[1] == BUS_ROOF_Y), "the roof is at the deck height");
+        // the cables stay out beyond the roof's edge all the way up past the riders' heads
+        for (top, bottom) in bus_cables() {
+            // (the top end is on the envelope's seam)
+            for k in 0..40 {
+                let q = bottom.lerp(top, k as f32 / 40.0);
+                if (BUS_ROOF_Y..BUS_ROOF_Y + 3.0).contains(&q.y) {
+                    assert!(q.x.abs() - BUS_CABLE_R > 1.45, "a cable comes in over the deck at {q:?}");
+                }
+                if let Some(r) = bus_envelope_radius(q.y) {
+                    assert!(Vec2::new(q.x, q.z).length() > r - 0.05, "a cable runs inside the envelope at {q:?}");
+                }
+            }
+        }
+    }
+
+    /// The bus's shell on its own, as triangles, one closed solid per list (the body, then the bonnet).
+    fn bus_shell_solids() -> Vec<Vec<[Vec3; 3]>> {
+        [(&BUS_BODY[..], BUS_BODY_Z, BUS_BODY_ROUND), (&BUS_BONNET[..], BUS_BONNET_Z, BUS_BONNET_ROUND)]
+            .into_iter()
+            .map(|(half, z, round)| {
+                let mut b = MeshBuilder::new();
+                loft(&mut b, half, z[0], z[1], round, 3, &|_, _| {});
+                let m = b.finish();
+                m.idx.chunks(3).map(|t| [0, 1, 2].map(|k| Vec3::from(m.verts[t[k] as usize].pos))).collect()
+            })
+            .collect()
+    }
+
+    /// Whether `p` lies inside one of the closed `solids` (an odd number of crossings along a ray).
+    fn inside(solids: &[Vec<[Vec3; 3]>], p: Vec3) -> bool {
+        let d = Vec3::new(0.137, 0.981, 0.093).normalize();
+        solids.iter().any(|s| s.iter().filter(|t| ray_tri(p, d, t[0], t[1], t[2]).is_some()).count() % 2 == 1)
+    }
+
+    /// How far a ray from `p` along `d` goes before it meets one of the `tris`, measured square to the surface it meets (so a
+    /// thin tube lying on a surface reads as touching it, not as far off along a glancing ray). Glancing hits do not count,
+    /// nor do triangles with a corner at `skip` (the face the ray starts from).
+    fn gap_to(tris: &[[Vec3; 3]], p: Vec3, d: Vec3, skip: Option<Vec3>) -> Option<f32> {
+        let mut best: Option<(f32, f32)> = None;
+        for t in tris {
+            if skip.is_some_and(|q| t.contains(&q)) {
+                continue;
+            }
+            if let Some(h) = ray_tri(p, d, t[0], t[1], t[2]) {
+                if best.is_none_or(|b| h < b.0) {
+                    best = Some((h, (t[1] - t[0]).cross(t[2] - t[0]).normalize_or_zero().dot(d).abs()));
+                }
+            }
+        }
+        best.filter(|b| b.1 > 0.5).map(|b| b.0 * b.1)
+    }
+
+    #[test]
+    fn nothing_bolted_onto_the_bus_floats_off_its_body() {
+        // every face of a part on the bus that looks at the body from close by must touch it, go into it or rest on another
+        // part: a ray out of the face meets something at once, or the body not at all within a hand's breadth. Decals (the
+        // wheel wells) must lie on the body.
+        let solids = bus_shell_solids();
+        let shell: Vec<[Vec3; 3]> = solids.concat();
+        let mut b = MeshBuilder::new();
+        bus_shell(&mut b, &|_, _| {});
+        let first = b.finish().verts.len();
+        let m = bus();
+        let all: Vec<[Vec3; 3]> = m.idx.chunks(3).map(|t| [0, 1, 2].map(|k| Vec3::from(m.verts[t[k] as usize].pos))).collect();
+        let col = |rgb: u32| {
+            let c = to_srgb8(hex(rgb));
+            [c[0], c[1], c[2]]
+        };
+        // the tyres, the mirrors on their arms and the cables stand off the body on purpose
+        let free = [col(0x1c1d21), col(0x30353d), col(0x3b3530), col(0x3b414a)];
+        let well = col(0x16191f);
+        let mut floating = vec![];
+        for v in &m.verts[first..] {
+            let (p, n, c) = (Vec3::from(v.pos), Vec3::from(v.nrm), [v.col[0], v.col[1], v.col[2]]);
+            if p.y > 2.0 || free.contains(&c) || inside(&solids, p) {
+                continue;
+            }
+            // a face that looks at the body from close by must touch it, or rest on another part that does
+            if let Some(g) = gap_to(&shell, p, n, None).filter(|g| (0.012..0.2).contains(g)) {
+                if !gap_to(&all, p - n * 0.002, n, Some(p)).is_some_and(|g| g < 0.014) {
+                    floating.push((g, p, c));
+                }
+            }
+            if c == well && p.x.abs() > 1.25 && (-1.09..-0.3).contains(&p.y) {
+                let g = gap_to(&shell, p, -n, None);
+                assert!(g.is_some_and(|g| g < 0.012), "a wheel well stands off the side at {p:?}: {g:?}");
+            }
+        }
+        floating.sort_by(|a, b| b.0.total_cmp(&a.0));
+        assert!(floating.is_empty(), "{} vertices float off the body, the worst: {:?}", floating.len(), &floating[..floating.len().min(12)]);
     }
 
     #[test]
