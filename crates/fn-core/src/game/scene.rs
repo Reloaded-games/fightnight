@@ -42,12 +42,15 @@ pub struct Scene {
     pub particles: Vec<Particle>,
     pub particles_add: Vec<Particle>,
     pub stats: SceneStats,
-    /// Where each actor stood on the bus's roof when the scene was last built, to catch who has just jumped.
+    /// Where each actor rode the bus when the scene was last built (on its roof, or inside: see [`bus_door_spot`]), to
+    /// catch who has just jumped.
     aboard: Vec<Option<RiderSpot>>,
-    /// Riders who have just jumped, on their way from the roof to where the simulation has them.
+    /// Riders who have just jumped, on their way from the bus to where the simulation has them.
     handoffs: Vec<Handoff>,
     /// Game time of the last build: going back means a new match.
     built_at: f32,
+    /// Game time and the bus's position the last time it was built on its route (see [`Scene::bus_frame`]).
+    bus_seen: Option<(f32, Vec3)>,
 }
 
 /// sRGB-ish colour to the linear tint the shader multiplies with.
@@ -125,12 +128,17 @@ pub fn fit_scale(half: Vec3, target: f32) -> f32 {
 
 /// Where the Battle Bus is drawn: on its route, bobbing and rocking a little under the balloon.
 pub fn bus_matrix(g: &Game) -> Mat4 {
+    bus_matrix_at(g, g.bus.pos)
+}
+
+/// [`bus_matrix`] with the bus at `pos`.
+fn bus_matrix_at(g: &Game, pos: Vec3) -> Mat4 {
     let t = g.time;
-    Mat4::from_translation(g.bus.pos + Vec3::new(0.0, (t * 0.9).sin() * 0.25, 0.0)) * Mat4::from_rotation_y(yaw_of(g.bus.dir)) * Mat4::from_rotation_z((t * 0.7).sin() * 0.025) * Mat4::from_rotation_x((t * 0.5).sin() * 0.015)
+    Mat4::from_translation(pos + Vec3::new(0.0, (t * 0.9).sin() * 0.25, 0.0)) * Mat4::from_rotation_y(yaw_of(g.bus.dir)) * Mat4::from_rotation_z((t * 0.7).sin() * 0.025) * Mat4::from_rotation_x((t * 0.5).sin() * 0.015)
 }
 
 /// How many riders fit on the roof of the bus: the player and nine rows of two. Anyone past that rides inside, out of
-/// sight, until they jump (and drops out of the bottom of the bus).
+/// sight, until they jump, and then comes out of its door (see [`bus_door_spot`]).
 pub const ROOF_RIDERS: usize = 19;
 
 /// The two files of riders stand this far either side of the middle of the roof: far enough apart that no two neighbours
@@ -155,8 +163,8 @@ pub struct RiderSpot {
     /// Turn away from facing the front of the bus.
     pub yaw: f32,
     pub pose: rig::RiderPose,
-    /// Where they hop to when they jump, at the height of the roof: out beside the bus off their side of the roof, or
-    /// behind it off the back (see [`handoff_path`]).
+    /// Where they hop to when they jump, at the height they stand at: out beside the bus off their side of the roof (or out
+    /// of its door), or behind it off the back (see [`handoff_path`]).
     pub exit: Vec3,
 }
 
@@ -195,6 +203,19 @@ pub fn bus_rider_spot(g: &Game, i: usize) -> Option<RiderSpot> {
     Some(RiderSpot { pos, yaw: u(16) * 0.4, pose, exit: Vec3::new(side * SIDE_EXIT_X, roof_y, pos.z) })
 }
 
+/// Where the riders inside the bus (those past [`ROOF_RIDERS`]) come out of it when they jump: out of the door on its right
+/// side, just clear of the doorway at the height of the step under it, facing out, and on with a short hop out to the side
+/// to where those who jump off the roof's right edge land. (The simulation drops them out of the middle of the bus, inside
+/// its body, like everyone else.)
+pub fn bus_door_spot() -> RiderSpot {
+    RiderSpot { pos: DOOR_SPOT, yaw: -std::f32::consts::FRAC_PI_2, pose: rig::RiderPose::Relaxed, exit: Vec3::new(SIDE_EXIT_X, DOOR_SPOT.y, DOOR_SPOT.z) }
+}
+
+/// The feet of someone coming out of the bus's door (see `models::bus`: the door runs from 3.72 m to 2.64 m in front of the
+/// middle of the bus, and the top of the step under it is 1.09 m under its origin), far enough out from the side for
+/// nothing of them to be inside it.
+const DOOR_SPOT: Vec3 = Vec3::new(1.95, -1.09, -3.18);
+
 /// How long someone who jumps off the bus takes to get from their spot on the roof to where the simulation has them.
 pub const HANDOFF_TIME: f32 = 1.0;
 /// How long the hop off the roof to the exit point takes.
@@ -204,7 +225,7 @@ const HOP_TIME: f32 = 0.15;
 /// (`sim`, their feet) and how fast it moves them (`vel`), both in the bus's frame too. The simulation drops a jumper out of
 /// the middle of the bus, inside its body, and the bus flies on away from them, so the drawing makes its own way there
 /// without going through the bus or anyone on it: from their spot they hop over the rack to their exit point (out beside
-/// the bus, or behind it for the player). Off the roof the wind catches them: they are carried along with the simulation,
+/// the bus, or behind it for the player; those who rode inside hop out from its door). Off the bus the wind catches them: they are carried along with the simulation,
 /// and what still parts them from it closes on every other axis first and last on the one they left by, once they are
 /// behind and below the bus. Before `t = 0` they are on their spot, from [`HANDOFF_TIME`] on at `sim`.
 pub fn handoff_path(spot: &RiderSpot, sim: Vec3, vel: Vec3, t: f32) -> Vec3 {
@@ -219,58 +240,123 @@ pub fn handoff_path(spot: &RiderSpot, sim: Vec3, vel: Vec3, t: f32) -> Vec3 {
     sim + gap * (Vec3::ONE - closed)
 }
 
-/// Someone who has just jumped off the bus, drawn on their way from their spot on the roof to where the simulation has them.
+/// When, `t` seconds after the jump, someone getting off the bus has turned from how they stood on it into how the
+/// simulation has them falling (0 to 1).
+fn handoff_turned(t: f32) -> f32 {
+    smoothstep(0.1, 0.55, t)
+}
+
+/// How many parts a posed character has, in the order of [`PARENT`]: pelvis, torso, head, backpack, then the upper arms,
+/// forearms, hands, thighs, shins and boots, left before right.
+const PARTS: usize = 16;
+/// The part each part hangs from, as `rig` builds a pose: the torso from the pelvis, the head, the backpack and the upper
+/// arms from the torso, a forearm from its upper arm and a hand from its forearm, the thighs from the pelvis, a shin from its
+/// thigh and a boot from its shin. (The pelvis, first, hangs from nothing.)
+const PARENT: [usize; PARTS] = [0, 0, 1, 1, 1, 1, 4, 5, 6, 7, 0, 0, 10, 11, 12, 13];
+
+fn parts_of(p: &rig::Pose) -> [Mat4; PARTS] {
+    [p.pelvis, p.torso, p.head, p.backpack, p.arm_up[0], p.arm_up[1], p.arm_low[0], p.arm_low[1], p.hand[0], p.hand[1], p.leg_up[0], p.leg_up[1], p.leg_low[0], p.leg_low[1], p.boot[0], p.boot[1]]
+}
+
+/// How one part of a pose is turned and where it is, in the frame of the part it hangs from.
 #[derive(Clone, Copy, Debug)]
+struct Joint {
+    rot: Quat,
+    off: Vec3,
+}
+
+/// A pose as a chain of joints: each part as it hangs from its parent, and the pelvis as it stands over `feet` (in the world).
+fn joints(p: &rig::Pose, feet: Vec3) -> [Joint; PARTS] {
+    let w = parts_of(p);
+    std::array::from_fn(|i| {
+        let m = if i == 0 { Mat4::from_translation(-feet) * w[0] } else { w[PARENT[i]].inverse() * w[i] };
+        let (_, rot, off) = m.to_scale_rotation_translation();
+        Joint { rot, off }
+    })
+}
+
+/// `q` or `-q` (the same turn), whichever is nearer `near`.
+fn same_way(q: Quat, near: Quat) -> Quat {
+    if q.dot(near) < 0.0 {
+        -q
+    } else {
+        q
+    }
+}
+
+/// The turn a fraction `k` of the way from `a` to `b` along the arc between them as given, the long way round if that is how
+/// they are given. (`Quat::slerp` takes the short way, and so jumps to the other way round when the two pass through half a
+/// turn apart, as a raised arm can be from how it is held in free fall.)
+fn turn_along(a: Quat, b: Quat, k: f32) -> Quat {
+    let d = a.dot(b).clamp(-1.0, 1.0);
+    let angle = d.acos();
+    let s = angle.sin();
+    if s < 1e-3 {
+        // the same turn, or a whole turn apart, which has no one way round: then stay put
+        return if d > 0.0 { a.lerp(b, k).normalize() } else { a };
+    }
+    Quat::from_vec4(Vec4::from(a) * (((1.0 - k) * angle).sin() / s) + Vec4::from(b) * ((k * angle).sin() / s)).normalize()
+}
+
+/// Someone who has just jumped off the bus, drawn on their way from where they stood on it to where the simulation has them.
+#[derive(Clone, Debug)]
 struct Handoff {
     actor: usize,
     /// Game time of the first frame drawn after the jump.
     start: f32,
     spot: RiderSpot,
+    /// How they stood when they jumped, held from then on: the pelvis in the bus's frame (over `spot.pos`), the other parts
+    /// as they hang from theirs.
+    ride: [Joint; PARTS],
+    /// Which of the two quaternions of each part's turn in how the simulation has them falling (the pelvis's in the world)
+    /// was blended towards on the last frame, so each part turns the same way round from one frame to the next. On the
+    /// first frame, the one nearer how they stood, so each turns the short way.
+    fall_q: [Quat; PARTS],
 }
 
-/// How someone standing on the roof of the bus at `spot` is posed, in boots whose soles are `sole` under the ankle.
-fn roof_pose(g: &Game, a: &Actor, spot: &RiderSpot, sole: f32) -> rig::Pose {
-    let root = bus_matrix(g) * Mat4::from_translation(spot.pos) * Mat4::from_rotation_y(spot.yaw);
+impl Handoff {
+    /// Someone who has just jumped from `spot` on the bus, which is at `bus`.
+    fn new(g: &Game, actor: usize, spot: RiderSpot, bus: Mat4, sole: f32) -> Handoff {
+        let a = &g.actors[actor];
+        let ride = joints(&roof_pose(g, a, &spot, Mat4::IDENTITY, sole), spot.pos);
+        let fall = joints(&rig::pose(a), a.pos);
+        let (_, bus_rot, _) = bus.to_scale_rotation_translation();
+        let fall_q = std::array::from_fn(|i| same_way(fall[i].rot, if i == 0 { bus_rot * ride[0].rot } else { ride[i].rot }));
+        Handoff { actor, start: g.time, spot, ride, fall_q }
+    }
+
+    /// Follow how the simulation turns the parts of `a`, who this is, keeping each quaternion on the side it was on.
+    fn follow(&mut self, a: &Actor) {
+        for (q, j) in self.fall_q.iter_mut().zip(joints(&rig::pose(a), a.pos)) {
+            *q = same_way(j.rot, *q);
+        }
+    }
+}
+
+/// How someone standing on the roof of the bus at `spot` is posed, with the bus at `bus`, in boots whose soles are `sole`
+/// under the ankle.
+fn roof_pose(g: &Game, a: &Actor, spot: &RiderSpot, bus: Mat4, sole: f32) -> rig::Pose {
+    let root = bus * Mat4::from_translation(spot.pos) * Mat4::from_rotation_y(spot.yaw);
     rig::bus_rider_pose(a, root, yaw_of(g.bus.dir) + spot.yaw, spot.pose, g.time, sole)
 }
 
-/// One part of a pose blended between how it sits about the root at `pa` in pose A and about `pb` in pose B (`k` from 0 to
-/// 1), about a root at `at`.
-fn blend_part(a: Mat4, pa: Vec3, b: Mat4, pb: Vec3, k: f32, at: Vec3) -> Mat4 {
-    let (_, ra, ta) = a.to_scale_rotation_translation();
-    let (_, rb, tb) = b.to_scale_rotation_translation();
-    Mat4::from_rotation_translation(ra.slerp(rb, k), at + (ta - pa).lerp(tb - pb, k))
-}
-
-/// How someone who has just jumped off the bus is posed: on the path of [`handoff_path`], turning from how they stood on
-/// the roof into how the simulation has them falling.
-fn handoff_pose(g: &Game, a: &Actor, h: &Handoff, sole: f32) -> rig::Pose {
-    let t = g.time - h.start;
-    let bus = bus_matrix(g);
-    let to_bus = bus.inverse();
-    let vel = to_bus.transform_vector3(a.vel - Vec3::new(g.bus.dir.x, 0.0, g.bus.dir.y) * g.bus.speed);
-    let at = bus.transform_point3(handoff_path(&h.spot, to_bus.transform_point3(a.pos), vel, t));
-    let (ride, from) = (roof_pose(g, a, &h.spot, sole), bus.transform_point3(h.spot.pos));
-    let fall = rig::pose(a);
-    let k = smoothstep(0.1, 0.55, t);
-    let mix = |x: Mat4, y: Mat4| blend_part(x, from, y, a.pos, k, at);
-    let mix2 = |x: [Mat4; 2], y: [Mat4; 2]| [mix(x[0], y[0]), mix(x[1], y[1])];
-    let head = mix(ride.head, fall.head);
+/// A pose of the parts in `w` (see [`parts_of`]), holding nothing.
+fn pose_from(w: [Mat4; PARTS], glider: Option<Mat4>, muzzle: Vec3) -> rig::Pose {
     rig::Pose {
-        torso: mix(ride.torso, fall.torso),
-        pelvis: mix(ride.pelvis, fall.pelvis),
-        head,
-        backpack: mix(ride.backpack, fall.backpack),
-        arm_up: mix2(ride.arm_up, fall.arm_up),
-        arm_low: mix2(ride.arm_low, fall.arm_low),
-        hand: mix2(ride.hand, fall.hand),
-        leg_up: mix2(ride.leg_up, fall.leg_up),
-        leg_low: mix2(ride.leg_low, fall.leg_low),
-        boot: mix2(ride.boot, fall.boot),
+        pelvis: w[0],
+        torso: w[1],
+        head: w[2],
+        backpack: w[3],
+        arm_up: [w[4], w[5]],
+        arm_low: [w[6], w[7]],
+        hand: [w[8], w[9]],
+        leg_up: [w[10], w[11]],
+        leg_low: [w[12], w[13]],
+        boot: [w[14], w[15]],
         item: None,
-        glider: fall.glider.map(|m| blend_part(m, a.pos, m, a.pos, 1.0, at)),
-        muzzle: at + (fall.muzzle - a.pos),
-        head_pos: head.transform_point3(Vec3::Y * crate::models::dims::HEAD_C),
+        glider,
+        muzzle,
+        head_pos: w[2].transform_point3(Vec3::Y * crate::models::dims::HEAD_C),
     }
 }
 
@@ -303,48 +389,101 @@ impl Scene {
             aboard: Vec::new(),
             handoffs: Vec::new(),
             built_at: 0.0,
+            bus_seen: None,
         }
     }
 
-    /// Notice who has just jumped off the bus (they stood on its roof last time and are falling now) and start drawing
-    /// their way off it; forget the ones who have got where the simulation has them.
+    /// How far the soles of the boots the look `mode` draws are under the ankle.
+    fn sole(&self, mode: GameMode) -> f32 {
+        let (c, half) = self.centers[crate::lego_models::mapped_mesh(MeshId::CharBoot, mode) as usize];
+        half.y - c.y
+    }
+
+    /// Where the bus is (see [`bus_matrix`]); once it has finished its route, where it would be had it flown on, for those
+    /// still on their way off it.
+    fn bus_frame(&self, g: &Game) -> Mat4 {
+        match self.bus_seen {
+            Some((time, pos)) if !g.bus.active => bus_matrix_at(g, pos + Vec3::new(g.bus.dir.x, 0.0, g.bus.dir.y) * g.bus.speed * (g.time - time)),
+            _ => bus_matrix(g),
+        }
+    }
+
+    /// How someone who has just jumped off the bus is posed: on the path of [`handoff_path`], turning from how they stood on
+    /// it when they jumped into how the simulation has them falling. The pelvis turns and moves from one into the other, and
+    /// every other part turns as it hangs from its parent, from the shoulder down to the hand and from the hip down to the
+    /// boot, so the body holds together all the way.
+    fn handoff_pose(&self, g: &Game, a: &Actor, h: &Handoff) -> rig::Pose {
+        let t = g.time - h.start;
+        let bus = self.bus_frame(g);
+        let to_bus = bus.inverse();
+        let vel = to_bus.transform_vector3(a.vel - Vec3::new(g.bus.dir.x, 0.0, g.bus.dir.y) * g.bus.speed);
+        let at = bus.transform_point3(handoff_path(&h.spot, to_bus.transform_point3(a.pos), vel, t));
+        let fall = rig::pose(a);
+        let shift = |m: Mat4| Mat4::from_translation(at - a.pos) * m;
+        let k = handoff_turned(t);
+        let parts = if k >= 1.0 {
+            parts_of(&fall).map(shift)
+        } else {
+            let (_, bus_rot, _) = bus.to_scale_rotation_translation();
+            let falls = joints(&fall, a.pos);
+            let mut w = [Mat4::IDENTITY; PARTS];
+            for i in 0..PARTS {
+                let (ride, fall) = (h.ride[i], falls[i]);
+                let ride = if i == 0 { Joint { rot: bus_rot * ride.rot, off: bus_rot * ride.off } } else { ride };
+                let m = Mat4::from_rotation_translation(turn_along(ride.rot, same_way(fall.rot, h.fall_q[i]), k), ride.off.lerp(fall.off, k));
+                w[i] = if i == 0 { Mat4::from_translation(at) * m } else { w[PARENT[i]] * m };
+            }
+            w
+        };
+        pose_from(parts, fall.glider.map(shift), at + (fall.muzzle - a.pos))
+    }
+
+    /// Notice who has just jumped off the bus (they were on it last time, on its roof or inside, and are falling now) and
+    /// start drawing their way off it; forget the ones who have got where the simulation has them. Those the bus throws off
+    /// at the end of its route get off it the same way, and those still on their way off then carry on.
     fn track_jumpers(&mut self, g: &Game) {
         if g.time < self.built_at || self.aboard.len() != g.actors.len() {
             self.aboard = vec![None; g.actors.len()];
             self.handoffs.clear();
+            self.bus_seen = None;
         }
         self.built_at = g.time;
+        if g.bus.active {
+            self.bus_seen = Some((g.time, g.bus.pos));
+        }
+        let (bus, sole) = (self.bus_frame(g), self.sole(g.cfg.mode));
         for (i, a) in g.actors.iter().enumerate() {
-            let now = if a.alive && a.mode == MoveMode::Bus && g.bus.active { bus_rider_spot(g, i) } else { None };
+            let now = if a.alive && a.mode == MoveMode::Bus && g.bus.active { Some(bus_rider_spot(g, i).unwrap_or_else(bus_door_spot)) } else { None };
             if let (Some(spot), None) = (self.aboard[i], now) {
-                if g.bus.active && a.alive && matches!(a.mode, MoveMode::Freefall | MoveMode::Glide) {
+                if a.alive && matches!(a.mode, MoveMode::Freefall | MoveMode::Glide) {
                     self.handoffs.retain(|h| h.actor != i);
-                    self.handoffs.push(Handoff { actor: i, start: g.time, spot });
+                    self.handoffs.push(Handoff::new(g, i, spot, bus, sole));
                 }
             }
             self.aboard[i] = now;
         }
         self.handoffs.retain(|h| {
             let a = &g.actors[h.actor];
-            g.bus.active && g.time - h.start < HANDOFF_TIME && a.alive && matches!(a.mode, MoveMode::Freefall | MoveMode::Glide)
+            g.time - h.start < HANDOFF_TIME && a.alive && matches!(a.mode, MoveMode::Freefall | MoveMode::Glide)
         });
+        for h in &mut self.handoffs {
+            h.follow(&g.actors[h.actor]);
+        }
     }
 
     /// How actor `i` is drawn this frame, if at all: standing on the bus's roof, on their way off it after a jump, or where
     /// the simulation has them. (Someone at the wheel of a vehicle is drawn with it instead.)
     pub fn actor_pose(&self, g: &Game, i: usize) -> Option<rig::Pose> {
         let a = g.actors.get(i)?;
-        // how far the soles of the boots this game's look draws are under the ankle
-        let (c, half) = self.centers[crate::lego_models::mapped_mesh(MeshId::CharBoot, g.cfg.mode) as usize];
-        let sole = half.y - c.y;
         if a.mode == MoveMode::Bus {
-            return if a.alive && g.bus.active { bus_rider_spot(g, i).map(|spot| roof_pose(g, a, &spot, sole)) } else { None };
+            // (those inside the bus are out of sight)
+            return if a.alive && g.bus.active { bus_rider_spot(g, i).map(|spot| roof_pose(g, a, &spot, bus_matrix(g), self.sole(g.cfg.mode))) } else { None };
         }
         if !a.alive && a.dead_time > 0.9 {
             return None;
         }
         Some(match self.handoffs.iter().find(|h| h.actor == i) {
-            Some(h) => handoff_pose(g, a, h, sole),
+            Some(h) => self.handoff_pose(g, a, h),
             None => rig::pose(a),
         })
     }
@@ -549,12 +688,13 @@ impl Scene {
 
     // ---- bus --------------------------------------------------------------------------------------------------
 
-    /// The bus with its burner flame, and everyone still on board standing on its roof.
+    /// The bus with its burner flame, and everyone still on board standing on its roof. Once it has finished its route it
+    /// flies on until the last of those it threw off at the end are off it.
     fn bus(&mut self, g: &Game, fr: &Frustum, cp: Vec3) {
-        if !g.bus.active {
+        if !g.bus.active && self.handoffs.is_empty() {
             return;
         }
-        let m = bus_matrix(g);
+        let m = self.bus_frame(g);
         self.push(MeshId::Bus, m, WHITE);
         let t = g.time;
         let flick = 0.85 + 0.15 * (t * 23.0).sin() * (t * 7.3).cos();
@@ -1353,12 +1493,18 @@ mod tests {
     #[test]
     fn riders_jump_off_the_roof_in_one_smooth_move_without_going_through_anything() {
         // a whole ride with everyone jumping in turn, the player half way: each jumper is drawn moving smoothly from their
-        // spot to where the simulation has them, never through the bus, its rack or cables, or anyone still on the roof
+        // spot to where the simulation has them, never through the bus, its rack or cables, or anyone still on the roof; with
+        // 40 players, those who rode inside come out of the door by the front right cable
         let meshes = build_all();
-        let (tris, cables) = bus_obstacles(&meshes);
-        let roof = crate::models::BUS_ROOF_Y;
-        let mut g = game(12, false);
-        let mut scene = Scene::new(&meshes);
+        for (bots, mode) in [(12, GameMode::BattleRoyale), (39, GameMode::BattleRoyale), (39, GameMode::Lego)] {
+            jump_off_the_roof_without_going_through_anything(&meshes, bots, mode);
+        }
+    }
+
+    fn jump_off_the_roof_without_going_through_anything(meshes: &[MeshData], bots: usize, mode: GameMode) {
+        let (tris, cables) = bus_obstacles(meshes);
+        let mut g = crate::game::testutil::game_cfg(GameConfig { bots, seed: 7, mode, god_mode: false, ..Default::default() });
+        let mut scene = Scene::new(meshes);
         let dt = 1.0 / 60.0;
         let n = g.actors.len();
         let mut last: Vec<Option<Vec3>> = vec![None; n];
@@ -1375,7 +1521,7 @@ mod tests {
             let to_bus = bus_matrix(&g).inverse();
             let riders: Vec<Vec<(Aabb, Vec<Vec3>)>> = (0..n)
                 .filter(|&i| g.actors[i].mode == MoveMode::Bus)
-                .filter_map(|i| scene.actor_pose(&g, i).map(|p| body_points(&meshes, g.cfg.mode, &g.actors[i], &p, to_bus)))
+                .filter_map(|i| scene.actor_pose(&g, i).map(|p| body_points(meshes, mode, &g.actors[i], &p, to_bus)))
                 .collect();
             for i in 0..n {
                 let a = &g.actors[i];
@@ -1402,14 +1548,11 @@ mod tests {
                 last_sim[i] = sim;
                 if (0.0..HANDOFF_TIME).contains(&since) && scene.handoffs.iter().any(|h| h.actor == i) {
                     handoffs += 1;
-                    let body = body_points(&meshes, g.cfg.mode, a, &p, to_bus);
-                    // not into the bus: its body and bumpers, its wheels or its mirrors (boxes round them)
+                    let body = body_points(meshes, mode, a, &p, to_bus);
+                    // not into the bus
                     for (_, pts) in &body {
                         for q in pts {
-                            let wheels = (-5.3..-4.0).contains(&q.z) || (2.2..3.5).contains(&q.z);
-                            let in_bus = (q.x.abs() < 1.52 && (-1.12..roof - 0.004).contains(&q.y) && (-5.75..4.45).contains(&q.z)) || (q.x.abs() < 1.65 && (-1.72..-0.48).contains(&q.y) && wheels);
-                            let in_mirror = (1.65..1.85).contains(&q.x.abs()) && (0.1..0.46).contains(&q.y) && (-4.4..-4.15).contains(&q.z);
-                            assert!(!in_bus && !in_mirror, "rider {i} goes through the bus at {q:?}, {since} s after jumping");
+                            assert!(!in_bus(*q), "{mode:?}, {bots} bots: rider {i} goes through the bus at {q:?}, {since} s after jumping");
                         }
                     }
                     let o = obstacle_gap(&body, &tris, &cables);
@@ -1425,12 +1568,356 @@ mod tests {
                 }
             }
         }
-        eprintln!("hand-off frames {handoffs}, biggest step {worst_step:.3} m (the simulation's {worst_sim_step:.3}), nearest miss {:.3} ({} at {:?})", worst_gap.0, worst_gap.2, worst_gap.1);
-        assert!(jumped_at.iter().filter(|t| t.is_some()).count() == n, "everyone jumped before the bus left");
-        assert!(handoffs > 20 * 12, "jumpers were drawn on their way off the roof ({handoffs} frames)");
+        eprintln!("{mode:?}, {} players: hand-off frames {handoffs}, biggest step {worst_step:.3} m (the simulation's {worst_sim_step:.3}), nearest miss {:.3} ({} at {:?})", bots + 1, worst_gap.0, worst_gap.2, worst_gap.1);
+        assert!(jumped_at.iter().filter(|t| t.is_some()).count() == n, "{mode:?}, {bots} bots: everyone jumped before the bus left");
+        assert!(handoffs > 20 * n, "{mode:?}, {bots} bots: jumpers were drawn on their way off the roof ({handoffs} frames)");
         // (the old drawing popped a jumper 4 m in one frame, from the roof into the bus)
-        assert!(worst_step < 1.5 && worst_step < 1.35 * worst_sim_step, "a jumper moves {worst_step} m in one frame");
-        assert!(worst_gap.0 > 0.02, "a jumper touches {} at {:?} ({})", worst_gap.2, worst_gap.1, worst_gap.0);
+        assert!(worst_step < 1.5 && worst_step < 1.35 * worst_sim_step, "{mode:?}, {bots} bots: a jumper moves {worst_step} m in one frame");
+        assert!(worst_gap.0 > 0.02, "{mode:?}, {bots} bots: a jumper touches {} at {:?} ({})", worst_gap.2, worst_gap.1, worst_gap.0);
+    }
+
+    // ---- getting off the bus, frame by frame ------------------------------------------------------------------------------
+
+    /// Whether `q` (in the bus's frame) is inside the bus: its body and bumpers, its wheels, its mirrors or the step under
+    /// its door (boxes round them).
+    fn in_bus(q: Vec3) -> bool {
+        let roof = crate::models::BUS_ROOF_Y;
+        let wheels = (-5.3..-4.0).contains(&q.z) || (2.2..3.5).contains(&q.z);
+        (q.x.abs() < 1.52 && (-1.12..roof - 0.004).contains(&q.y) && (-5.75..4.45).contains(&q.z))
+            || (q.x.abs() < 1.65 && (-1.72..-0.48).contains(&q.y) && wheels)
+            || ((1.65..1.85).contains(&q.x.abs()) && (0.1..0.46).contains(&q.y) && (-4.4..-4.15).contains(&q.z))
+            || ((1.3..1.62).contains(&q.x) && (-1.2..-1.09).contains(&q.y) && (-3.75..-2.6).contains(&q.z))
+    }
+
+    /// How far the joints of a pose are off the parts they hang from (a hand off its wrist, a head off its neck): the worst
+    /// gap and at which part.
+    fn joint_gap(p: &rig::Pose) -> (f32, &'static str) {
+        use dims::*;
+        let mut links = vec![("torso", p.pelvis, Vec3::ZERO, p.torso), ("head", p.torso, Vec3::Y * NECK_Y, p.head), ("backpack", p.torso, Vec3::ZERO, p.backpack)];
+        for i in 0..2 {
+            let sx = if i == 0 { -1.0 } else { 1.0 };
+            links.extend([
+                ("upper arm", p.torso, Vec3::new(sx * SHOULDER_X, SHOULDER_Y, 0.0), p.arm_up[i]),
+                ("forearm", p.arm_up[i], -Vec3::Y * UPPER_ARM, p.arm_low[i]),
+                ("hand", p.arm_low[i], -Vec3::Y * FOREARM, p.hand[i]),
+                ("thigh", p.pelvis, Vec3::new(sx * HIP_X, -HIP_DROP, 0.0), p.leg_up[i]),
+                ("shin", p.leg_up[i], -Vec3::Y * THIGH, p.leg_low[i]),
+                ("boot", p.leg_low[i], -Vec3::Y * SHIN, p.boot[i]),
+            ]);
+        }
+        links.into_iter().map(|(name, parent, joint, child)| (parent.transform_point3(joint).distance(child.w_axis.truncate()), name)).fold((0.0, ""), |w, x| if x.0 > w.0 { x } else { w })
+    }
+
+    /// Every drawn part of a pose as the corners of its mesh's bounds, in the world.
+    fn part_corners(meshes: &[MeshData], mode: GameMode, a: &Actor, p: &rig::Pose) -> Vec<[Vec3; 8]> {
+        posed_parts(mode, a, p)
+            .into_iter()
+            .map(|(mesh, m)| {
+                let b = meshes[mesh as usize].bounds();
+                std::array::from_fn(|k| m.transform_point3(Vec3::new([b.min.x, b.max.x][k & 1], [b.min.y, b.max.y][(k >> 1) & 1], [b.min.z, b.max.z][k >> 2])))
+            })
+            .collect()
+    }
+
+    /// Where the bus is drawn, if it is.
+    fn drawn_bus(scene: &Scene) -> Option<Mat4> {
+        let b = scene.batches.iter().find(|b| b.mesh == MeshId::Bus as u16)?;
+        let i = &scene.instances[b.first as usize];
+        Some(Mat4::from_cols(Vec4::new(i.m0[0], i.m1[0], i.m2[0], 0.0), Vec4::new(i.m0[1], i.m1[1], i.m2[1], 0.0), Vec4::new(i.m0[2], i.m1[2], i.m2[2], 0.0), Vec4::new(i.m0[3], i.m1[3], i.m2[3], 1.0)))
+    }
+
+    /// What [`watch_jumps`] saw.
+    #[derive(Default, Debug)]
+    struct JumpReport {
+        jumped: usize,
+        /// Frames in which someone was drawn on their way off the bus, and how many of them by riders who rode inside.
+        handoff_frames: usize,
+        door_frames: usize,
+        /// The farthest a joint of a jumper came apart (m), and where.
+        joint: (f32, String),
+        /// The farthest a part of someone on or off the bus moved in a frame beyond how far their pelvis moved, less the most
+        /// any part moved so in how the simulation poses them (m), and where.
+        limb_step: (f32, String),
+        /// The biggest change in that from one frame to the next, less the same in how the simulation poses them (m per
+        /// frame): a limb swinging over to the other side all at once.
+        limb_jerk: (f32, String),
+        /// The biggest change in how far someone's pelvis is drawn moving from one frame to the next, less the same in how
+        /// the simulation moves them (m per frame), and where.
+        jerk: (f32, String),
+        /// Frames in which someone off the bus was drawn with a point inside it, and the first.
+        in_bus: (usize, String),
+        /// The farthest a part of a jumper was drawn from how the simulation has them on the last frame of their way off.
+        end_gap: (f32, String),
+        /// How many ways off ended, and frames after them in which someone was not drawn exactly as the simulation has them.
+        ended: usize,
+        after: usize,
+    }
+
+    /// A body watched from frame to frame: where its pelvis and the corners of its parts are, how far the pelvis moved since
+    /// the frame before, and how far each corner moved beyond that.
+    #[derive(Clone)]
+    struct Track {
+        pelvis: Vec3,
+        parts: Vec<[Vec3; 8]>,
+        step: Option<Vec3>,
+        moves: Option<Vec<[Vec3; 8]>>,
+    }
+
+    impl Track {
+        fn new(meshes: &[MeshData], mode: GameMode, a: &Actor, p: &rig::Pose) -> Track {
+            Track { pelvis: p.pelvis.w_axis.truncate(), parts: part_corners(meshes, mode, a, p), step: None, moves: None }
+        }
+
+        /// This frame's track, `then` being last frame's.
+        fn after(self, then: &Track) -> Track {
+            let step = self.pelvis - then.pelvis;
+            let moves = self.parts.iter().zip(&then.parts).map(|(a, b)| std::array::from_fn(|k| a[k] - b[k] - step)).collect();
+            Track { step: Some(step), moves: Some(moves), ..self }
+        }
+
+        /// The farthest a corner moved beyond the pelvis since the frame before, and of which part.
+        fn limb_step(&self) -> (f32, usize) {
+            let mut worst = (0.0, 0);
+            for (j, m) in self.moves.iter().flatten().enumerate() {
+                for v in m {
+                    if v.length() > worst.0 {
+                        worst = (v.length(), j);
+                    }
+                }
+            }
+            worst
+        }
+
+        /// The biggest change in how far a corner moved beyond the pelvis, from `then`'s frame to this one, and of which part.
+        fn limb_jerk(&self, then: &Track) -> (f32, usize) {
+            let mut worst = (0.0, 0);
+            if let (Some(now), Some(before)) = (&self.moves, &then.moves) {
+                for (j, (a, b)) in now.iter().zip(before).enumerate() {
+                    for (v, w) in a.iter().zip(b) {
+                        if v.distance(*w) > worst.0 {
+                            worst = (v.distance(*w), j);
+                        }
+                    }
+                }
+            }
+            worst
+        }
+
+        /// The change in how far the pelvis moved, from `then`'s frame to this one.
+        fn jerk(&self, then: &Track) -> f32 {
+            self.step.zip(then.step).map_or(0.0, |(a, b)| a.distance(b))
+        }
+    }
+
+    /// Someone watched by [`watch_jumps`]: how they are drawn, how the simulation has them if they are off the bus, and
+    /// whether they are on their way off it.
+    #[derive(Clone)]
+    struct Seen {
+        drawn: Track,
+        sim: Option<Track>,
+        handoff: bool,
+    }
+
+    /// Rides the bus at 60 fps for up to `frames` frames, building the scene every frame, with `drive` called on the game
+    /// before every step (to make people jump; it gives the player's input), and watches everyone on the roof and everyone
+    /// getting off: how their joints hold, how their parts and their pelvis move from frame to frame, whether anything of
+    /// theirs goes into the bus, and how they end up where the simulation has them.
+    fn watch_jumps(meshes: &[MeshData], mut g: Game, frames: usize, mut drive: impl FnMut(&mut Game) -> PlayerInput) -> JumpReport {
+        let mut scene = Scene::new(meshes);
+        let (n, mode) = (g.actors.len(), g.cfg.mode);
+        let inside: Vec<bool> = (0..n).map(|i| bus_rider_spot(&g, i).is_none()).collect();
+        let mut seen: Vec<Option<Seen>> = vec![None; n];
+        let mut jumped_at: Vec<Option<f32>> = vec![None; n];
+        let mut r = JumpReport::default();
+        for _ in 0..frames {
+            let input = drive(&mut g);
+            g.update(1.0 / 60.0, &input);
+            scene.build(&g, &g.camera(16.0 / 9.0));
+            let to_bus = drawn_bus(&scene).map(|m| m.inverse());
+            for i in 0..n {
+                let a = &g.actors[i];
+                if a.mode != MoveMode::Bus && jumped_at[i].is_none() {
+                    jumped_at[i] = Some(g.time);
+                    r.jumped += 1;
+                }
+                // (the ones a while off the bus are drawn where the simulation has them, far behind it: no need to watch)
+                let watch = a.alive && jumped_at[i].is_none_or(|t| g.time - t < HANDOFF_TIME + 0.25);
+                let (Some(p), true) = (scene.actor_pose(&g, i), watch) else {
+                    seen[i] = None;
+                    continue;
+                };
+                let who = |what: &str| format!("actor {i}{} {what}, {:.3} s after jumping", if inside[i] { " (rode inside)" } else { "" }, jumped_at[i].map_or(-1.0, |t| g.time - t));
+                let handoff = scene.handoffs.iter().any(|h| h.actor == i);
+                let fall = (a.mode != MoveMode::Bus).then(|| rig::pose(a));
+                if handoff {
+                    r.handoff_frames += 1;
+                    r.door_frames += inside[i] as usize;
+                    let (d, part) = joint_gap(&p);
+                    if d > r.joint.0 {
+                        r.joint = (d, who(part));
+                    }
+                } else if let Some(f) = &fall {
+                    let parts = |p: &rig::Pose| [[p.torso, p.pelvis, p.head, p.backpack], [p.arm_up[0], p.arm_low[0], p.hand[0], p.arm_up[1]], [p.arm_low[1], p.hand[1], p.leg_up[0], p.leg_low[0]], [p.boot[0], p.leg_up[1], p.leg_low[1], p.boot[1]]];
+                    r.after += (parts(&p) != parts(f)) as usize;
+                }
+                // nothing of anyone off the bus inside it
+                if let (Some(to_bus), true) = (to_bus, a.mode != MoveMode::Bus) {
+                    if to_bus.transform_point3(p.pelvis.w_axis.truncate()).length() < 12.0 {
+                        let inside_bus = body_points(meshes, mode, a, &p, to_bus).iter().flat_map(|(_, pts)| pts.iter().copied()).find(|q| in_bus(*q));
+                        if let Some(q) = inside_bus {
+                            if r.in_bus.0 == 0 {
+                                r.in_bus.1 = who(&format!("at {q:?} in the bus's frame"));
+                            }
+                            r.in_bus.0 += 1;
+                        }
+                    }
+                }
+                let mut now = Seen { drawn: Track::new(meshes, mode, a, &p), sim: fall.map(|f| Track::new(meshes, mode, a, &f)), handoff };
+                if let Some(then) = &seen[i] {
+                    now.drawn = now.drawn.after(&then.drawn);
+                    // what the simulation's own pose does, when they were off the bus both frames
+                    if let (Some(s), Some(t)) = (now.sim.take(), &then.sim) {
+                        now.sim = Some(s.after(t));
+                    }
+                    let own = |f: &dyn Fn(&Track, &Track) -> f32| now.sim.as_ref().zip(then.sim.as_ref()).map_or(0.0, |(s, t)| f(s, t));
+                    let (m, j) = now.drawn.limb_step();
+                    let o = own(&|s, _| s.limb_step().0);
+                    if m - o > r.limb_step.0 {
+                        r.limb_step = (m - o, who(&format!("part {j} moved {m:.3} m (the simulation's pose {o:.3})")));
+                    }
+                    let (m, j) = now.drawn.limb_jerk(&then.drawn);
+                    let o = own(&|s, t| s.limb_jerk(t).0);
+                    if m - o > r.limb_jerk.0 {
+                        r.limb_jerk = (m - o, who(&format!("part {j} changed its step by {m:.3} m (the simulation's pose {o:.3})")));
+                    }
+                    let m = now.drawn.jerk(&then.drawn);
+                    let o = own(&|s, t| s.jerk(t));
+                    if m - o > r.jerk.0 {
+                        let len = |s: Option<Vec3>| s.unwrap_or_default().length();
+                        r.jerk = (m - o, who(&format!("pelvis step {:.3} m after {:.3} m", len(now.drawn.step), len(then.drawn.step))));
+                    }
+                    if then.handoff && !handoff {
+                        // the last frame of the way off was drawn about as the simulation had them then
+                        r.ended += 1;
+                        if let Some(s) = &then.sim {
+                            let d = then.drawn.parts.iter().flatten().zip(s.parts.iter().flatten()).map(|(x, y)| x.distance(*y)).fold(0.0, f32::max);
+                            if d > r.end_gap.0 {
+                                r.end_gap = (d, who("on the last frame of their way off"));
+                            }
+                        }
+                    }
+                }
+                seen[i] = Some(now);
+            }
+            if !g.bus.active && scene.handoffs.is_empty() && jumped_at.iter().all(|t| t.is_some_and(|t| g.time - t > HANDOFF_TIME + 0.25)) {
+                break;
+            }
+        }
+        r
+    }
+
+    /// The rides the tests below watch: 13, 25 and 40 players, in both looks, with the player jumping this many seconds
+    /// into the ride.
+    const RIDES: [(usize, GameMode, f32); 6] = [(12, GameMode::BattleRoyale, 4.5), (12, GameMode::Lego, 9.0), (24, GameMode::BattleRoyale, 12.0), (24, GameMode::Lego, 6.0), (39, GameMode::BattleRoyale, 25.0), (39, GameMode::Lego, 8.0)];
+
+    /// The character and bus meshes, built once for the tests that share them.
+    fn shared_meshes() -> &'static [MeshData] {
+        static MESHES: std::sync::OnceLock<Vec<MeshData>> = std::sync::OnceLock::new();
+        MESHES.get_or_init(build_all)
+    }
+
+    /// A whole ride of [`RIDES`]`[k]`, watched (each is ridden once, whichever test asks first): the bots jump when their AI
+    /// wants to, the player when the ride says.
+    fn ride(k: usize) -> &'static JumpReport {
+        static SEEN: [std::sync::OnceLock<JumpReport>; RIDES.len()] = [const { std::sync::OnceLock::new() }; RIDES.len()];
+        SEEN[k].get_or_init(|| {
+            let (bots, mode, at) = RIDES[k];
+            let g = crate::game::testutil::game_cfg(GameConfig { bots, seed: 7, mode, god_mode: false, ..Default::default() });
+            let r = watch_jumps(shared_meshes(), g, 60 * 60, |g| PlayerInput { exit_bus: g.bus.t > at && g.actors[PLAYER].mode == MoveMode::Bus, ..Default::default() });
+            eprintln!("{} players, {mode:?}: {r:?}", bots + 1);
+            assert_eq!(r.jumped, bots + 1, "{} players, {mode:?}: everyone jumped", bots + 1);
+            r
+        })
+    }
+
+    #[test]
+    fn jumpers_hold_together_on_their_way_off_the_bus() {
+        // halfway from how they stood on the roof to how they fall, nobody's hand comes off their wrist or head off their neck
+        for (k, &(bots, mode, _)) in RIDES.iter().enumerate() {
+            let r = ride(k);
+            assert!(r.handoff_frames > 40 * (bots + 1), "{} players, {mode:?}: jumpers were drawn on their way off ({} frames)", bots + 1, r.handoff_frames);
+            assert!(r.joint.0 < 0.003, "{} players, {mode:?}: a joint comes {:.3} m apart: {}", bots + 1, r.joint.0, r.joint.1);
+        }
+    }
+
+    #[test]
+    fn jumpers_never_flip_a_limb_or_pop_from_one_frame_to_the_next() {
+        // (a cheering rider's raised arm is half a turn from how it is held in free fall, and used to swing over one way or
+        // the other from one frame to the next as the cheer went on)
+        for (k, &(bots, mode, _)) in RIDES.iter().enumerate() {
+            let r = ride(k);
+            assert!(r.limb_step.0 < 0.3, "{} players, {mode:?}: a limb moves {:.3} m in a frame: {}", bots + 1, r.limb_step.0, r.limb_step.1);
+            assert!(r.limb_jerk.0 < 0.15, "{} players, {mode:?}: a limb swings over all at once, by {:.3} m: {}", bots + 1, r.limb_jerk.0, r.limb_jerk.1);
+            // (off the side of the roof, the wind catches a jumper and the bus flies on: they slow down from its speed to
+            // the simulation's in a frame, which is a change of about 0.9 m a frame)
+            assert!(r.jerk.0 < 1.5, "{} players, {mode:?}: someone jumps {:.3} m in a frame: {}", bots + 1, r.jerk.0, r.jerk.1);
+        }
+    }
+
+    #[test]
+    fn riders_inside_the_bus_get_off_through_its_door_not_through_its_floor() {
+        // those who do not fit on the roof ride inside, out of sight, and the simulation drops them out of the middle of
+        // the bus: they are drawn coming out of the door, and nothing of them is ever inside the bus
+        for (k, &(bots, mode, _)) in RIDES.iter().enumerate() {
+            let r = ride(k);
+            assert_eq!(r.in_bus.0, 0, "{} players, {mode:?}: someone is drawn inside the bus in {} frames, first {}", bots + 1, r.in_bus.0, r.in_bus.1);
+            if bots + 1 > ROOF_RIDERS {
+                assert!(r.door_frames > 40 * (bots + 1 - ROOF_RIDERS), "{} players, {mode:?}: the riders inside were drawn getting off ({} frames)", bots + 1, r.door_frames);
+            }
+        }
+    }
+
+    #[test]
+    fn a_jumper_ends_up_exactly_as_the_simulation_has_them() {
+        for (k, &(bots, mode, _)) in RIDES.iter().enumerate() {
+            let r = ride(k);
+            assert_eq!(r.ended, bots + 1, "{} players, {mode:?}: every way off ended", bots + 1);
+            assert!(r.end_gap.0 < 0.05, "{} players, {mode:?}: a jumper is {:.3} m off the simulation on the last frame of their way off: {}", bots + 1, r.end_gap.0, r.end_gap.1);
+            assert_eq!(r.after, 0, "{} players, {mode:?}: after their way off, jumpers are drawn as the simulation has them", bots + 1);
+        }
+    }
+
+    #[test]
+    fn riders_still_on_the_bus_at_the_end_of_its_route_get_off_it_smoothly() {
+        // the bots never jump; a rider on the roof and one inside jump a third of a second before the end of the route, and
+        // everyone else is thrown off at its end: all of them are drawn getting off as usual, nobody snaps to where the
+        // simulation has them when the bus finishes its route
+        let meshes = build_all();
+        for mode in [GameMode::BattleRoyale, GameMode::Lego] {
+            let mut g = crate::game::testutil::game_cfg(GameConfig { bots: 24, seed: 7, mode, god_mode: false, ..Default::default() });
+            for a in g.actors.iter_mut().skip(1) {
+                a.brain = None;
+            }
+            g.bus.t = g.bus.total - 1.5;
+            let (roof, inside) = (1, ROOF_RIDERS);
+            assert!(bus_rider_spot(&g, roof).is_some() && bus_rider_spot(&g, inside).is_none());
+            let r = watch_jumps(&meshes, g, 60 * 5, |g| {
+                if g.bus.total - g.bus.t < 0.3 {
+                    for i in [roof, inside] {
+                        matchflow::leave_bus(g, i);
+                    }
+                }
+                PlayerInput::default()
+            });
+            eprintln!("{mode:?}: {r:?}");
+            assert_eq!(r.jumped, 25);
+            assert!(r.handoff_frames > 40 * 25, "{mode:?}: everyone was drawn getting off ({} frames)", r.handoff_frames);
+            assert!(r.jerk.0 < 1.5, "{mode:?}: someone jumps {:.3} m in a frame: {}", r.jerk.0, r.jerk.1);
+            assert!(r.limb_step.0 < 0.3 && r.limb_jerk.0 < 0.15, "{mode:?}: a limb jumps in a frame: {:?} {:?}", r.limb_step, r.limb_jerk);
+            assert!(r.joint.0 < 0.003, "{mode:?}: a joint comes {:.3} m apart: {}", r.joint.0, r.joint.1);
+            assert_eq!(r.in_bus.0, 0, "{mode:?}: someone is drawn inside the bus: {}", r.in_bus.1);
+            assert!(r.ended == 25 && r.end_gap.0 < 0.05 && r.after == 0, "{mode:?}: everyone ends up as the simulation has them: {r:?}");
+        }
     }
 
     #[test]
