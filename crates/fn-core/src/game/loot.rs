@@ -140,6 +140,9 @@ impl Game {
             return;
         }
         self.chests[idx].opened = true;
+        if let Some(a) = self.actors.get_mut(by) {
+            a.opened += 1;
+        }
         let (pos, yaw, kind) = (self.chests[idx].pos, self.chests[idx].yaw, self.chests[idx].kind);
         self.events.push(Event::ChestOpen { pos });
         // a supply crate or a llama is opened with a clatter that carries

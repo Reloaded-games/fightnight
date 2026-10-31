@@ -173,6 +173,27 @@ impl Client {
                     self.pending_events.push_back((at, e));
                 }
             }
+            ServerMsg::Scores(rows) => {
+                for r in rows {
+                    let i = r.id as usize;
+                    let Some(a) = self.game.actors.get_mut(i) else { continue };
+                    // the player's own kills, placement and so on come with every snapshot (fresher than this); and they
+                    // are at this keyboard whatever the host says
+                    if i != self.you {
+                        a.human = r.human;
+                        a.kills = r.kills as u32;
+                        a.placement = r.placement as u32;
+                        a.damage_dealt = r.damage_dealt;
+                        a.survived = r.survived;
+                    }
+                    a.headshots = r.headshots as u32;
+                    a.shots = r.shots as u32;
+                    a.hits = r.hits as u32;
+                    a.longest_elim = r.longest_elim;
+                    a.built = r.built as u32;
+                    a.opened = r.opened as u32;
+                }
+            }
             ServerMsg::Closed => self.closed = Some("The host closed the room.".into()),
             ServerMsg::Reject { reason } => self.closed = Some(reason),
             ServerMsg::Welcome { .. } | ServerMsg::Lobby { .. } | ServerMsg::Start { .. } => {}

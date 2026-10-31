@@ -312,7 +312,11 @@ impl App {
     }
 
     pub fn hud(&self) -> String {
-        let mut json = fn_core::game::hud::hud_json(self.mode.game(), &self.last_cam, self.show_tags);
+        let game = self.mode.game();
+        let mut json = fn_core::game::hud::hud_json(game, &self.last_cam, self.show_tags);
+        json.pop();
+        // where the footsteps and shots the player hears come from
+        json.push_str(&fn_core::game::hud::sounds_json(game, &self.last_cam, self.mixer.markers()));
         // a multiplayer match shows who is playing and how good the connection is
         let net = match (&self.mode, self.net_live) {
             (Mode::Host(h), true) => Some(format!("\"role\":\"host\",\"ping\":0,\"players\":{}", 1 + h.peers().iter().filter(|p| p.connected).count())),
@@ -320,9 +324,9 @@ impl App {
             _ => None,
         };
         if let Some(net) = net {
-            json.pop();
-            json.push_str(&format!(",\"net\":{{{net}}}}}"));
+            json.push_str(&format!(",\"net\":{{{net}}}"));
         }
+        json.push('}');
         json
     }
 
@@ -469,6 +473,16 @@ impl App {
                     }
                     None => "nobody on the bus".into(),
                 }
+            }
+            "elim" => {
+                // elim <victim> [killer]: an actor is eliminated the way a fight would (placement, kill credit, dropped loot)
+                let victim = num(1, 1.0) as usize;
+                let killer = parts.get(2).and_then(|s| s.parse::<usize>().ok()).filter(|&k| k < g.actors.len() && k != victim);
+                if victim >= g.actors.len() {
+                    return "no such actor".into();
+                }
+                g.eliminate(victim, killer, WeaponKind::AssaultRifle.name(), false);
+                "ok".into()
             }
             "kill_bots" => {
                 for i in 1..g.actors.len() {

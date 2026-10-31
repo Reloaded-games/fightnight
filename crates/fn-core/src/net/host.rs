@@ -6,6 +6,7 @@
 
 use super::proto::*;
 use crate::game::actor::{Action, Actor, MoveMode};
+use crate::game::audio_map::SHOT_MARKER_RANGE;
 use crate::game::events::Event;
 use crate::game::items::Item;
 use crate::game::pieces::PieceKey;
@@ -34,6 +35,8 @@ pub const TIMEOUT: f32 = 8.0;
 pub const READY_TIMEOUT: f32 = 45.0;
 /// Most operations in one reliable message (the first, full picture is cut into several).
 const OPS_PER_MESSAGE: usize = 300;
+/// The scoreboard goes out at most this often (seconds) while nobody is eliminated.
+pub const SCORE_PERIOD: f32 = 1.0;
 
 /// What the host chooses when it starts the match.
 #[derive(Clone, Debug)]
@@ -330,6 +333,9 @@ pub struct Host {
     closed: bool,
     /// Events the host itself made up between simulation steps (a player left): sent along with the next step's.
     extra_events: Vec<Event>,
+    /// The scoreboard as the players last heard it, and the time since it was last looked at.
+    scores: Vec<ScoreNet>,
+    score_acc: f32,
 }
 
 impl Host {
@@ -345,7 +351,7 @@ impl Host {
         }
         let out = room.out;
         let started = peers.is_empty();
-        let mut h = Host { game, setup, peers, out, shadow: Shadow::default(), clock: 0.0, snap_acc: 0.0, tick_no: 0, started, closed: false, extra_events: vec![] };
+        let mut h = Host { game, setup, peers, out, shadow: Shadow::default(), clock: 0.0, snap_acc: 0.0, tick_no: 0, started, closed: false, extra_events: vec![], scores: vec![], score_acc: 0.0 };
         if started {
             h.begin_match();
         }
@@ -470,6 +476,7 @@ impl Host {
             }
         }
         self.game.update(dt, input);
+        self.send_scores(dt);
         self.send_events();
         self.send_sync();
         self.snap_acc += dt;
@@ -499,6 +506,23 @@ impl Host {
                 self.send(id, &ServerMsg::Events { time, events });
             }
         }
+    }
+
+    /// The scoreboard lines that changed: at once when somebody is eliminated or the match is decided, otherwise at most every
+    /// [`SCORE_PERIOD`] (damage adds up all through a fight).
+    fn send_scores(&mut self, dt: f32) {
+        self.score_acc += dt;
+        let decided = self.game.events.iter().any(|e| matches!(e, Event::Eliminated { .. } | Event::Victory { .. }));
+        if !decided && self.score_acc < SCORE_PERIOD {
+            return;
+        }
+        self.score_acc = 0.0;
+        let now: Vec<ScoreNet> = self.game.actors.iter().map(score_net).collect();
+        let changed: Vec<ScoreNet> = now.iter().enumerate().filter(|(i, s)| self.scores.get(*i) != Some(*s)).map(|(_, s)| *s).collect();
+        if !changed.is_empty() {
+            self.broadcast(&ServerMsg::Scores(changed));
+        }
+        self.scores = now;
     }
 
     fn send_sync(&mut self) {
@@ -586,7 +610,7 @@ pub(crate) fn audience(g: &Game, e: &Event, who: usize) -> bool {
         Event::Eliminated { .. } | Event::Victory { .. } | Event::StormPhase { .. } | Event::TreeFelled { .. } => true,
         Event::Explosion { pos, .. } | Event::Impulse { pos } | Event::Boogie { pos } => near(*pos, 300.0),
         Event::Launch { pos, .. } | Event::TrapPlaced { pos, .. } => near(*pos, 160.0),
-        Event::Shot { pos, .. } => near(*pos, 220.0),
+        Event::Shot { pos, .. } => near(*pos, SHOT_MARKER_RANGE),
         Event::Tracer { from, .. } => near(*from, 220.0),
         Event::Damage { attacker, pos, .. } => *attacker == Some(who) || near(*pos, 160.0),
         Event::Pickup { actor, pos, .. } => *actor == who || near(*pos, 80.0),
@@ -655,6 +679,24 @@ pub fn own_of(a: &Actor) -> Own {
         build_mat: a.build_mat,
         mv: move_state(a),
         regen: a.regen,
+    }
+}
+
+pub fn score_net(a: &Actor) -> ScoreNet {
+    let short = |v: u32| v.min(65535) as u16;
+    ScoreNet {
+        id: a.id.min(255) as u8,
+        human: a.human,
+        kills: short(a.kills),
+        placement: short(a.placement),
+        damage_dealt: a.damage_dealt,
+        survived: a.survived,
+        headshots: short(a.headshots),
+        shots: short(a.shots),
+        hits: short(a.hits),
+        longest_elim: a.longest_elim,
+        built: short(a.built),
+        opened: short(a.opened),
     }
 }
 

@@ -14,7 +14,9 @@ shot lake --state playing --opts "skipbus=1;bots=12;god=1;map=island" --cmd "tp 
 shot build --state playing --opts "skipbus=1;bots=12;god=1;map=island" --cmd "tp -10 40|look 20 -3|mats 500|build_demo" --keys "KeyQ:100,KeyZ:100" --wait 2500
 shot storm --state playing --opts "skipbus=1;bots=12;god=1;map=island" --cmd "tp 21 -171|storm_set 21 -230 70|look 180 -2|give ar rare" --wait 2500
 shot scope --state playing --quality low --opts "skipbus=1;bots=12;god=1;map=island" --cmd "tp 21 -171|look 90 0|give sniper epic" --keys "+Mouse2:9000" --wait 300
-shot victory --state playing --quality low --opts "skipbus=1;bots=12;god=1;map=island" --cmd "tp -10 40|stats 7 566 1184|kill_bots" --wait 16000
+shot victory --state playing --quality low --opts "skipbus=1;bots=12;god=1;map=island;storm=0.2" --cmd "tp -10 40|ff 240|stats 7 566 1184|kill_bots" --wait 16000
+# the bots fight for a few (fast-forwarded) minutes so the board has real results, then the end screen opens it with bots shown
+shot leaderboard --state playing --quality low --opts "skipbus=1;bots=19;god=1;map=island;storm=3" --cmd "tp -10 40|ff 240|stats 6 400 910|kill_bots" --eval "new Promise((done) => { const t = setInterval(() => { if (window.__game.state !== 'over') return; clearInterval(t); document.getElementById('btn-over-leaderboard').click(); document.getElementById('leaderboard-bots').click(); done(true); }, 200); })" --wait 1500
 shot inventory --state playing --opts "skipbus=1;bots=12;god=1;map=island" --cmd "tp -10 40|give shotgun legendary|give smg rare|give sniper epic|give ar epic" --keys "Tab:100" --wait 1500
 shot map --state playing --opts "skipbus=1;bots=12;god=1;map=island" --cmd "tp -10 40" --keys "KeyM:100" --wait 1500
 echo "wrote $(ls "$out" | wc -l) screenshots to docs/screenshots"
