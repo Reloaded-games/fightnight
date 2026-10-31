@@ -48,6 +48,9 @@ and hay bale) are embedded in the game. Rebuild instructions and researched free
   up cliffs, box yourself in, and watch bullets and rockets chew through your pieces.
 * **Harvesting**: hit trees (wood), grey rocks (stone) and the blue-grey ore rocks (metal) with the pickaxe (trees really fall over).
 * **Shrinking storm** in 7 phases that forces everyone together, with a minimap, full map and storm timer.
+* **Sound directions**: like the footstep and gunfire indicators of mobile shooters, a ring around the crosshair
+  points at the footsteps and jumps (white) and the shots (red, up to 220 m away) you can hear, the moment the sound
+  reaches you, bolder the closer it is, and follows a moving enemy until they go quiet. Turn it off in Settings.
 * **Three maps**, chosen in the menu (and by the multiplayer host): **Chapter 1** and **Chapter 2**, recreations of
   the Fortnite Battle Royale islands of Chapter 1 (season 4) and Chapter 2 (season 1) built from their real layouts
   (every named location in its grid cell, the coastline, lakes, rivers, swamps, hills and roads), and the
@@ -57,8 +60,8 @@ and hay bale) are embedded in the game. Rebuild instructions and researched free
 * Fortnite-flavoured lighting (cascaded shadow maps, bloom, ACES grading, soft sky and clouds), procedural
   character animation (run/crouch/air/swim/glide cycles, IK-held weapons, reload and swing animations, a
   dance emote and a victory dance) and a Canvas2D HUD in the same visual language (compass, minimap, skewed
-  health/shield bars, rarity-coloured hotbar, kill feed, hit markers, damage numbers, victory screen with
-  confetti).
+  health/shield bars, rarity-coloured hotbar, kill feed, hit markers, damage numbers, sound directions, victory
+  screen with confetti).
 
 ## Screenshots
 
@@ -183,7 +186,7 @@ crates/
                so almost everything is unit tested without a browser.
     src/world/   island: terrain + biomes, lakes, roads, towns and buildings, props, colliders, nav grid, minimap
     src/game/    actors, movement/physics, combat, loot, building pieces, storm + bus, bot AI, rig (animation),
-                 scene (draw lists), fx (particles), hud (JSON snapshot), audio_map (positional cues),
+                 scene (draw lists), fx (particles), hud (JSON snapshot), audio_map (positional cues, sound markers),
                  cmd + remote (the commands a networked player sends and how the host applies them)
     src/net/     multiplayer: wire format, protocol, the host (room + authoritative match), the guest's lobby and
                  predicted copy of the match; no I/O, so it is tested natively through an in-memory network

@@ -12,7 +12,7 @@ const NOLOCK = q.get('nolock') === '1';
 // ------------------------------------------------------------------------------------------------
 // Settings
 // ------------------------------------------------------------------------------------------------
-const DEFAULTS = { name: 'You', mode: 'battle-royale', map: 'chapter1', outfit: 'scout', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, perf: false, autoquality: true };
+const DEFAULTS = { name: 'You', mode: 'battle-royale', map: 'chapter1', outfit: 'scout', bots: 39, difficulty: 'normal', quality: 'high', skipbus: false, sens: 10, fov: 62, vol: 70, invert: false, autosprint: true, tags: false, sounds: true, perf: false, autoquality: true };
 let cfg = { ...DEFAULTS };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('fightnight.settings') || '{}')); } catch (e) { /* storage unavailable */ }
 if (!['battle-royale', 'zero-build', 'lego'].includes(cfg.mode)) cfg.mode = DEFAULTS.mode;
@@ -153,6 +153,7 @@ function applyRuntimeOptions() {
   fn.set_options(0.00022 * cfg.sens, !!cfg.invert, cfg.fov, !!cfg.tags, !!cfg.autosprint);
   audio.setVolume(cfg.vol / 100);
   hud.showPerf = !!cfg.perf;
+  hud.showSounds = !!cfg.sounds;
 }
 
 function wireUi() {
@@ -179,6 +180,7 @@ function wireUi() {
   bindCheck('set-invert', 'invert', applyRuntimeOptions);
   bindCheck('set-autosprint', 'autosprint', applyRuntimeOptions);
   bindCheck('set-tags', 'tags', applyRuntimeOptions);
+  bindCheck('set-sounds', 'sounds', applyRuntimeOptions);
   bindCheck('set-fps', 'perf', applyRuntimeOptions);
   bindCheck('set-autoq', 'autoquality');
 

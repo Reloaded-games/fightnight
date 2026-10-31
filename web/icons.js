@@ -176,6 +176,36 @@ export function drawPerson(ctx, x, y, s, color = '#fff') {
   ctx.restore();
 }
 
+/** Two footprints, one ahead of the other: somebody walking. */
+export function drawSteps(ctx, x, y, s, color = '#fff') {
+  ctx.save();
+  ctx.fillStyle = color;
+  for (const [fx, fy] of [[x - s * 0.16, y + s * 0.1], [x + s * 0.16, y - s * 0.12]]) {
+    ctx.beginPath(); ctx.ellipse(fx, fy - s * 0.07, s * 0.11, s * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(fx, fy + s * 0.2, s * 0.08, s * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** A bullet between two speed lines: somebody shooting. */
+export function drawShot(ctx, x, y, s, color = '#fff') {
+  ctx.save();
+  ctx.fillStyle = color;
+  const w = s * 0.13;
+  ctx.beginPath();
+  ctx.moveTo(x - w, y - s * 0.05);
+  ctx.quadraticCurveTo(x - w, y - s * 0.32, x, y - s * 0.4);
+  ctx.quadraticCurveTo(x + w, y - s * 0.32, x + w, y - s * 0.05);
+  ctx.closePath(); ctx.fill();
+  ctx.fillRect(x - w, y - s * 0.01, w * 2, s * 0.32);
+  ctx.fillRect(x - w * 1.25, y + s * 0.33, w * 2.5, s * 0.07);
+  ctx.strokeStyle = color; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const k of [-1, 1]) { ctx.moveTo(x + k * s * 0.3, y - s * 0.12); ctx.lineTo(x + k * s * 0.3, y + s * 0.28); }
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawStorm(ctx, x, y, s, color = '#fff') {
   ctx.save();
   ctx.strokeStyle = color; ctx.lineWidth = Math.max(2, s * 0.09); ctx.lineCap = 'round';

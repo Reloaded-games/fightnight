@@ -34,9 +34,53 @@ pub struct LoopLevels {
     pub hum_pan: f32,
 }
 
+/// What a sound direction marker on the HUD stands for: the sounds a player most needs to place, somebody walking and
+/// somebody shooting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SoundKind {
+    Steps,
+    Shot,
+}
+
+impl SoundKind {
+    /// Seconds a marker stays up after the last sound.
+    pub fn life(self) -> f32 {
+        match self {
+            SoundKind::Steps => 1.2,
+            SoundKind::Shot => 2.0,
+        }
+    }
+}
+
+/// A sound the listener heard, for the HUD to point at. One per actor and kind: every new step or shot moves and refreshes
+/// it, so a running enemy is a single marker that follows them around.
+#[derive(Clone, Copy, Debug)]
+pub struct SoundMarker {
+    pub kind: SoundKind,
+    pub actor: usize,
+    pub pos: Vec3,
+    /// How close it was: 1 beside the listener, 0 at the edge of its marker range.
+    pub level: f32,
+    /// `Game::time` the last sound reached the listener (sound takes time to travel, and the marker waits for it like
+    /// the cue does).
+    pub at: f32,
+}
+
+/// More markers than this at once is noise, not information: the weakest goes.
+const MAX_MARKERS: usize = 12;
+
+/// Shots leave a marker out to this distance: as far as the host sends shots to the other players (see
+/// `net::host::audience`), so a guest's ring shows the same as the host's.
+pub const SHOT_MARKER_RANGE: f32 = 220.0;
+
 pub struct Mixer {
     rng: Rng,
     started: bool,
+    markers: Vec<SoundMarker>,
+    /// Sounds still on their way to the listener: each becomes a marker when it arrives (at its `at`).
+    pending: Vec<SoundMarker>,
+    /// The actor the markers were heard through (spectating someone else starts afresh).
+    marker_listener: usize,
 }
 
 impl Default for Mixer {
@@ -83,7 +127,39 @@ fn shot_sfx(w: WeaponKind) -> Sfx {
 
 impl Mixer {
     pub fn new() -> Mixer {
-        Mixer { rng: Rng::new(0xA0D10), started: false }
+        Mixer { rng: Rng::new(0xA0D10), started: false, markers: vec![], pending: vec![], marker_listener: usize::MAX }
+    }
+
+    /// The footsteps and shots heard lately, for the HUD's direction markers.
+    pub fn markers(&self) -> &[SoundMarker] {
+        &self.markers
+    }
+
+    /// A sound that reaches the listener at `at`, to be marked then; none beyond `range`.
+    fn hear(&mut self, kind: SoundKind, actor: usize, pos: Vec3, listener: Vec3, range: f32, at: f32) {
+        let d = pos.distance(listener);
+        if d <= range {
+            self.pending.push(SoundMarker { kind, actor, pos, level: 1.0 - d / range, at });
+        }
+    }
+
+    fn mark(&mut self, new: SoundMarker, now: f32) {
+        if let Some(m) = self.markers.iter_mut().find(|m| m.actor == new.actor && m.kind == new.kind) {
+            if new.at >= m.at {
+                *m = new;
+            }
+            return;
+        }
+        if self.markers.len() >= MAX_MARKERS {
+            // full: the weakest goes (faint and nearly faded), unless the new one is weaker still
+            let strength = |m: &SoundMarker| m.level * (1.0 - (now - m.at) / m.kind.life());
+            let Some(weakest) = (0..self.markers.len()).min_by(|&a, &b| strength(&self.markers[a]).total_cmp(&strength(&self.markers[b]))) else { return };
+            if strength(&self.markers[weakest]) >= strength(&new) {
+                return;
+            }
+            self.markers.swap_remove(weakest);
+        }
+        self.markers.push(new);
     }
 
     fn variant(&mut self, sfx: Sfx) -> u32 {
@@ -97,13 +173,14 @@ impl Mixer {
         out.push(AudioCue { sfx, variant, pan: 0.0, gain, pitch, lowpass: 20000.0, delay: 0.0 });
     }
 
+    /// Queue a positional cue; its travel time, or `None` when it is too far away to be heard.
     #[allow(clippy::too_many_arguments)]
-    fn at(&mut self, out: &mut Vec<AudioCue>, listener: Vec3, cam: &Camera, sfx: Sfx, pos: Vec3, ref_d: f32, max_d: f32, base: f32) {
-        if let Some(s) = spatial(listener, cam, pos, ref_d, max_d, base) {
-            let variant = self.variant(sfx);
-            let pitch = self.rng.range(0.96, 1.04);
-            out.push(AudioCue { sfx, variant, pan: s.pan, gain: s.gain, pitch, lowpass: s.lowpass, delay: s.delay });
-        }
+    fn at(&mut self, out: &mut Vec<AudioCue>, listener: Vec3, cam: &Camera, sfx: Sfx, pos: Vec3, ref_d: f32, max_d: f32, base: f32) -> Option<f32> {
+        let s = spatial(listener, cam, pos, ref_d, max_d, base)?;
+        let variant = self.variant(sfx);
+        let pitch = self.rng.range(0.96, 1.04);
+        out.push(AudioCue { sfx, variant, pan: s.pan, gain: s.gain, pitch, lowpass: s.lowpass, delay: s.delay });
+        Some(s.delay)
     }
 
     /// Cues for everything that happened during the last `Game::update`.
@@ -114,14 +191,24 @@ impl Mixer {
             self.started = true;
             self.two_d(out, Sfx::DropIn, 0.9);
         }
+        if self.marker_listener != me {
+            self.marker_listener = me;
+            self.markers.clear();
+            self.pending.clear();
+        }
+        let now = g.time;
+        let alive = |actor: usize| g.actors.get(actor).is_some_and(|a| a.alive);
+        self.markers.retain(|m| now >= m.at && now - m.at < m.kind.life() && alive(m.actor));
+        // (a sound is never more than 2 s away; one due later than that is from a clock that went back)
+        self.pending.retain(|p| p.at - now <= 2.0 && alive(p.actor));
         for e in &g.events {
             match e {
                 Event::Shot { actor, pos, weapon, .. } => {
                     if *actor == me {
                         let variant = self.variant(shot_sfx(*weapon));
                         out.push(AudioCue { sfx: shot_sfx(*weapon), variant, pan: 0.0, gain: 0.95, pitch: self.rng.range(0.98, 1.02), lowpass: 20000.0, delay: 0.0 });
-                    } else {
-                        self.at(out, listener, cam, shot_sfx(*weapon), *pos, 10.0, 420.0, 1.0);
+                    } else if let Some(delay) = self.at(out, listener, cam, shot_sfx(*weapon), *pos, 10.0, 420.0, 1.0) {
+                        self.hear(SoundKind::Shot, *actor, *pos, listener, SHOT_MARKER_RANGE, now + delay);
                     }
                 }
                 Event::Impact { pos, kind, .. } => {
@@ -165,23 +252,24 @@ impl Mixer {
                     };
                     if *actor == me {
                         self.two_d(out, sfx, 0.32);
-                    } else {
-                        self.at(out, listener, cam, sfx, *pos, 2.5, 38.0, 0.55);
+                    } else if let Some(delay) = self.at(out, listener, cam, sfx, *pos, 2.5, 38.0, 0.55) {
+                        self.hear(SoundKind::Steps, *actor, *pos, listener, 38.0, now + delay);
                     }
                 }
                 Event::Jump { actor, pos } => {
                     if *actor == me {
                         self.two_d(out, Sfx::Jump, 0.4);
-                    } else {
-                        self.at(out, listener, cam, Sfx::Jump, *pos, 2.5, 25.0, 0.4);
+                    } else if let Some(delay) = self.at(out, listener, cam, Sfx::Jump, *pos, 2.5, 25.0, 0.4) {
+                        // a jump or a landing is somebody moving too (a player hopping along makes no footsteps)
+                        self.hear(SoundKind::Steps, *actor, *pos, listener, 25.0, now + delay);
                     }
                 }
                 Event::Land { actor, pos, speed, .. } => {
                     let g_ = (speed / 14.0).clamp(0.25, 1.0) * 0.8;
                     if *actor == me {
                         self.two_d(out, Sfx::Land, g_);
-                    } else {
-                        self.at(out, listener, cam, Sfx::Land, *pos, 3.0, 40.0, g_);
+                    } else if let Some(delay) = self.at(out, listener, cam, Sfx::Land, *pos, 3.0, 40.0, g_) {
+                        self.hear(SoundKind::Steps, *actor, *pos, listener, 40.0, now + delay);
                     }
                 }
                 Event::Reload { actor, pos, kind } => {
@@ -218,8 +306,12 @@ impl Mixer {
                         self.at(out, listener, cam, sfx, *pos, 3.0, 35.0, 0.5);
                     }
                 }
-                Event::ChestOpen { pos } => self.at(out, listener, cam, Sfx::ChestOpen, *pos, 8.0, 140.0, 1.0),
-                Event::HarvestHit { pos, .. } => self.at(out, listener, cam, Sfx::HarvestHit, *pos, 5.0, 60.0, 0.9),
+                Event::ChestOpen { pos } => {
+                    self.at(out, listener, cam, Sfx::ChestOpen, *pos, 8.0, 140.0, 1.0);
+                }
+                Event::HarvestHit { pos, .. } => {
+                    self.at(out, listener, cam, Sfx::HarvestHit, *pos, 5.0, 60.0, 0.9);
+                }
                 Event::TreeFelled { pos, .. } => {
                     self.at(out, listener, cam, Sfx::HarvestBreak, *pos, 8.0, 100.0, 0.9);
                     self.at(out, listener, cam, Sfx::TreeFall, *pos, 12.0, 170.0, 0.9);
@@ -236,8 +328,12 @@ impl Mixer {
                         self.at(out, listener, cam, sfx, *pos, 6.0, 75.0, 0.8);
                     }
                 }
-                Event::PieceDestroyed { pos, .. } => self.at(out, listener, cam, Sfx::PieceDestroy, *pos, 8.0, 110.0, 0.9),
-                Event::Explosion { pos, .. } => self.at(out, listener, cam, Sfx::Explosion, *pos, 25.0, 750.0, 1.0),
+                Event::PieceDestroyed { pos, .. } => {
+                    self.at(out, listener, cam, Sfx::PieceDestroy, *pos, 8.0, 110.0, 0.9);
+                }
+                Event::Explosion { pos, .. } => {
+                    self.at(out, listener, cam, Sfx::Explosion, *pos, 25.0, 750.0, 1.0);
+                }
                 // an impulse is a deep thump and a rush of air, a Boogie Bomb a sparkle (and then the music is the dance)
                 Event::Impulse { pos } => {
                     self.at(out, listener, cam, Sfx::Explosion, *pos, 12.0, 300.0, 0.45);
@@ -296,6 +392,12 @@ impl Mixer {
                     }
                 _ => {}
             }
+        }
+        // the sounds that have reached the listener become markers
+        let (arrived, on_the_way): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending).into_iter().partition(|p| p.at <= now);
+        self.pending = on_the_way;
+        for p in arrived {
+            self.mark(p, now);
         }
         self.loops(g, me, listener, cam)
     }
@@ -391,6 +493,118 @@ mod tests {
         assert!(out.iter().any(|c| c.sfx == Sfx::ShotShotgun && c.pan == 0.0 && c.delay == 0.0));
         assert!(out.iter().any(|c| c.sfx == Sfx::HitHead));
         assert!(!out.iter().any(|c| c.sfx == Sfx::StepGrass), "footsteps 200 m away are inaudible");
+    }
+
+    /// Advance the clock by `dt`, let the mixer hear the events queued since, then clear them.
+    fn tick(g: &mut Game, m: &mut Mixer, dt: f32) {
+        g.time += dt;
+        let cam = cam_at(g.actors[PLAYER].eye_pos());
+        m.process(g, &cam, &mut vec![]);
+        g.events.clear();
+    }
+
+    fn marked(m: &Mixer) -> Vec<(SoundKind, usize)> {
+        m.markers().iter().map(|k| (k.kind, k.actor)).collect()
+    }
+
+    fn steps(actor: usize, pos: Vec3) -> Event {
+        Event::Footstep { actor, pos, surface: Surface::Grass }
+    }
+
+    #[test]
+    fn heard_steps_and_shots_leave_direction_markers_that_fade() {
+        let mut g = game(4, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        g.events.clear();
+        let me = g.actors[PLAYER].pos;
+        let mut m = Mixer::new();
+        g.events.push(steps(1, me + Vec3::new(6.0, 0.0, 0.0)));
+        g.events.push(steps(PLAYER, me));
+        g.events.push(steps(2, me + Vec3::new(200.0, 0.0, 0.0)));
+        g.events.push(Event::Shot { actor: 3, pos: me + Vec3::new(0.0, 1.0, -150.0), weapon: WeaponKind::Sniper, end: me, hit_actor: false });
+        // audible, but further away than the host tells the other players about
+        g.events.push(Event::Shot { actor: 2, pos: me + Vec3::new(-300.0, 1.0, 0.0), weapon: WeaponKind::Sniper, end: me, hit_actor: false });
+        tick(&mut g, &mut m, 0.0);
+        assert!(m.markers().is_empty(), "a sound is marked when it arrives, not when it is made");
+        tick(&mut g, &mut m, 0.1);
+        assert_eq!(marked(&m), vec![(SoundKind::Steps, 1)], "the steps 6 m away have arrived, the shot 150 m away (0.44 s) not yet");
+        tick(&mut g, &mut m, 0.4);
+        assert_eq!(marked(&m), vec![(SoundKind::Steps, 1), (SoundKind::Shot, 3)], "own steps, inaudible ones and shots beyond the marker range leave none");
+        let first = m.markers()[0];
+        assert!(first.level > 0.8, "6 m away is close: {}", first.level);
+        assert!(m.markers()[1].level < 0.4, "150 m of the 220 m range is not: {}", m.markers()[1].level);
+
+        // the same walker keeps one marker, which follows them
+        g.events.push(steps(1, me + Vec3::new(20.0, 0.0, 0.0)));
+        tick(&mut g, &mut m, 0.2);
+        tick(&mut g, &mut m, 0.1);
+        let walker: Vec<_> = m.markers().iter().filter(|k| k.actor == 1).collect();
+        assert_eq!(walker.len(), 1);
+        assert_eq!(walker[0].pos.x, me.x + 20.0);
+        assert!(walker[0].level < first.level);
+
+        // steps fade before shots, and both are gone after a few quiet seconds
+        tick(&mut g, &mut m, 1.3);
+        assert_eq!(marked(&m), vec![(SoundKind::Shot, 3)]);
+        tick(&mut g, &mut m, 0.5);
+        assert!(m.markers().is_empty());
+
+        // a marker goes with the one who made it, and so does a sound still on its way
+        g.events.push(Event::Footstep { actor: 2, pos: me + Vec3::new(0.0, 0.0, 5.0), surface: Surface::Wood });
+        tick(&mut g, &mut m, 0.0);
+        tick(&mut g, &mut m, 0.1);
+        assert_eq!(marked(&m), vec![(SoundKind::Steps, 2)]);
+        g.actors[2].alive = false;
+        g.events.push(steps(1, me + Vec3::new(0.0, 0.0, 30.0)));
+        tick(&mut g, &mut m, 0.0);
+        g.actors[1].alive = false;
+        tick(&mut g, &mut m, 0.2);
+        assert!(m.markers().is_empty());
+    }
+
+    #[test]
+    fn jumps_and_landings_count_as_steps() {
+        // a player hopping along makes no footsteps at all, only jumps and landings
+        let mut g = game(3, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        g.events.clear();
+        let me = g.actors[PLAYER].pos;
+        let mut m = Mixer::new();
+        g.events.push(Event::Jump { actor: 1, pos: me + Vec3::new(8.0, 0.0, 0.0) });
+        g.events.push(Event::Land { actor: 2, pos: me + Vec3::new(0.0, 0.0, 15.0), speed: 8.0, surface: Surface::Grass });
+        g.events.push(Event::Jump { actor: 3, pos: me + Vec3::new(0.0, 0.0, -60.0) });
+        tick(&mut g, &mut m, 0.0);
+        tick(&mut g, &mut m, 0.1);
+        assert_eq!(marked(&m), vec![(SoundKind::Steps, 1), (SoundKind::Steps, 2)], "a jump 60 m away is not heard");
+    }
+
+    #[test]
+    fn a_full_ring_drops_its_weakest_marker() {
+        let mut g = game(14, true);
+        g.update(1.0 / 60.0, &PlayerInput::default());
+        g.events.clear();
+        let me = g.actors[PLAYER].pos;
+        let mut m = Mixer::new();
+        // eleven walkers close by and one a little further away
+        for a in 1..=11 {
+            g.events.push(steps(a, me + Vec3::new(5.0, 0.0, a as f32 * 0.1)));
+        }
+        g.events.push(steps(12, me + Vec3::new(0.0, 0.0, 15.0)));
+        tick(&mut g, &mut m, 0.0);
+        tick(&mut g, &mut m, 0.2);
+        assert_eq!(m.markers().len(), MAX_MARKERS);
+        // a faint shot far away pushes nobody out
+        g.events.push(Event::Shot { actor: 13, pos: me + Vec3::new(0.0, 1.0, 210.0), weapon: WeaponKind::Pistol, end: me, hit_actor: false });
+        tick(&mut g, &mut m, 0.0);
+        tick(&mut g, &mut m, 0.7);
+        assert!(!m.markers().iter().any(|k| k.actor == 13), "{:?}", marked(&m));
+        // a shot close by does, and the one that goes is the faint walker
+        g.events.push(Event::Shot { actor: 13, pos: me + Vec3::new(0.0, 1.0, -10.0), weapon: WeaponKind::Shotgun, end: me, hit_actor: false });
+        tick(&mut g, &mut m, 0.0);
+        tick(&mut g, &mut m, 0.1);
+        assert_eq!(m.markers().len(), MAX_MARKERS);
+        assert!(m.markers().iter().any(|k| k.actor == 13));
+        assert!(!m.markers().iter().any(|k| k.actor == 12), "{:?}", marked(&m));
     }
 
     #[test]
