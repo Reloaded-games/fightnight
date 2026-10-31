@@ -474,6 +474,16 @@ impl App {
                     None => "nobody on the bus".into(),
                 }
             }
+            "elim" => {
+                // elim <victim> [killer]: an actor is eliminated the way a fight would (placement, kill credit, dropped loot)
+                let victim = num(1, 1.0) as usize;
+                let killer = parts.get(2).and_then(|s| s.parse::<usize>().ok()).filter(|&k| k < g.actors.len() && k != victim);
+                if victim >= g.actors.len() {
+                    return "no such actor".into();
+                }
+                g.eliminate(victim, killer, WeaponKind::AssaultRifle.name(), false);
+                "ok".into()
+            }
             "kill_bots" => {
                 for i in 1..g.actors.len() {
                     g.actors[i].alive = false;

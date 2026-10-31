@@ -168,6 +168,12 @@ pub fn hud() -> String {
     with_app(String::new(), |app| app.hud())
 }
 
+/// Everybody's numbers and points for the match (JSON, see `fn_core::game::scoreboard`).
+#[wasm_bindgen]
+pub fn scoreboard() -> String {
+    with_app(String::new(), |app| fn_core::game::scoreboard::scoreboard_json(app.mode.game()))
+}
+
 /// 1024x1024 RGBA top-down map of the island.
 #[wasm_bindgen]
 pub fn minimap() -> Vec<u8> {
