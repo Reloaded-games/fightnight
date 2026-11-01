@@ -1,0 +1,101 @@
+{
+  "name": "Powerwasher Hero",
+  "status": "completed",
+  "source_prompt": "Fortnite style 3D character design, character concept sheet, full body turnaround reference, front view, side view, back view, clean neutral T-pose, A-pose, standing pose. A stylized hero character specialized in high-pressure washing. Wearing modern heroic tactical power-washer overalls, protective goggles, boots, and gloves. NO handheld props, NO water jet spray, NO weapons attached, isolated on a solid neutral clean grey background. Stylized 3D art, vibrant colors, semi-realistic PBR textures, clean topology, Unreal Engine 5 render, Fortnite game style --ar 16:9",
+  "reference_image": "reference-front.png",
+  "reference_generator": "OpenAI imagegen",
+  "model_provider": "Meshy",
+  "model_version": "Meshy 6 Lite",
+  "model_license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "Powerwasher Hero, created by aldrinstori using Meshy. Licensed under CC BY 4.0.",
+  "constraints": {
+    "pose": "A-pose",
+    "handheld_props": false,
+    "water_spray": false,
+    "weapons": false
+  },
+  "tripo_api_status": "Authenticated successfully; balance 0 credits. No generation submitted.",
+  "created_date": "2026-10-31",
+  "provider_model_name": "Turbo Tech Foreman",
+  "generation_route": "Existing signed-in Meshy web account; no new account or subscription",
+  "meshy_credits_consumed": 20,
+  "credits_purchased": 0,
+  "rig": {
+    "joints": 77,
+    "format": "GLB and Mixamo-compatible FBX",
+    "animations": [
+      {
+        "name": "Running",
+        "duration_seconds": 0.6333333253860474
+      },
+      {
+        "name": "Walking",
+        "duration_seconds": 1.0333333015441895
+      }
+    ]
+  },
+  "static_model": {
+    "height_metres": 1.8,
+    "triangles": 93556,
+    "vertices": 53211,
+    "textures": [
+      {
+        "name": "Image_0",
+        "size": [
+          2048,
+          2048
+        ]
+      },
+      {
+        "name": "Image_1",
+        "size": [
+          2048,
+          2048
+        ]
+      },
+      {
+        "name": "Image_2",
+        "size": [
+          2048,
+          2048
+        ]
+      }
+    ],
+    "pose": "A-pose",
+    "geometry": "AI-generated triangle mesh; not manual quad retopology",
+    "handheld_props": false,
+    "weapons": false
+  },
+  "turnaround": {
+    "file": "turnaround.png",
+    "width": 2560,
+    "height": 1440,
+    "views": [
+      "front",
+      "side",
+      "back"
+    ],
+    "source": "Three rotations of the actual generated mesh",
+    "renderer": "Blender 5.2.3 LTS / Eevee"
+  },
+  "validation": {
+    "powerwasher.glb": {
+      "errors": 0,
+      "warnings": 0,
+      "report": "powerwasher.glb.validation.json"
+    },
+    "powerwasher-meshy-source.glb": {
+      "errors": 0,
+      "warnings": 1,
+      "report": "powerwasher-meshy-source.glb.validation.json"
+    },
+    "powerwasher-rigged.glb": {
+      "errors": 0,
+      "warnings": 2,
+      "report": "powerwasher-rigged.glb.validation.json"
+    }
+  },
+  "game_integration": "Standalone asset package; not integrated into Fightnight runtime",
+  "license_scope": "Meshy model exports and derivatives; preserve CC BY 4.0 attribution independently of repository license"
+}

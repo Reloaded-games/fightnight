@@ -1,0 +1,109 @@
+{
+  "files": [
+    {
+      "path": "fbx/Meshy_AI_Turbo_Tech_Foreman_biped_Character_output.fbx",
+      "bytes": 10888380,
+      "sha256": "3f0f493ca74095183288b45ab1cd8b96340c40c9b4f9d63b623061f51c4a369c"
+    },
+    {
+      "path": "fbx/Meshy_AI_Turbo_Tech_Foreman_biped_Meshy_Merged_Animations.fbx",
+      "bytes": 11238348,
+      "sha256": "2638ac793ea99c94604b4ca2e7b45001ba3f413fe4bd3d9aff26560d430fede3"
+    },
+    {
+      "path": "fbx/Meshy_AI_Turbo_Tech_Foreman_biped_texture_0.png",
+      "bytes": 4789711,
+      "sha256": "cf717dab9f7b8cc0325decd76fde92d1e3bdf5e29b7786bbd41cc746c470e921"
+    },
+    {
+      "path": "fbx/Meshy_AI_Turbo_Tech_Foreman_biped_texture_0_metallic.png",
+      "bytes": 50030,
+      "sha256": "29ebbc571150b62e1efc59688d9f9f64d7c38e241dcbd2cabacb7bddfe48b1b1"
+    },
+    {
+      "path": "fbx/Meshy_AI_Turbo_Tech_Foreman_biped_texture_0_normal.png",
+      "bytes": 4195368,
+      "sha256": "8b0505de6066043eebc9779ba38326104652cb29f72aab89bb057cf62fe189d4"
+    },
+    {
+      "path": "fbx/Meshy_AI_Turbo_Tech_Foreman_biped_texture_0_roughness.png",
+      "bytes": 1225527,
+      "sha256": "be70c9134ded46cd313f4b189c1e69dabc33cd763ef23f7e1df8a17db0a13f1d"
+    },
+    {
+      "path": "generation.json",
+      "bytes": 3323,
+      "sha256": "e69b5dcefb3ab8cb4a52c6b73f1116dc12ce787642027b7c2fab9305d0d215e2"
+    },
+    {
+      "path": "meshy-rig-preview.png",
+      "bytes": 99617,
+      "sha256": "5aa67663426eeb90a7f78c7c5e16b6ef4c550e3c23b0884cf3a3417958600d31"
+    },
+    {
+      "path": "model-info.json",
+      "bytes": 528,
+      "sha256": "d56a7ad26b3a8a61b747f84c5c7df6bb52b6344a05e435fdf7cdea98bf76d876"
+    },
+    {
+      "path": "powerwasher-meshy-source.glb",
+      "bytes": 8667420,
+      "sha256": "402c4ca2e116c7c48fcd96f597de193995c12ba7d4360fdc0e0ef8997e706341"
+    },
+    {
+      "path": "powerwasher-meshy-source.glb.validation.json",
+      "bytes": 2065,
+      "sha256": "1368386857a53fcf4f1ee4d8ca966b75d0b381b47dfe1a324e93e0788043f548"
+    },
+    {
+      "path": "powerwasher-rigged.glb",
+      "bytes": 9466872,
+      "sha256": "8aab8683f3e48c95cd7cd8375937c823052fa983b525dec285db1079377d70df"
+    },
+    {
+      "path": "powerwasher-rigged.glb.validation.json",
+      "bytes": 2121,
+      "sha256": "10790b3da5e1928ac27eb3c47830a518a7bec03844e7c8a6ba1875d9978b0518"
+    },
+    {
+      "path": "powerwasher.blend",
+      "bytes": 10123052,
+      "sha256": "6a5bedd3a4f2e005ffa076c689c92546b4bae60c607c135d3377515f6af1d0ba"
+    },
+    {
+      "path": "powerwasher.fbx",
+      "bytes": 7803148,
+      "sha256": "bdc95e7525272a17c187b3329d7482a330c85069e9c34690bf3184472606d1c5"
+    },
+    {
+      "path": "powerwasher.glb",
+      "bytes": 8957184,
+      "sha256": "730d958d35c21085741568e0b3a2d721976849c3f39fc01a612c675a280a4165"
+    },
+    {
+      "path": "powerwasher.glb.validation.json",
+      "bytes": 1558,
+      "sha256": "8985ada1d91452b1aba8124403d7e44c82f71fa38ae8746ff5a508db2739f089"
+    },
+    {
+      "path": "README.txt",
+      "bytes": 2955,
+      "sha256": "d7775727b784c5c44b4c745bc6f3902bea3c26590591d35f16769d12d2b6b2a4"
+    },
+    {
+      "path": "reference-front.png",
+      "bytes": 1938801,
+      "sha256": "b52201966e9cb692e9d1c921cd9b9c8ac51282125b172e4866019dda9a25ac24"
+    },
+    {
+      "path": "turnaround-studio.blend",
+      "bytes": 10127238,
+      "sha256": "4cd8dc9ce24ae35bb839ebcf96ad28f1e78d2f3558eafd21eb05ea5da1740f83"
+    },
+    {
+      "path": "turnaround.png",
+      "bytes": 2572951,
+      "sha256": "77daf8e45555990f227fa0b6ca7eff9252ceff7f446e426270c01a03eee099d7"
+    }
+  ]
+}

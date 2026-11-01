@@ -1,0 +1,13 @@
+{
+  "slug": "polar-warden",
+  "name": "Polar Warden",
+  "prompt": "Use case: stylized-concept. Asset type: SINGLE FRONT VIEW reference for image-to-3D character generation for our Fortnite-inspired game. Create one full-body character, facing directly toward camera, symmetrical relaxed A-pose, arms 35 degrees away from torso, hands open and empty with five distinct fingers, feet shoulder-width apart, complete head and boots visible with margin. Orthographic-looking front view. Solid clean medium-light grey background, soft even studio lighting, minimal ground shadow. High-quality stylized 3D videogame art, expressive strong readable silhouette, vibrant colors, semi-realistic clean PBR materials, Fortnite art direction. Original character design. No text, logos, watermarks, weapons, tools, handheld props, attached weapons, backpacks, companions, base pedestal, scenery or multiple views. Subject: original imposing adult male arctic knight, inspired by the armored winter ruler archetypes in Fortnite. Broad heroic build wearing sculpted navy and frosty silver segmented armor with teal crystal inlays, closed angular helmet with two small upward crown prongs and a narrow icy cyan visor, substantial rounded pauldrons, dark insulated cloth beneath armor, armored gloves and heavy boots. Symmetric blue enamel chest plate with a geometric snow crystal motif. No cloak, cape, long fabric, enormous spikes, weapon, shield or floating effects. All ice accents are solid armor details, not particles.",
+  "status": "reference-generated",
+  "reference_generator": "OpenAI imagegen (built-in)",
+  "reference_image": "reference-front.png",
+  "model_provider": "Meshy",
+  "model_version": "Meshy 6 Lite",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "created_date": "2026-10-31"
+}

@@ -13,6 +13,11 @@ editable island overview. Eight new Blender props (rocks, barrel, crate, stump
 and hay bale) are embedded in the game. Rebuild instructions and researched free
 3D-generation options are included with the library.
 
+The [Powerwasher Hero asset package](assets/characters/powerwasher/README.txt) includes a
+Meshy-generated PBR character, a 77-joint rig with walking/running clips, GLB/FBX exports,
+editable Blender files and a three-view turnaround. Its models use CC BY 4.0 with attribution;
+this standalone package is not yet connected to the playable character system.
+
 * Drop from the **Battle Bus** (hot-air balloon and all), skydive and glide onto the island.
 * **Third-person shoulder camera**, smooth movement, sprint / crouch / jump / swim, **aim down sights**,
   weapon bloom and recoil, **reloading**, headshots and damage falloff.
