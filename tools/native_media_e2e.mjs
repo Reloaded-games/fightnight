@@ -1,0 +1,76 @@
+// Real Chrome/WebGPU/WebAudio flow against the native conversion HTTP server.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {spawn} from 'node:child_process';
+import {launch} from './browser.mjs';
+
+const server=spawn('python',['-u','tools/serve_imported.py','--port','0'],{windowsHide:true});
+let serverLogs='';server.stderr.on('data',b=>serverLogs+=b.toString());
+const url=await new Promise((resolve,reject)=>{
+  const timeout=setTimeout(()=>reject(new Error('Local server startup timeout')),20000);
+  server.stdout.on('data',b=>{const match=b.toString().match(/http:\/\/127\.0\.0\.1:\d+\//);if(match){clearTimeout(timeout);resolve(match[0]);}});
+  server.once('error',reject);server.once('exit',code=>{if(code)reject(new Error(serverLogs));});
+});
+const {browser,page,logs}=await launch({width:1280,height:850});
+page.setDefaultTimeout(60000);let checks=0;
+const check=(name,value)=>{assert.ok(value,name);checks++;console.log('PASS '+name);};
+const stats=()=>page.evaluate(()=>JSON.parse(window.__game.fn.imported_mesh_stats()));
+try {
+  await page.goto(url+'?nolock=1&quality=low&opts='+encodeURIComponent('bots=2;skipbus=1;god=1;map=island'));
+  await page.waitForFunction(()=>window.__game?.state==='menu',null,{timeout:240000});
+  await page.click('#btn-imported');
+  await page.waitForSelector('.library-card',{timeout:240000});
+  await page.fill('.library-filters input','SK_M_MALE_Base');
+  await page.locator('.library-card').filter({hasText:'SK_M_MALE_Base'}).first().click();
+  await page.waitForFunction(()=>!document.querySelector('[data-action="apply"]').disabled);
+  await page.selectOption('.library-filters select','animation');
+  await page.fill('.library-filters input','DualWield_Idle_CMM');
+  await page.locator('.library-card').filter({hasText:'DualWield_Idle_CMM'}).first().click();
+  await page.getByText('Colocar animação no cenário',{exact:true}).waitFor();
+  check('native animation resolves real skeleton bones',(await page.locator('.library-details').textContent()).includes('84/88'));
+  const canvas=()=>page.evaluate(()=>document.querySelector('.library-preview canvas').toDataURL());
+  const frame0=await canvas();await page.waitForTimeout(550);check('preview deforms the real recovered mesh',(await canvas())!==frame0);
+  await page.getByText('Pausar animação',{exact:true}).click();
+  const paused=await canvas();await page.waitForTimeout(250);check('preview pause holds the pose',(await canvas())===paused);
+  await page.screenshot({path:'docs/imported/native-animation-preview.png'});
+  await page.getByText('Colocar animação no cenário',{exact:true}).click();
+  await page.waitForFunction(()=>window.__game.state==='playing'&&!document.querySelector('.imported-library').open,null,{timeout:120000});
+  check('animated geometry is submitted to the running WebGPU game',(await stats()).animated===1);
+  const at=(await stats()).animationFrames[0];
+  await page.waitForFunction(frame=>JSON.parse(window.__game.fn.imported_mesh_stats()).animationFrames[0]!==frame,at,{timeout:30000});
+  check('simulation advances the imported frame',(await stats()).animationFrames[0]!==at);
+  check('prepared native effects replace the three existing game cues',await page.evaluate(()=>['shot_ar','shot_shotgun','ui_click'].every(n=>window.__game.audio.imported.has(n))));
+  check('WebAudio decodes rifle variants and the exact menu duration',await page.evaluate(()=>{const a=window.__game.audio;return a.buffers[a.names.indexOf('shot_ar')].length===3&&Math.abs(a.buffers[a.names.indexOf('ui_click')][0].duration-31585/24000)<.001;}));
+  const level=await page.evaluate(async()=>{
+    const a=window.__game.audio,analyser=a.ctx.createAnalyser();a.master.connect(analyser);a.playUi('ui_click',1);
+    await new Promise(r=>setTimeout(r,250));const data=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(data);a.master.disconnect(analyser);
+    return Math.max(...data.map(Math.abs));
+  });check('native PCM actually flows through the game audio mixer',level>.0001);
+  await page.evaluate(()=>window.__game.freezeFrame());await page.screenshot({path:'docs/imported/native-animation-in-game.png'});await page.evaluate(()=>window.__game.unfreeze());
+  await page.keyboard.press('Escape');
+  const stopped=(await stats()).animationFrames[0];await page.waitForTimeout(300);
+  check('game pause also pauses the imported animation',(await stats()).animationFrames[0]===stopped);
+  await page.click('#btn-pause-imported');
+  await page.selectOption('.library-filters select','audio');await page.fill('.library-filters input','SLC_Monitor_Beep_01');
+  await page.locator('.library-card').filter({hasText:'SLC_Monitor_Beep_01'}).first().click();
+  await page.waitForFunction(()=>document.querySelector('.library-preview audio')?.readyState>=2);
+  const duration=await page.evaluate(async()=>{const a=document.querySelector('.library-preview audio');await a.play();return a.duration;});
+  check('on-demand RADA converts and plays through native browser audio',Math.abs(duration-34702/48000)<.001);
+  await page.selectOption('[aria-label="Efeito de áudio"]','shot_pistol');
+  await page.getByText('Usar este som na partida',{exact:true}).click();
+  await page.waitForFunction(()=>!document.querySelector('.imported-library').open);
+  check('selected native sound becomes a playable weapon cue',await page.evaluate(()=>window.__game.audio.imported.has('shot_pistol')));
+  check('malformed animation is refused without replacing the working clip',await page.evaluate(()=>{const f=window.__game.fn,before=f.imported_mesh_stats();try{f.install_imported_animation(new Uint8Array(12));return false;}catch{return before===f.imported_mesh_stats();}}));
+  await page.keyboard.press('Escape');await page.click('#btn-pause-imported');
+  await page.selectOption('.library-filters select','animation');await page.fill('.library-filters input','GhostRock_Jog_N_CMM');
+  await page.locator('.library-card').filter({hasText:'GhostRock_Jog_N_CMM'}).first().click();
+  await page.waitForFunction(()=>document.querySelector('.library-details').textContent.includes('aditiva'));
+  check('additive animation reports its missing reference instead of playing an invalid pose',await page.getByText('Colocar animação no cenário',{exact:true}).count()===0);
+  const response=await fetch(url+'api/imported/audio/invalid');check('server rejects arbitrary IDs',response.status===422);
+  await page.evaluate(()=>{window.__game.fn.reset_imported_meshes();window.__game.audio.restoreImported();});
+  check('reset releases clips and restores the synthesized sound bank',(await stats()).animated===0&&await page.evaluate(()=>window.__game.audio.imported.size===0));
+  check('no JavaScript or WebGPU validation errors',!logs.some(s=>/\[pageerror\]|GPUValidationError|validation error/i.test(s)));
+  fs.writeFileSync('docs/imported/native-media-browser-verification.json',JSON.stringify({checks,passed:true,level,logs},null,2));
+} catch(error) {
+  console.error(await page.evaluate(()=>({state:window.__game?.state,waiting:window.__game?.waiting,frames:window.__game?.frames,stats:window.__game?.fn.imported_mesh_stats(),details:document.querySelector('.library-details')?.textContent,feedback:document.querySelector('.library-feedback')?.textContent})),logs,serverLogs.slice(-2500));throw error;
+} finally {await browser.close();server.kill();}

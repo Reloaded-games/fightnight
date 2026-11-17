@@ -50,7 +50,7 @@ const mp = createMultiplayer({
 window.__game = { get state() { return state; }, get overlay() { return overlay; }, get waiting() { return waitingForLock; }, get hud() { return hudState; }, fn, cfg, frames: 0, audio };
 window.__game.mp = mp;
 const importedLibrary = createImportedLibrary({
-  fn,
+  fn, audio,
   canOpen: () => {
     if (mp.active) { note('A biblioteca de modelos está disponível em partidas solo.'); return false; }
     return ready && ['menu', 'paused'].includes(state);

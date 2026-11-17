@@ -1,11 +1,12 @@
 import { loadGLB, fetchAssetBytes } from './asset-loader.js';
 import { bakeMesh, previewMesh } from './mesh-adapter.js';
+import { createNativeMediaUI } from './native-media-ui.js';
 
 const CATALOG = new URL('../assets/imported/library.json', import.meta.url);
 const TYPES={mesh:'Modelos',texture:'Texturas',audio:'Áudio',animation:'Animações',skeleton:'Esqueletos',data:'Dados',native:'Outros'};
 
 /** Connect the complete extraction catalog to Fightnight's solo renderer. */
-export function createImportedLibrary({fn, startSolo, canOpen}) {
+export function createImportedLibrary({fn, audio, startSolo, canOpen}) {
   const dialog=document.createElement('dialog');dialog.className='imported-library';
   dialog.innerHTML=`<header><div><small>FIGHT NIGHT · ACERVO IMPORTADO</small><h2>Conteúdo do Fortnite</h2></div><button data-action="close" aria-label="Fechar biblioteca">Fechar</button></header>
     <p class="library-summary" role="status">Carregando acervo…</p>
@@ -21,6 +22,8 @@ export function createImportedLibrary({fn, startSolo, canOpen}) {
   let catalog, filtered=[],page=0,selected=null,model=null,sequence=0,busy=false;
   let records=[],filterSequence=0;
   let previewURL=null;
+  let animationModel=null,animationModelLabel='';
+  const nativeMedia=createNativeMediaUI({preview:$('.library-preview'),details:$('.library-details'),feedback:$('.library-feedback'),fn,audio,startSolo,close});
   async function verifiedBytes(asset,url) {
     const bytes=await fetchAssetBytes(url,{maxBytes:64*1024*1024});
     const hash=await crypto.subtle.digest('SHA-256',bytes);
@@ -44,10 +47,13 @@ export function createImportedLibrary({fn, startSolo, canOpen}) {
     $('[data-action="next"]').disabled=(page+1)*pageSize>=filtered.length;
   }
   async function select(asset) {
+    nativeMedia.stop();
     const token=++sequence; selected=asset;model=null;
     if(previewURL){URL.revokeObjectURL(previewURL);previewURL=null;}
     $('.library-name').textContent=asset.label;$('.library-preview').replaceChildren();
     $('.library-feedback').textContent='';$('[data-action="apply"]').disabled=true;
+    $('[data-action="apply"]').hidden=asset.type!=='mesh';
+    $('.library-target').closest('label').hidden=asset.type!=='mesh';
     const url=new URL(asset.url,CATALOG).href;
     const download=$('.library-download');download.href=url;download.hidden=false;download.download=asset.label+'.'+asset.format;
     $('.library-details').textContent=asset.supported?'Carregando prévia…':'Arquivo preservado no formato original; ainda precisa de conversão para reprodução no jogo.';
@@ -56,10 +62,16 @@ export function createImportedLibrary({fn, startSolo, canOpen}) {
         const loaded=await loadGLB({url,contentHash:asset.sha256},{maxVertices:200000,maxIndices:900000});
         if(token!==sequence)return;
         model=loaded;const canvas=document.createElement('canvas');canvas.width=500;canvas.height=380;
+        if(model.rig){animationModel=model;animationModelLabel=asset.label;}
         $('.library-preview').append(canvas);previewMesh(canvas,model);
         let angle=.6;canvas.onclick=()=>previewMesh(canvas,model,angle+=.5);
-        $('.library-details').textContent=`${model.triangleCount.toLocaleString('pt-BR')} triângulos. ${model.skinned?'Personagem em pose fixa; rig e animações preservados no original. ':''}Prévia de geometria em cinza. Na partida, usam-se cores dos materiais e vértices; texturas separadas permanecem no acervo. Clique na prévia para girar.`;
+        $('.library-details').textContent=`${model.triangleCount.toLocaleString('pt-BR')} triângulos. ${model.skinned?'Esqueleto selecionado: escolha um clipe na categoria Animações para reproduzir. ':''}Prévia de geometria em cinza. Na partida, usam-se cores dos materiais e vértices; texturas separadas permanecem no acervo. Clique na prévia para girar.`;
         $('[data-action="apply"]').disabled=false;
+      } else if(asset.type==='animation'&&asset.format==='ueanim') {
+        const bytes=await verifiedBytes(asset,url);if(token!==sequence)return;
+        nativeMedia.animation(bytes,animationModel,animationModelLabel);
+      } else if(asset.type==='audio'&&asset.format==='rada') {
+        await nativeMedia.sound(asset);
       } else if(asset.type==='texture'&&asset.supported) {
         const bytes=await verifiedBytes(asset,url);if(token!==sequence)return;
         previewURL=URL.createObjectURL(new Blob([bytes],{type:`image/${asset.format}`}));
@@ -84,8 +96,9 @@ export function createImportedLibrary({fn, startSolo, canOpen}) {
         catalog=await response.json();
         records=catalog.assets;
       }
-      $('.library-summary').textContent=`${(catalog.summary.catalogAssets||catalog.summary.verifiedAssets||catalog.assets.length).toLocaleString('pt-BR')} recursos no acervo. Modelos podem ser usados em partidas solo. As prévias conferem o SHA-256; áudio e animações nativos permanecem no formato original.`;
+      $('.library-summary').textContent=`${(catalog.summary.catalogAssets||catalog.summary.verifiedAssets||catalog.assets.length).toLocaleString('pt-BR')} recursos no acervo. Escolha um modelo com esqueleto e depois uma animação compatível. Áudios RADA usam conversão local sob demanda; prévias e arquivos originais têm integridade conferida.`;
       renderResults();
+      if(selected&&['ueanim','rada'].includes(selected.format))await select(selected);
     } catch(error){$('.library-summary').textContent=`Acervo local indisponível: ${error.message}. Execute a preparação de assets do projeto.`;}
   }
   async function applyDefaults() {
@@ -100,9 +113,9 @@ export function createImportedLibrary({fn, startSolo, canOpen}) {
       } catch(error){console.warn(`Imported ${entry.label}: ${error.message||error}`);}
     }
   }
-  function close() { ++sequence;dialog.querySelectorAll('audio').forEach(a=>a.pause());dialog.close(); }
+  function close() { ++sequence;nativeMedia.stop();dialog.querySelectorAll('audio').forEach(a=>a.pause());dialog.close(); }
   $('[data-action="close"]').onclick=close;
-  dialog.addEventListener('cancel',()=>dialog.querySelectorAll('audio').forEach(a=>a.pause()));
+  dialog.addEventListener('cancel',()=>{++sequence;nativeMedia.stop();dialog.querySelectorAll('audio').forEach(a=>a.pause());});
   $('input').oninput=()=>{page=0;renderResults();};
   $('.library-filters select').onchange=async()=>{
     const token=++filterSequence,kind=$('.library-filters select').value;

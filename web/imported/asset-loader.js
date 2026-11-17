@@ -204,7 +204,7 @@ export function parseGLB(input,options={}) {
    }
    if(!colors){sourceColorStats.min=null;sourceColorStats.max=null;}
    if(primitives.length>=limits.maxPrimitives)throw new Error('GLB: limite de primitivas excedido.');
-   primitives.push({vertices,indices,material:material.baseColorTexture&&!uv?{...material,baseColorTexture:null}:material,sourceColorStats,nodeIndex:ni,nodeName:node.name||`node-${ni}`,meshIndex:node.mesh,meshName:mesh.name||`mesh-${node.mesh}`,primitiveIndex:pi,skinIndex:node.skin??null});
+   primitives.push({vertices,indices,material:material.baseColorTexture&&!uv?{...material,baseColorTexture:null}:material,sourceColorStats,nodeIndex:ni,nodeName:node.name||`node-${ni}`,meshIndex:node.mesh,meshName:mesh.name||`mesh-${node.mesh}`,primitiveIndex:pi,skinIndex:node.skin??null,sourceGeometry:skin?{positions:positions.data,normals,skinGroups}:null});
   }
  }
  if(!primitives.length||!triangleCount)throw new Error('GLB: nenhuma geometria triangular suportada na cena.');
@@ -215,7 +215,8 @@ export function parseGLB(input,options={}) {
   animations:(json.animations||[]).map((a,i)=>({name:a.name||`animation-${i}`,channels:(a.channels||[]).map(c=>({sampler:c.sampler,node:c.target?.node,path:c.target?.path})),samplers:(a.samplers||[]).map(s=>({input:s.input,output:s.output,interpolation:s.interpolation||'LINEAR'}))}))};
  const sourceColorStats={present:primitives.some(p=>p.sourceColorStats.present),vertexCount:primitives.reduce((n,p)=>n+p.sourceColorStats.vertexCount,0),zeroRGBA:primitives.reduce((n,p)=>n+p.sourceColorStats.zeroRGBA,0),blackRGB:primitives.reduce((n,p)=>n+p.sourceColorStats.blackRGB,0)};
  sourceColorStats.allRGBZero=sourceColorStats.present&&sourceColorStats.blackRGB===sourceColorStats.vertexCount;
- return {primitives,materials,images,bounds,vertexCount,triangleCount,meshCount:new Set(primitives.map(p=>p.meshIndex)).size,skinned,sourceColorStats,metadata,warnings};
+ const rig=skinned?{nodes,parents,local,skins:(json.skins||[]).map(s=>({joints:s.joints,inverseBind:s.inverseBindMatrices===undefined?s.joints.map(IDENTITY):s.joints.map((_,i)=>readAccessor(s.inverseBindMatrices).data.slice(i*16,i*16+16))}))}:null;
+ return {primitives,materials,images,bounds,vertexCount,triangleCount,meshCount:new Set(primitives.map(p=>p.meshIndex)).size,skinned,sourceColorStats,metadata,warnings,rig};
 }
 
 /** Same-origin assets only; preserves resource guards before allocating the final buffer. */

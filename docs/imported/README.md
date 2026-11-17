@@ -38,10 +38,11 @@ remove as alterações visuais e libera as malhas importadas.
 
 O renderizador atual usa cores de vértice e fatores de material. Texturas separadas
 continuam no acervo; não há vínculo material-textura inventado pela proximidade dos
-arquivos. A prévia cinza mostra a geometria real. Personagens importados são exibidos
-na pose de referência: animações UEAnim, áudio RADA, esqueletos UEFormat e outros
-formatos nativos foram preservados, mas não são tratados como recursos já animados
-ou reproduzíveis. Mapas completos e código original de gameplay não foram recuperados
+arquivos. A prévia cinza mostra a geometria real. Desde 17/11, animações UEAnim completas
+podem mover os modelos com ossos correspondentes e ser colocadas como objetos animados
+no cenário. Áudio RADA tem conversão local sob demanda e pode substituir efeitos da
+partida. Veja [instruções, formatos e limites](native-media.md). Esqueletos UEFormat
+isolados e animações aditivas continuam exigindo adaptação. Mapas completos e código original de gameplay não foram recuperados
 por esta importação. A extração original é parcial, conforme seus próprios relatórios.
 
 ## Reprodução

@@ -161,7 +161,10 @@ impl App {
 
     /// Start a fresh match (regenerates the island so felled trees come back).
     pub fn restart(&mut self, cfg: GameConfig) {
-        self.imported.clear_placements();
+        if self.imported.clear_placements() {
+            self.scene = Scene::new(&self.imported.meshes);
+            self.renderer.upload_meshes(&self.imported.meshes);
+        }
         let world = World::generate_map(cfg.seed as u32, cfg.map);
         self.renderer.set_world(&world);
         if cfg.seed != self.cfg.seed || cfg.map != self.cfg.map || self.minimap.is_empty() {
@@ -279,7 +282,7 @@ impl App {
         let game = self.mode.game();
         self.renderer.update_ground_cover(&game.world, cam.pos);
         self.scene.build(game, &cam);
-        self.imported.draw(&mut self.scene);
+        self.imported.draw(&mut self.scene, game.time);
         let t2 = now_ms();
 
         let me = &game.actors[game.camera_actor()];

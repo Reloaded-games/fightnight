@@ -9,6 +9,7 @@ pub mod cartoon_assets;
 pub mod game;
 pub mod input;
 pub mod imported_mesh;
+pub mod imported_animation;
 pub mod lego_models;
 pub mod math;
 pub mod mesh;
