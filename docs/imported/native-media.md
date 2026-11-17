@@ -44,11 +44,13 @@ conversões. Se `dist` for reconstruído do zero, execute a preparação novamen
   posições, quaternions e escalas. Conversão de coordenadas conforme o escritor
   GLTF do CUE4Parse preservado no acervo: centímetros para metros, troca de Y/Z,
   sinal de W. Interpolação linear e slerp pelo arco curto. Curvas/morphs não aplicados.
-- Pelo menos 80% dos ossos devem corresponder por nome; isso não é retarget universal.
-  Clipes aditivos são recusados porque precisam da pose-base original. Rigs com
-  matrizes explícitas ou transformações singulares também são recusados.
+- Pelo menos 80% dos ossos devem corresponder por nome, sem distinguir maiúsculas;
+  isso não é retarget universal. Os aditivos usam o resolvedor documentado em
+  `additive-support.md`, incluindo bases explícitas e peso ajustável. Matrizes
+  explícitas exigem conversão; ossos ocultos sem escala não derrubam a prévia.
 - Objetos animados são decorativos, sem colisão ou comportamento de jogador/NPC.
-  O personagem controlado continua usando o rig do Fightnight. São até 16 objetos,
+  O personagem controlado possui integração própria em `playable-character.md`.
+  Para objetos decorativos, são até 16 objetos,
   120 quadros e 1 milhão de vértices por clipe, 64 MB por envio, com orçamento total
   de 2 milhões de vértices de objetos importados. Clipes limitados a 20 segundos.
   A taxa é reduzida para caber no orçamento; os quadros são preparados uma vez.
@@ -70,13 +72,14 @@ payloads reais, rejeição de corrupção, pausa, troca de quadros, áudio na We
 restauração dos efeitos. Resultados desta execução: `native-media-browser-verification.json`.
 As sete conversões padrão e seus hashes estão em `native-audio-presets.json`.
 
-Resultado real desta execução:
+Últimas verificações registradas, incluindo a integração do personagem:
 
 ```text
-Rust: test result: ok. 345 passed; 0 failed; 1 ignored
-JavaScript: tests 22; pass 22; fail 0; skipped 0
-Python/native decoder: Ran 4 tests — OK
-Chrome/WebGPU/WebAudio: 16 PASS; no JavaScript or WebGPU validation errors
+Rust core: test result: ok. 348 passed; 0 failed; 2 ignored; acervo real explícito: 1 passed
+JavaScript: tests 34; pass 34; fail 0; skipped 0
+Python/native decoder (validação anterior): Ran 4 tests — OK
+Chrome/WebGPU/WebAudio: 20 PASS; no JavaScript or WebGPU validation errors
+Chrome/WebGPU/personagem: 38 PASS; no JavaScript or WebGPU validation errors
 HTTP local: 200 (página, módulo UEAnim, WASM e conversão RADA)
 ```
 

@@ -3,6 +3,7 @@
 pub mod pipelines;
 pub mod types;
 pub mod world_gpu;
+mod skinned_mesh;
 
 use crate::gpu::Gpu;
 use bytemuck::cast_slice;
@@ -287,7 +288,7 @@ impl Renderer {
         let mut idx: Vec<u32> = Vec::new();
         let mut table = Vec::new();
         for m in meshes {
-            table.push(MeshRange { first_index: idx.len() as u32, index_count: m.idx.len() as u32, base_vertex: verts.len() as i32 });
+            table.push(MeshRange { first_index: idx.len() as u32, index_count: m.idx.len() as u32, base_vertex: verts.len() as i32, vertex_count: m.verts.len() as u32 });
             verts.extend_from_slice(&m.verts);
             idx.extend_from_slice(&m.idx);
         }
@@ -295,7 +296,7 @@ impl Renderer {
             return;
         }
         let d = &self.gpu.device;
-        self.mesh_vb = Some(d.create_buffer_init(&util::BufferInitDescriptor { label: Some("mesh-vb"), contents: cast_slice(&verts), usage: BufferUsages::VERTEX }));
+        self.mesh_vb = Some(d.create_buffer_init(&util::BufferInitDescriptor { label: Some("mesh-vb"), contents: cast_slice(&verts), usage: BufferUsages::VERTEX | BufferUsages::COPY_DST }));
         self.mesh_ib = Some(d.create_buffer_init(&util::BufferInitDescriptor { label: Some("mesh-ib"), contents: cast_slice(&idx), usage: BufferUsages::INDEX }));
         self.mesh_table = table;
     }

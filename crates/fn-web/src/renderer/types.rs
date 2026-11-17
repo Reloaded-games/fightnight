@@ -105,6 +105,7 @@ pub struct PostU {
 
 #[derive(Clone, Copy, Debug)]
 pub struct MeshRange {
+    pub vertex_count: u32,
     pub first_index: u32,
     pub index_count: u32,
     pub base_vertex: i32,

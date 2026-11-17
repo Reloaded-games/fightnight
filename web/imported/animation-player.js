@@ -1,34 +1,24 @@
 import {nodeMatrix,normalMatrix} from './asset-loader.js';
 import {multiply,normalize} from './math.js';
-import {sampleKeys} from './ueanim.js';
 import {bakeMesh} from './mesh-adapter.js';
+import {boneTracks,localPose} from './pose-sampler.js';
 
 /** Bind matching native bone names, without guessing an additive reference pose or retarget. */
 export function bindAnimation(model,clip) {
   if(!model.rig)throw new Error('Selecione primeiro um modelo com esqueleto.');
   if(clip.additive)throw new Error('Animação aditiva exige a pose de referência; reprodução indisponível.');
-  const rig=model.rig,names=new Set(),joints=new Set(rig.skins.flatMap(s=>s.joints));
-  for(const j of joints){const name=rig.nodes[j].name;if(names.has(name))throw new Error('Esqueleto contém nomes duplicados.');names.add(name);}
-  const matches=[...joints].filter(j=>clip.tracks.has(rig.nodes[j].name));
+  const rig=model.rig,names=new Set(),joints=new Set(rig.skins.flatMap(s=>s.joints)),tracks=boneTracks(clip);
+  for(const j of joints){const name=rig.nodes[j].name.toLowerCase();if(names.has(name))throw new Error('Esqueleto contém nomes duplicados.');names.add(name);}
+  const matches=[...joints].filter(j=>tracks.has(rig.nodes[j].name.toLowerCase()));
   if(matches.length<3||matches.length/joints.size<.8)throw new Error(`Esqueletos incompatíveis: ${matches.length}/${joints.size} ossos correspondem.`);
   if(clip.duration>20)throw new Error('Prévia de animação limitada a 20 segundos por clipe.');
-  const mapped=new Map(matches.map(j=>[j,clip.tracks.get(rig.nodes[j].name)]));
   for(const j of matches)if(rig.nodes[j].matrix)throw new Error('Osso com matriz explícita requer conversão de rig.');
   const base=model.primitives.map(p=>p.vertices.slice());
   function restore(){model.primitives.forEach((p,i)=>p.vertices.set(base[i]));}
   function sample(seconds) {
-    const frame=Math.max(0,Math.min(clip.frames-1,seconds*clip.fps));
-    const local=rig.local.slice(),world=[];
-    for(const [j,track] of mapped){
-      const node=rig.nodes[j],trs={};
-      // CUE4Parse GLTF writer: centimetres -> metres; swap Y/Z and negate quaternion W.
-      if(track.position.length){const [x,y,z]=sampleKeys(track.position,frame);trs.translation=[x*.01,z*.01,y*.01];}
-      if(track.rotation.length){const [x,y,z,w]=sampleKeys(track.rotation,frame,null,true);trs.rotation=[x,z,y,-w];}
-      if(track.scale.length){const [x,y,z]=sampleKeys(track.scale,frame);trs.scale=[x,z,y].map((v,i)=>v*(node.scale?.[i]??1));}
-      local[j]=nodeMatrix({...node,...trs});
-    }
+    const local=localPose(model,clip,seconds,tracks).map(nodeMatrix),world=[];
     function at(j){return world[j]??(world[j]=rig.parents[j]<0?local[j]:multiply(at(rig.parents[j]),local[j]));}
-    const skins=rig.skins.map(s=>s.joints.map((j,i)=>{const matrix=multiply(at(j),s.inverseBind[i]);return {matrix,normal:normalMatrix(matrix)};}));
+    const skins=rig.skins.map(s=>s.joints.map((j,i)=>{const matrix=multiply(at(j),s.inverseBind[i]);let normal;try{normal=normalMatrix(matrix);}catch{normal=new Float32Array(9);}return {matrix,normal};}));
     for(const primitive of model.primitives){
       if(!primitive.sourceGeometry)continue;
       const {positions,normals,skinGroups}=primitive.sourceGeometry,skin=skins[primitive.skinIndex];

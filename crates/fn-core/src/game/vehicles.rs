@@ -50,6 +50,15 @@ impl Vehicle {
     }
 
     pub fn seat_pos(&self) -> Vec3 { self.driver_position() }
+
+    /// Shared visual chassis transform, so both authored and imported drivers follow slopes and steering.
+    pub fn render_transform(&self, world:&World) -> Mat4 {
+        let forward=yaw_forward(self.yaw);
+        let grade=(world.hm.height_at(self.pos.x+forward.x*1.1,self.pos.z+forward.z*1.1)-world.hm.height_at(self.pos.x-forward.x*1.1,self.pos.z-forward.z*1.1))/2.2;
+        let pitch=grade.atan().clamp(-0.32,0.32);
+        let lean=-self.steer*(self.speed.abs()/38.0).min(1.0)*0.06;
+        Mat4::from_translation(self.pos)*Mat4::from_rotation_y(self.yaw)*Mat4::from_rotation_x(pitch)*Mat4::from_rotation_z(lean)
+    }
 }
 
 fn clear_chassis(env: &Env<'_>, pos: Vec3, yaw: f32) -> bool {

@@ -10,6 +10,7 @@ pub mod game;
 pub mod input;
 pub mod imported_mesh;
 pub mod imported_animation;
+pub mod imported_character;
 pub mod lego_models;
 pub mod math;
 pub mod mesh;

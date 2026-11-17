@@ -4,3 +4,4 @@
 .library-preview canvas{position:static;inset:auto;height:240px;transform:none;z-index:auto;pointer-events:auto}
 .library-preview>button{margin:6px}.library-preview>label{padding:0 10px}.library-preview audio{margin:35px 0}
 .imported-library [hidden]{display:none}
+.animation-playback button{margin:6px}.library-preview input[list]{box-sizing:border-box;width:100%;font-size:12px}.library-preview input[type=range]{min-width:80px;padding:0}.imported-library [data-action=playable]{background:#e3e94b;color:#10182b;font-weight:700;margin:8px 0}.imported-library [data-action=restore-player]{font-size:12px}

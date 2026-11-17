@@ -21,6 +21,10 @@ TARGET_DIR="${CARGO_TARGET_DIR:-target}"
   "${TARGET_DIR}/wasm32-unknown-unknown/${OUT}/fn_web.wasm"
 cp -r web/. dist/
 python3 tools/assetgen/stage_imported.py
+if [ -d assets/imported/sources/main ]; then
+  cp docs/imported/additive-registry.json dist/assets/imported/additive-registry.json
+  node tools/prepare_playable_character.mjs
+fi
 
 if [ "$PROFILE" = "release" ] && command -v wasm-opt >/dev/null 2>&1; then
   wasm-opt -O3 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \

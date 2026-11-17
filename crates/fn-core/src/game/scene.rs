@@ -29,6 +29,8 @@ pub struct SceneStats {
 }
 
 pub struct Scene {
+    /// Only this actor's authored body is replaced; equipment and other actors keep their draw path.
+    pub native_actor: Option<usize>,
     mode: GameMode,
     lists: Vec<Vec<Instance>>,
     /// Bounding-box centre and half extents per mesh (floor items are centred on their pivot and sized to be seen).
@@ -131,6 +133,7 @@ impl Scene {
             })
             .collect();
         Scene {
+            native_actor: None,
             mode: GameMode::BattleRoyale,
             lists: (0..MeshId::Count as usize).map(|_| Vec::new()).collect(),
             centers,
@@ -232,11 +235,7 @@ impl Scene {
         use crate::models::dims::*;
         for v in &g.vehicles {
             if v.pos.distance(cp) > 450.0 || !fr.intersects_sphere(v.pos + Vec3::Y, 3.0) { continue; }
-            let f = yaw_forward(v.yaw);
-            let grade = (g.world.hm.height_at(v.pos.x + f.x * 1.1, v.pos.z + f.z * 1.1) - g.world.hm.height_at(v.pos.x - f.x * 1.1, v.pos.z - f.z * 1.1)) / 2.2;
-            let pitch = grade.atan().clamp(-0.32, 0.32);
-            let lean = -v.steer * (v.speed.abs() / 38.0).min(1.0) * 0.06;
-            let base = Mat4::from_translation(v.pos) * Mat4::from_rotation_y(v.yaw) * Mat4::from_rotation_x(pitch) * Mat4::from_rotation_z(lean);
+            let base = v.render_transform(&g.world);
             let palette = [0xf1b942, 0x4aaeb7, 0xe77962, 0x617ccc];
             self.push(v.body_mesh_id(), base, lin(crate::mesh::hex(palette[v.id.saturating_sub(1) as usize % palette.len()])));
             for x in [-1.02, 1.02] {
@@ -248,6 +247,7 @@ impl Scene {
                 }
             }
             let Some(a) = v.driver.and_then(|i| g.actors.get(i)).filter(|a| a.alive) else { continue; };
+            if self.native_actor == Some(a.id) { continue; }
             self.stats.characters += 1;
             let o = &a.outfit;
             let hips = base * Mat4::from_translation(Vec3::new(-0.38, 0.89, 0.30));
@@ -299,6 +299,7 @@ impl Scene {
             i.params = params;
             s.push_i(mesh, i);
         };
+        if self.native_actor != Some(a.id) {
         let (shirt, skin, pants, boots) = (lin(o.shirt), lin(o.skin), lin(o.pants), lin(o.boots));
         put(self, MeshId::CharTorso, p.torso, shirt);
         put(self, MeshId::CharTrim, p.torso, lin(o.accent));
@@ -318,6 +319,7 @@ impl Scene {
             put(self, MeshId::CharLegUp, p.leg_up[i], pants);
             put(self, MeshId::CharLegLow, p.leg_low[i], pants);
             put(self, MeshId::CharBoot, p.boot[i], boots);
+        }
         }
         if let Some((mesh, m)) = p.item {
             let (tint, m) = match a.inv.selected_item() {

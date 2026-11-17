@@ -1,7 +1,7 @@
 {
-  "checks": 16,
+  "checks": 20,
   "passed": true,
-  "level": 0.5996999740600586,
+  "level": 0.4622688293457031,
   "logs": [
     "[warning] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127"
   ]

@@ -280,8 +280,10 @@ impl App {
             self.mixer_step(&cam);
         }
         let game = self.mode.game();
+        self.imported.update_player(game, &self.renderer, &mut self.scene, !self.net_live);
         self.renderer.update_ground_cover(&game.world, cam.pos);
         self.scene.build(game, &cam);
+        self.imported.draw_player(game, &mut self.scene);
         self.imported.draw(&mut self.scene, game.time);
         let t2 = now_ms();
 

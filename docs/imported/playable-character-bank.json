@@ -1,0 +1,293 @@
+{
+  "url": "./character.fnchar",
+  "sha256": "1e913df0a68c90cd27610fb99c3da30a669d47a07bb582a8042bcde96c89393e",
+  "bytes": 8180156,
+  "model": {
+    "id": "c1689b98f638e3794a1d9f7c",
+    "label": "SK_M_MALE_Base",
+    "type": "mesh",
+    "format": "glb",
+    "url": "./sources/main/pakchunk0-WindowsClient.utoc/FortniteGame/Content/Characters/Player/Male/Medium/Base/SK_M_MALE_Base.uasset/SkeletalMesh/SK_M_MALE_Base/FortniteGame/Content/Characters/Player/Male/Medium/Base/SK_M_MALE_Base.glb",
+    "bytes": 927968,
+    "sha256": "4a7b9d5273d719677b5ad14d90e554b1b563fe6a71f0d54f31def2b526497b85",
+    "supported": true
+  },
+  "bones": 88,
+  "states": [
+    {
+      "slot": "idle",
+      "label": "PickAxe_idle",
+      "sourceSha256": "a4d242bb92589ce28a54c8486062ee35e6ca841c4438a7a581a6b8536ea166e5",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "forward",
+      "label": "NoWep_Jog_Loop_N",
+      "sourceSha256": "5f24bb990b21ada8c4abb988e8f695bf03aa2e36e872133efd216889bf3b5e3a",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "backward",
+      "label": "NoWep_Jog_Loop_S",
+      "sourceSha256": "86ceac9649f4a37b9b8b9c4c7a9b9af22907f19c412d1acccd5fed4d5c4a9f89",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "left",
+      "label": "NoWep_Jog_Loop_W_LFF",
+      "sourceSha256": "e2c403887eba67cc26538c5debaad3d004a5aba56fcda1d49c5f40ceab819700",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "right",
+      "label": "NoWep_Jog_Loop_E_LFF",
+      "sourceSha256": "bda1f526b9c924280248ceeb0b6aded4fff15acf77847ebc8634c7408c294d47",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "sprint",
+      "label": "NoWep_TacSprint_Loop_N",
+      "sourceSha256": "ce37292a6874834bb32376e8d570b0b5f317aa1eb4bb33abfb9462bf74918249",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "crouch",
+      "label": "NoWep_Crouch_Idle_Loop_Short",
+      "sourceSha256": "498687cd17902951eed09e53506b256eb5cd6983b63b0c8a4698f6f84cdb3574",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "crouch_forward",
+      "label": "NoWep_Crouch_Loop_N",
+      "sourceSha256": "3b18597da9b220494eed8aeb1ce177f2232f6665bb754f531d49e6f355888d6d",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "crouch_backward",
+      "label": "NoWep_Crouch_Loop_S",
+      "sourceSha256": "696c6fe99581ce48d0b8144d6ee0749243a54c0f2d5d72dd9fdf0040eb484d83",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "crouch_left",
+      "label": "NoWep_Crouch_Loop_W_LFF",
+      "sourceSha256": "71529449663fccb833993e276732b41bc40f7e60819d0652533ea6c776d9df08",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "crouch_right",
+      "label": "NoWep_Crouch_Loop_E_LFF",
+      "sourceSha256": "f2b9e025123d1ac84b9712e2732e0f0c9d1250597eff636d595ac969135ce5e4",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "jump",
+      "label": "NoWep_Jump_From_Idle",
+      "sourceSha256": "3c737f4d969698a6718a1525df90e1c9af145a6938639a3353aee5f4170c880f",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "fall",
+      "label": "JumpFall_NoWep_CMM_Additive",
+      "sourceSha256": "43727bef3cde6806cd54bc20f2ce9032f12afb35a0b6420eb0a8a89ee51deda6",
+      "resolution": {
+        "kind": "fightnight-adapted-base",
+        "base": "FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Jump/Layered/NoWep_Jump_From_Idle.NoWep_Jump_From_Idle",
+        "baseMode": 3,
+        "referenceFrame": 0,
+        "weight": 1,
+        "adaptedReference": true,
+        "sourceId": "d8dd910f295e6dcbcdb80b67",
+        "sourceSha256": "43727bef3cde6806cd54bc20f2ce9032f12afb35a0b6420eb0a8a89ee51deda6",
+        "baseId": "e65b32d812ceb66538e33cf0",
+        "baseSha256": "3c737f4d969698a6718a1525df90e1c9af145a6938639a3353aee5f4170c880f",
+        "evidence": {
+          "skeletonGuid": "DACFD8A5-4F30AA51-0C2EC492-2122676F",
+          "retargetSource": "MPR_SK_M_MALE_Base_Skeleton",
+          "frames": 13,
+          "baseFrames": 63,
+          "fps": 32.5,
+          "baseFps": 30.483871459960938,
+          "duration": 0.4,
+          "baseDuration": 2.066666633296476,
+          "sourceMetadata": "docs/imported/fortnite-analysis/assets/metadata/metadata/pakchunk0-WindowsClient.utoc/FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Jump/NoWep/JumpFall_NoWep_CMM_Additive.uasset.json",
+          "sourceMetadataSha256": "fbde0e664f34d69037a9a9ec55f03799151aab7400c3f4ebfa608b80e3a7c2a1",
+          "baseMetadata": "docs/imported/fortnite-analysis/assets/metadata/metadata/pakchunk0-WindowsClient.utoc/FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Jump/Layered/NoWep_Jump_From_Idle.uasset.json",
+          "baseMetadataSha256": "3eb0ac892b47d690d9f2c478785397056198f96e7a83016446356ffd88089153",
+          "originalReferenceRecovered": false,
+          "choice": "Explicit Fightnight base selection; same skeleton and retarget. Base frame 0. The cooked source does not name RefPoseSeq."
+        }
+      }
+    },
+    {
+      "slot": "land",
+      "label": "JumpLand_NoWep_CMM_Additive",
+      "sourceSha256": "197e32821502c640268bf591d6f1684e5418f7ce55a9f8961f1e2114d1961e57",
+      "resolution": {
+        "kind": "fightnight-adapted-base",
+        "base": "FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Jump/Layered/NoWep_Jump_From_Idle.NoWep_Jump_From_Idle",
+        "baseMode": 3,
+        "referenceFrame": 0,
+        "weight": 1,
+        "adaptedReference": true,
+        "sourceId": "16246b91d6acc5ded48ed497",
+        "sourceSha256": "197e32821502c640268bf591d6f1684e5418f7ce55a9f8961f1e2114d1961e57",
+        "baseId": "e65b32d812ceb66538e33cf0",
+        "baseSha256": "3c737f4d969698a6718a1525df90e1c9af145a6938639a3353aee5f4170c880f",
+        "evidence": {
+          "skeletonGuid": "DACFD8A5-4F30AA51-0C2EC492-2122676F",
+          "retargetSource": "MPR_SK_M_MALE_Base_Skeleton",
+          "frames": 26,
+          "baseFrames": 63,
+          "fps": 31.200000762939453,
+          "baseFps": 30.483871459960938,
+          "duration": 0.8333333129556775,
+          "baseDuration": 2.066666633296476,
+          "sourceMetadata": "docs/imported/fortnite-analysis/assets/metadata/metadata/pakchunk0-WindowsClient.utoc/FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Jump/NoWep/JumpLand_NoWep_CMM_Additive.uasset.json",
+          "sourceMetadataSha256": "3dee31b14c55edb4e6ba29e2a29b7a9ac7a248678d8337b7df80b9b451096f27",
+          "baseMetadata": "docs/imported/fortnite-analysis/assets/metadata/metadata/pakchunk0-WindowsClient.utoc/FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Jump/Layered/NoWep_Jump_From_Idle.uasset.json",
+          "baseMetadataSha256": "3eb0ac892b47d690d9f2c478785397056198f96e7a83016446356ffd88089153",
+          "originalReferenceRecovered": false,
+          "choice": "Explicit Fightnight base selection; same skeleton and retarget. Base frame 0. The cooked source does not name RefPoseSeq."
+        }
+      }
+    },
+    {
+      "slot": "dive",
+      "label": "Dive",
+      "sourceSha256": "d963e08b77dfc0f31862f4c4cdbb775c6864bceab22736ed7fefeb4824c0e182",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "glide",
+      "label": "HangGlider_Glide",
+      "sourceSha256": "c2f9667927b7c5e99949a54d7c38bf8220ff92aa39ce8375be0699b0ec82a378",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "reload",
+      "label": "AssaultRifle_Core_Reload",
+      "sourceSha256": "89593d1d8accb41005e979d883bb913b74b5631eea2a5f79615475f6e74fe7e5",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "swing",
+      "label": "PickAxe_Swing1",
+      "sourceSha256": "fda89673c72058583b3914ea2cdf31b5d9dbd52a88dbf964c4badac2abffb814",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "emote",
+      "label": "Emote_ArmWave_CMM_Loop",
+      "sourceSha256": "dec43a5ed6ac4986f4ad868b99d7c882a8dee9b7c4bcd1c57919f71fafdc43fe",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "death",
+      "label": "Death_Fwd",
+      "sourceSha256": "ad395430def5a728571ec6f17dd4f52ef783f467c75e852c6f4de4b79a5d6ee4",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "swim",
+      "label": "Swim_Sprint",
+      "sourceSha256": "045e23472912d1b49edbde97c5806ed6ae6dc80a421df2e80a2feae30cdeacc8",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "armed_idle",
+      "label": "AssaultRifle_Idle_Patrol",
+      "sourceSha256": "632627221b09bb038e21d34f0c231b638aaea4a041a7c501d4b3502a6b542ce8",
+      "resolution": {
+        "kind": "fightnight-adapted-base",
+        "base": "FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Idle/Patrol/AssaultRifle_Idle_Patrol_Pose.AssaultRifle_Idle_Patrol_Pose",
+        "baseMode": 3,
+        "referenceFrame": 0,
+        "weight": 1,
+        "adaptedReference": true,
+        "sourceId": "39a564a2070fed0a56393b76",
+        "sourceSha256": "632627221b09bb038e21d34f0c231b638aaea4a041a7c501d4b3502a6b542ce8",
+        "baseId": "2680ff92b90a5f56fd594245",
+        "baseSha256": "1fafc1abf32cc6fde8f5dad18cb442d1fbadd8de3c768002c5ca6ab663c97dd2",
+        "evidence": {
+          "skeletonGuid": "DACFD8A5-4F30AA51-0C2EC492-2122676F",
+          "retargetSource": "MPR_SK_M_MALE_Base_Skeleton",
+          "frames": 241,
+          "baseFrames": 2,
+          "fps": 30.125,
+          "baseFps": 59.999996185302734,
+          "duration": 8,
+          "baseDuration": 0.033333335452609726,
+          "sourceMetadata": "docs/imported/fortnite-analysis/assets/metadata/metadata/pakchunk0-WindowsClient.utoc/FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Idle/Patrol/AssaultRifle_Idle_Patrol.uasset.json",
+          "sourceMetadataSha256": "750612f5e281235ed010fc2cf8a2da41b80c7a65922a04ddef211f52ebc32bff",
+          "baseMetadata": "docs/imported/fortnite-analysis/assets/metadata/metadata/pakchunk0-WindowsClient.utoc/FortniteGame/Content/Animation/Game/MainPlayer/Locomotion/Medium/Male/Idle/Patrol/AssaultRifle_Idle_Patrol_Pose.uasset.json",
+          "baseMetadataSha256": "67ebb91bab7a89f4a2a829190ec95815991b426ab4f628de507acecf1934f6f5",
+          "originalReferenceRecovered": false,
+          "choice": "Explicit Fightnight base selection; same skeleton and retarget. Base frame 0. The cooked source does not name RefPoseSeq."
+        }
+      }
+    },
+    {
+      "slot": "vehicle",
+      "label": "ValetVehicle_Sports_Idle_Driver_CMM",
+      "sourceSha256": "87a9532dda8df0927917b5511bbbb9f3ea778f5f080fe8ad418a4bc446c54690",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "aim",
+      "label": "AR_Targeted_Pose_CMM",
+      "sourceSha256": "0216a4e399113ee088fa47bcb6d622573a471c24affd8013ccc875978854cdb8",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    },
+    {
+      "slot": "aim_crouch",
+      "label": "AR_Crouch_Targeted_Pose_CMM",
+      "sourceSha256": "ee91e4519d14037e8d667c5040d5b7958ee304acd5759bcaa16e8def31615d20",
+      "resolution": {
+        "kind": "absolute-source"
+      }
+    }
+  ]
+}

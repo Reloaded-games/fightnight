@@ -9,6 +9,11 @@ try {
     Copy-Item web/* dist -Recurse -Force
     python tools/assetgen/stage_imported.py
     if ($LASTEXITCODE -ne 0) { throw 'Imported assets staging failed' }
+    if (Test-Path -LiteralPath 'assets/imported/sources/main') {
+        Copy-Item -LiteralPath 'docs/imported/additive-registry.json' -Destination 'dist/assets/imported/additive-registry.json' -Force
+        node tools/prepare_playable_character.mjs
+        if ($LASTEXITCODE -ne 0) { throw 'Playable character preparation failed' }
+    }
     if (Test-Path -LiteralPath 'target/native-audio/decode_rada.exe') {
         python tools/assetgen/prepare_native_audio.py
         if ($LASTEXITCODE -ne 0) { throw 'Native sound preparation failed' }

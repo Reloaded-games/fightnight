@@ -3,6 +3,7 @@
 mod app;
 mod gpu;
 mod imported;
+mod playable;
 mod netapp;
 mod renderer;
 

@@ -6,6 +6,7 @@ use fn_core::meshlib::MeshId;
 use wasm_bindgen::prelude::*;
 
 pub struct ImportedContent {
+    pub character: Option<fn_core::imported_character::Character>,
     pub meshes: Vec<MeshData>,
     originals: Vec<MeshData>,
     placements: Vec<Placement>,
@@ -15,8 +16,9 @@ pub struct ImportedContent {
 struct Placement { meshes: Vec<u16>, instance: Instance, started: f32, fps: f32 }
 
 impl ImportedContent {
-    pub fn new(meshes: Vec<MeshData>) -> Self {
-        Self { originals: meshes.clone(), meshes, placements: vec![], installed: 0 }
+    pub fn new(mut meshes: Vec<MeshData>) -> Self {
+        meshes.push(MeshData::default()); // stable slot after all authored meshes, before decorative props
+        Self { character: None, originals: meshes.clone(), meshes, placements: vec![], installed: 0 }
     }
 
     /// Append the selected decorative models to the regular game's draw lists.
@@ -30,6 +32,7 @@ impl ImportedContent {
     }
 
     pub fn clear_placements(&mut self) -> bool {
+        if let Some(character)=&mut self.character { character.reset_time(); }
         let changed = !self.placements.is_empty();
         self.placements.clear();
         self.meshes.truncate(self.originals.len());
@@ -107,6 +110,7 @@ pub fn install_imported_animation(bytes: &[u8]) -> Result<u32, JsValue> {
 pub fn reset_imported_meshes() {
     crate::with_app((), |app| {
         app.imported.meshes = app.imported.originals.clone();
+        app.imported.character = None;
         app.imported.placements.clear();
         app.imported.installed = 0;
         app.scene = Scene::new(&app.imported.meshes);

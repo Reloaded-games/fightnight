@@ -1,6 +1,7 @@
 import { loadGLB, fetchAssetBytes } from './asset-loader.js';
 import { bakeMesh, previewMesh } from './mesh-adapter.js';
 import { createNativeMediaUI } from './native-media-ui.js';
+import {loadDefaultCharacter,installPlayableModel} from './playable-character.js';
 
 const CATALOG = new URL('../assets/imported/library.json', import.meta.url);
 const TYPES={mesh:'Modelos',texture:'Texturas',audio:'Áudio',animation:'Animações',skeleton:'Esqueletos',data:'Dados',native:'Outros'};
@@ -14,7 +15,7 @@ export function createImportedLibrary({fn, audio, startSolo, canOpen}) {
     <div class="library-body"><div><div class="library-results"></div><nav><button data-action="prev">Anterior</button><span class="library-page"></span><button data-action="next">Próxima</button></nav></div>
     <aside><h3 class="library-name">Selecione um recurso</h3><div class="library-preview"></div><p class="library-details"></p>
       <label>Usar na partida <select class="library-target"><option value="prop">Objeto decorativo (pose fixa)</option><option value="rifle">Fuzil</option><option value="pistol">Pistola</option><option value="smg">Submetralhadora</option><option value="shotgun">Escopeta</option><option value="sniper">Rifle de precisão</option><option value="rocket">Lança-foguetes</option><option value="pickaxe">Picareta</option></select></label>
-      <button data-action="apply" disabled>Colocar no jogo</button><a class="library-download" hidden download>Baixar arquivo original</a>
+      <button data-action="apply" disabled>Colocar no jogo</button><button data-action="playable" hidden>Usar como personagem jogável</button><button data-action="restore-player">Restaurar personagem do Fightnight</button><a class="library-download" hidden download>Baixar arquivo original</a>
       <p class="library-feedback" role="status"></p><button data-action="reset">Restaurar modelos do Fightnight</button>
     </aside></div>`;
   document.body.append(dialog);
@@ -23,7 +24,9 @@ export function createImportedLibrary({fn, audio, startSolo, canOpen}) {
   let records=[],filterSequence=0;
   let previewURL=null;
   let animationModel=null,animationModelLabel='';
-  const nativeMedia=createNativeMediaUI({preview:$('.library-preview'),details:$('.library-details'),feedback:$('.library-feedback'),fn,audio,startSolo,close});
+  let animationEntries=null;
+  async function getAnimations(){if(!animationEntries){const r=await fetch(new URL('types/animation.json',CATALOG));if(!r.ok)throw new Error('Catálogo de animações indisponível.');animationEntries=await r.json();}return animationEntries;}
+  const nativeMedia=createNativeMediaUI({preview:$('.library-preview'),details:$('.library-details'),feedback:$('.library-feedback'),fn,audio,startSolo,close,getAnimations});
   async function verifiedBytes(asset,url) {
     const bytes=await fetchAssetBytes(url,{maxBytes:64*1024*1024});
     const hash=await crypto.subtle.digest('SHA-256',bytes);
@@ -53,6 +56,7 @@ export function createImportedLibrary({fn, audio, startSolo, canOpen}) {
     $('.library-name').textContent=asset.label;$('.library-preview').replaceChildren();
     $('.library-feedback').textContent='';$('[data-action="apply"]').disabled=true;
     $('[data-action="apply"]').hidden=asset.type!=='mesh';
+    $('[data-action="playable"]').hidden=true;
     $('.library-target').closest('label').hidden=asset.type!=='mesh';
     const url=new URL(asset.url,CATALOG).href;
     const download=$('.library-download');download.href=url;download.hidden=false;download.download=asset.label+'.'+asset.format;
@@ -63,13 +67,14 @@ export function createImportedLibrary({fn, audio, startSolo, canOpen}) {
         if(token!==sequence)return;
         model=loaded;const canvas=document.createElement('canvas');canvas.width=500;canvas.height=380;
         if(model.rig){animationModel=model;animationModelLabel=asset.label;}
+        $('[data-action="playable"]').hidden=!model.rig;
         $('.library-preview').append(canvas);previewMesh(canvas,model);
         let angle=.6;canvas.onclick=()=>previewMesh(canvas,model,angle+=.5);
         $('.library-details').textContent=`${model.triangleCount.toLocaleString('pt-BR')} triângulos. ${model.skinned?'Esqueleto selecionado: escolha um clipe na categoria Animações para reproduzir. ':''}Prévia de geometria em cinza. Na partida, usam-se cores dos materiais e vértices; texturas separadas permanecem no acervo. Clique na prévia para girar.`;
         $('[data-action="apply"]').disabled=false;
       } else if(asset.type==='animation'&&asset.format==='ueanim') {
         const bytes=await verifiedBytes(asset,url);if(token!==sequence)return;
-        nativeMedia.animation(bytes,animationModel,animationModelLabel);
+        await nativeMedia.animation(asset,bytes,animationModel,animationModelLabel);
       } else if(asset.type==='audio'&&asset.format==='rada') {
         await nativeMedia.sound(asset);
       } else if(asset.type==='texture'&&asset.supported) {
@@ -112,6 +117,7 @@ export function createImportedLibrary({fn, audio, startSolo, canOpen}) {
         fn.install_imported_mesh(entry.slot,bakeMesh(loaded,entry.slot));
       } catch(error){console.warn(`Imported ${entry.label}: ${error.message||error}`);}
     }
+    try{await loadDefaultCharacter(fn);}catch(error){console.warn(`Personagem importado: ${error.message||error}`);}
   }
   function close() { ++sequence;nativeMedia.stop();dialog.querySelectorAll('audio').forEach(a=>a.pause());dialog.close(); }
   $('[data-action="close"]').onclick=close;
@@ -131,7 +137,13 @@ export function createImportedLibrary({fn, audio, startSolo, canOpen}) {
     } catch(error){$('.library-feedback').textContent=`Falha ao carregar categoria: ${error.message}`;}
   };
   $('[data-action="prev"]').onclick=()=>{page--;renderResults();};$('[data-action="next"]').onclick=()=>{page++;renderResults();};
-  $('[data-action="reset"]').onclick=()=>{fn.reset_imported_meshes();$('.library-feedback').textContent='Modelos originais restaurados.';};
+  $('[data-action="reset"]').onclick=()=>{++sequence;fn.reset_imported_meshes();$('.library-feedback').textContent='Modelos originais restaurados.';};
+  $('[data-action="restore-player"]').onclick=()=>{++sequence;fn.reset_imported_character();$('.library-feedback').textContent='Personagem do Fightnight restaurado.';};
+  $('[data-action="playable"]').onclick=async()=>{
+    if(!model||busy)return;busy=true;$('[data-action="playable"]').disabled=true;const token=sequence;
+    try{await installPlayableModel(fn,model,p=>{$('.library-feedback').textContent=`Preparando personagem: ${Math.round(p*100)}%`;},()=>token===sequence);if(token!==sequence)return;await startSolo();close();}
+    catch(error){if(token===sequence)$('.library-feedback').textContent=error.message||error;}finally{busy=false;$('[data-action="playable"]').disabled=false;}
+  };
   $('[data-action="apply"]').onclick=async()=>{
     if(!model||busy)return;busy=true;
     try {
