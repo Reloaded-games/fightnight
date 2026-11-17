@@ -1,0 +1,19 @@
+{
+  "sourceSha256": {
+    "animSequence": "faca3e0c336a141ce3f837c38674a7d2764401324382b8260ac4b9b445d57e0d",
+    "animConverter": "7bc6cdeec46d2895f45423d6bd9fc5499a10726e225f53d17018a3ba749bfa16",
+    "ueAnim": "32fd571fa7e24bd22ae2aaa92e2fcba3699c210693e4dcd4d3071d4692e087a5"
+  },
+  "converter": "cue4parse-ueanim-v10",
+  "pdbMatchesBinary": true,
+  "binaries": {
+    "CUE4Parse": {
+      "pdbGuid": "f6fb7cfd-c833-414a-8852-0da843091bc8",
+      "sha256": "43d309011469e47ebe457f16d069e00d747252174eb14653d3ed8f7e3a35e92a"
+    },
+    "CUE4Parse-Conversion": {
+      "pdbGuid": "b2706dce-59ee-495a-a45a-89eab5507dd2",
+      "sha256": "555cd47f13916cf19f40448867eee4010bcc7dd04c608f226ec0111a92f3e919"
+    }
+  }
+}
