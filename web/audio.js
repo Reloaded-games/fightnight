@@ -1,5 +1,6 @@
-// WebAudio engine. Every sound effect is synthesised by the wasm module (see audio_synth.rs);
-// this file turns the rendered sample buffers into positional sound.
+// WebAudio engine: synthesized fallback bank plus verified, optional imported effects.
+// Both banks use the same positional mixer and game event timing.
+import {applyNativeSoundDefaults} from './imported/native-audio.js';
 
 export class GameAudio {
   constructor() {
@@ -13,6 +14,7 @@ export class GameAudio {
     this.active = 0;
     this.volume = 0.7;
     this.ready = false;
+    this.imported = new Map();
   }
 
   /** Create and resume the context synchronously: Safari only allows that inside the user gesture itself. */
@@ -53,6 +55,8 @@ export class GameAudio {
       }
       if (onProgress && i % 4 === 0) { onProgress(done / total); await new Promise((r) => setTimeout(r, 0)); }
     }
+    try { await applyNativeSoundDefaults(this); }
+    catch(error) { console.warn(`Banco de áudio importado indisponível: ${error.message}`); }
     // continuous loops
     for (const [key, name] of [['bus', 'bus_loop'], ['wind', 'wind_loop'], ['glider', 'glider_loop'], ['storm', 'storm_ambient'], ['hum', 'chest_hum']]) {
       const idx = this.names.indexOf(name);
@@ -69,6 +73,19 @@ export class GameAudio {
   }
 
   curve(v) { return Math.pow(v, 1.6) * 1.1; }
+
+  /** Replace an existing one-shot cue, retaining its positional mixer and synthesized fallback. */
+  installImported(name, buffers) {
+    const index=this.names.indexOf(name);
+    if(index<0||this.isLoop[index]||!buffers.length||buffers.some(b=>!b?.length||!Number.isFinite(b.duration)||b.duration>120))throw new Error('Efeito de áudio incompatível.');
+    if(!this.imported.has(name))this.imported.set(name,this.buffers[index]);
+    this.buffers[index]=buffers;
+  }
+
+  restoreImported() {
+    for(const [name,buffers] of this.imported)this.buffers[this.names.indexOf(name)]=buffers;
+    this.imported.clear();
+  }
 
   setVolume(v) {
     this.volume = v;

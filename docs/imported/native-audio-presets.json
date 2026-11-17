@@ -1,0 +1,87 @@
+[
+  {
+    "slot": "shot_ar",
+    "assets": [
+      {
+        "frames": 145571,
+        "sampleRate": 48000,
+        "channels": 6,
+        "sha256": "13bfc63f71dde36647ea9595cfccc538c0a6a486050136be910341fa633f8305",
+        "sourceSha256": "d8317400afb3bfcb01fbf4f5eb6cffc1be499ba977cbc35ee1337aaffc6a4eaa",
+        "id": "32c9fceca2f45e27be099d34",
+        "label": "SunRose_Assault_Fire_1P_Close_01",
+        "url": "./audio-cache/d8317400afb3bfcb01fbf4f5eb6cffc1be499ba977cbc35ee1337aaffc6a4eaa.wav"
+      },
+      {
+        "frames": 136986,
+        "sampleRate": 48000,
+        "channels": 6,
+        "sha256": "8fbdbaa9a43d72f2bbaae9b330d5de0e9b1cfcbc03a0d192be0954500f361a7a",
+        "sourceSha256": "e40ad813011af3c1a79c79034d1b73b12377bdc6d1159e60e349e927cf261e4e",
+        "id": "755305984400eca5a2f24c9c",
+        "label": "SunRose_Assault_Fire_1P_Close_02",
+        "url": "./audio-cache/e40ad813011af3c1a79c79034d1b73b12377bdc6d1159e60e349e927cf261e4e.wav"
+      },
+      {
+        "frames": 147396,
+        "sampleRate": 48000,
+        "channels": 6,
+        "sha256": "e3d776a0c821fdea79c3b6659be6b3cfb38b3d16e16aa5e5918a891c25b71ca5",
+        "sourceSha256": "c5820dcc43b80ec58b4266686244a342eb0496f65f383ec20da24963409fe15c",
+        "id": "ea771469ede7533575b8ca96",
+        "label": "SunRose_Assault_Fire_1P_Close_03",
+        "url": "./audio-cache/c5820dcc43b80ec58b4266686244a342eb0496f65f383ec20da24963409fe15c.wav"
+      }
+    ]
+  },
+  {
+    "slot": "shot_shotgun",
+    "assets": [
+      {
+        "frames": 178161,
+        "sampleRate": 48000,
+        "channels": 6,
+        "sha256": "7ea69955ff9cbeafbea9f4fe220698d1e6d0eefe8f0967ff0e516c0d07c7fdb2",
+        "sourceSha256": "051584d32535b2c00b42e149016d0f5e3e7935bfeb2a2aba25a7e528c7de3c23",
+        "id": "a707545c67fd7d17de67a327",
+        "label": "Shotgun_VividRazor_BreakBarrel_Fire_1P_Close_01",
+        "url": "./audio-cache/051584d32535b2c00b42e149016d0f5e3e7935bfeb2a2aba25a7e528c7de3c23.wav"
+      },
+      {
+        "frames": 178133,
+        "sampleRate": 48000,
+        "channels": 6,
+        "sha256": "e7aa54fec1d9938751c7584d249023c514461dd0a41eaf33fd1793b37755798a",
+        "sourceSha256": "a95f73684d782ae9f91446e449a3c576110270f04d77ea5786c3052f8a20c34f",
+        "id": "1c9822269a0065dcbb88ef96",
+        "label": "Shotgun_VividRazor_BreakBarrel_Fire_1P_Close_02",
+        "url": "./audio-cache/a95f73684d782ae9f91446e449a3c576110270f04d77ea5786c3052f8a20c34f.wav"
+      },
+      {
+        "frames": 178158,
+        "sampleRate": 48000,
+        "channels": 6,
+        "sha256": "523eadbfbb2c91119ce42534e826fca0f22757781c492901672da5e4de44e761",
+        "sourceSha256": "e248828fa19139067bbbff782b76c3613305284a7d5ebdb2e03eb9293bbc3f8d",
+        "id": "35ad69138d5dfc5bd066babe",
+        "label": "Shotgun_VividRazor_BreakBarrel_Fire_1P_Close_03",
+        "url": "./audio-cache/e248828fa19139067bbbff782b76c3613305284a7d5ebdb2e03eb9293bbc3f8d.wav"
+      }
+    ]
+  },
+  {
+    "slot": "ui_click",
+    "assets": [
+      {
+        "frames": 31585,
+        "sampleRate": 24000,
+        "channels": 2,
+        "sha256": "60a912b34f02523669140797f948d1f4b3c61e6f608a0dbde6de314fe2e187b3",
+        "sourceSha256": "4009823d1e6876929b76a7be212f371387eaea51c9ce3d5386fa1ce8809a7793",
+        "id": "ea4fa657caf39374662418f1",
+        "label": "fort_ui_confirm_02",
+        "url": "./audio-cache/4009823d1e6876929b76a7be212f371387eaea51c9ce3d5386fa1ce8809a7793.wav"
+      }
+    ]
+  }
+]
