@@ -88,6 +88,7 @@ pub struct App {
     /// The room and the setup of a match the host has announced but whose island is not built yet.
     pub pending_host: Option<(Room, MatchSetup)>,
     pub scene: Scene,
+    pub imported: crate::imported::ImportedContent,
     pub renderer: Renderer,
     pub input: Input,
     pub mixer: Mixer,
@@ -134,6 +135,7 @@ impl App {
             net_live: false,
             pending_host: None,
             scene,
+            imported: crate::imported::ImportedContent::new(meshes),
             renderer,
             input: Input::new(),
             mixer: Mixer::new(),
@@ -159,6 +161,7 @@ impl App {
 
     /// Start a fresh match (regenerates the island so felled trees come back).
     pub fn restart(&mut self, cfg: GameConfig) {
+        self.imported.clear_placements();
         let world = World::generate_map(cfg.seed as u32, cfg.map);
         self.renderer.set_world(&world);
         if cfg.seed != self.cfg.seed || cfg.map != self.cfg.map || self.minimap.is_empty() {
@@ -276,6 +279,7 @@ impl App {
         let game = self.mode.game();
         self.renderer.update_ground_cover(&game.world, cam.pos);
         self.scene.build(game, &cam);
+        self.imported.draw(&mut self.scene);
         let t2 = now_ms();
 
         let me = &game.actors[game.camera_actor()];

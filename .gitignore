@@ -11,3 +11,10 @@ node_modules/
 *.blend1
 __pycache__/
 *.pyc
+/assets/imported/files/
+/assets/imported/sources/
+/assets/imported/catalog.json
+/assets/imported/library.json
+/docs/imported/fortnite-analysis/
+/docs/imported/fortnite-webgpu/
+/docs/imported/conversion-outputs.json

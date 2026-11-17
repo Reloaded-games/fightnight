@@ -1,5 +1,10 @@
 # FIGHT NIGHT
 
+The **Conteúdo importado** menu opens the local extraction library. Recovered
+GLB models can be placed in solo matches or used as weapon visuals; compatible images,
+audio and data are also accessible. See [the import and its limits](docs/imported/README.md).
+The complete analysis archive and earlier prototype now belong to this project.
+
 A complete, playable **Fortnite-style battle royale that runs in your browser**, written in
 **Rust → WebAssembly** and rendered with **WebGPU**. Characters, weapons, items and nearby vegetation
 are authored in **Blender** and baked into the game. The island, towns, UI icons and sounds are generated

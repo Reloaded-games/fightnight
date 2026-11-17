@@ -1,0 +1,9 @@
+{
+  "modelEntries": 76897,
+  "totalEntries": 678964,
+  "checks": 13,
+  "passed": true,
+  "logs": [
+    "[warning] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127"
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-16",
+  "manifestRecords": 7321963,
+  "exportedFiles": 678964,
+  "catalogAssets": 678964,
+  "uniquePayloadHashes": 632347,
+  "logicalBytes": 62931721584,
+  "types": {
+    "texture": 273643,
+    "mesh": 76897,
+    "data": 98203,
+    "native": 5851,
+    "audio": 158245,
+    "animation": 61992,
+    "skeleton": 4133
+  },
+  "formats": {
+    "png": 273643,
+    "glb": 76897,
+    "json": 98203,
+    "hdr": 5801,
+    "rada": 158245,
+    "ueanim": 61992,
+    "uemodel": 4133,
+    "opus": 2,
+    "dna": 40,
+    "binka": 7,
+    "adpcm": 1
+  },
+  "integrityMode": "same-volume directory identity preservation; SHA-256 verified on browser preview/use",
+  "allPayloadsHashed": false,
+  "sourceDirectories": {
+    "main": {
+      "relative": "converted",
+      "device": 14033805788965239037,
+      "inode": 844424936104326
+    },
+    "probe": {
+      "relative": "probe/converted",
+      "device": 14033805788965239037,
+      "inode": 562949955806064
+    },
+    "audio-animation-probe": {
+      "relative": "audio-animation-probe/converted",
+      "device": 14033805788965239037,
+      "inode": 1970324838558766
+    }
+  },
+  "sourceDirectoryVerified": true,
+  "errors": [],
+  "sourceDirectoryReconciliation": "Main and probe directory IDs unchanged; all three audio-animation-probe payload hashes match after initial provider move."
+}

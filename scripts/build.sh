@@ -17,9 +17,10 @@ fi
 rm -rf dist
 mkdir -p dist/pkg
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
-wasm-bindgen --target web --no-typescript --out-dir dist/pkg --out-name fightnight \
+"${WASM_BINDGEN:-wasm-bindgen}" --target web --no-typescript --out-dir dist/pkg --out-name fightnight \
   "${TARGET_DIR}/wasm32-unknown-unknown/${OUT}/fn_web.wasm"
 cp -r web/. dist/
+python3 tools/assetgen/stage_imported.py
 
 if [ "$PROFILE" = "release" ] && command -v wasm-opt >/dev/null 2>&1; then
   wasm-opt -O3 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \

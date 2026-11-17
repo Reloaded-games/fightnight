@@ -3,6 +3,7 @@ import init, * as fn from './pkg/fightnight.js';
 import { Hud, drawFullMap } from './hud.js';
 import { GameAudio } from './audio.js';
 import { createMultiplayer } from './multiplayer.js';
+import { createImportedLibrary } from './imported/library.js';
 import { RARITY, RARITY_NAMES, RARITY_DARK, drawItem, AMMO_NAMES, AMMO_COLORS, MAT_NAMES, MAT_COLORS } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +49,23 @@ const mp = createMultiplayer({
 });
 window.__game = { get state() { return state; }, get overlay() { return overlay; }, get waiting() { return waitingForLock; }, get hud() { return hudState; }, fn, cfg, frames: 0, audio };
 window.__game.mp = mp;
+const importedLibrary = createImportedLibrary({
+  fn,
+  canOpen: () => {
+    if (mp.active) { note('A biblioteca de modelos está disponível em partidas solo.'); return false; }
+    return ready && ['menu', 'paused'].includes(state);
+  },
+  startSolo: async () => {
+    if (state === 'menu') {
+      const skipbus = cfg.skipbus;
+      cfg.skipbus = true;
+      await startMatch();
+      cfg.skipbus = skipbus;
+      if (state !== 'playing') throw new Error('A partida não iniciou.');
+    } else if (state === 'paused') resume();
+  },
+});
+window.__game.importedLibrary = importedLibrary;
 // Test helper: read back the rendered frame and paint it into a plain 2D canvas so a normal page
 // screenshot (which cannot see the WebGPU swapchain in headless mode) shows the whole UI.
 window.__game.freezeFrame = async () => {
@@ -188,6 +206,8 @@ function wireUi() {
   $('btn-play').addEventListener('click', () => { click(); startMatch(); });
   $('btn-settings').addEventListener('click', () => { click(); show('settings'); });
   $('btn-help').addEventListener('click', () => { click(); show('help'); });
+  $('btn-imported').addEventListener('click', () => importedLibrary.open());
+  $('btn-pause-imported').addEventListener('click', () => importedLibrary.open());
   $('btn-settings-close').addEventListener('click', () => { click(); show('settings', false); });
   $('btn-help-close').addEventListener('click', () => { click(); show('help', false); });
   $('btn-resume').addEventListener('click', () => { click(); resume(); });
@@ -254,6 +274,7 @@ async function boot() {
     await nextFrame(); await nextFrame();
     fn.start_match(matchOptions());
     ready = true;
+    await importedLibrary.applyDefaults();
     fn.resize(gpuCanvas.width, gpuCanvas.height);
     setProgress(0.75, 'Drawing the map');
     await nextFrame();
@@ -417,6 +438,7 @@ function gameKey(code) {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (document.querySelector('.imported-library[open]')) return;
   if (e.repeat) { if (state === 'playing') e.preventDefault(); return; }
   if (e.code === 'F3') { cfg.perf = !cfg.perf; hud.showPerf = cfg.perf; $('set-fps').checked = cfg.perf; saveCfg(); e.preventDefault(); return; }
   if (state === 'playing') {

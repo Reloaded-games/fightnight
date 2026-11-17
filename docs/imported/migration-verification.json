@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-16",
+  "sourceRemoved": true,
+  "catalogAssets": 678964,
+  "moves": [
+    {
+      "from": "X:\\reloaded\\games\\fightnight\\fortnite\\README.md",
+      "to": "X:\\reloaded\\games\\fightnight\\docs\\imported\\source-README.md",
+      "beforeFileId": "0x00000000000000000004000000cdcca2",
+      "afterFileId": "0x00000000000000000004000000cdcca2",
+      "preserved": true
+    },
+    {
+      "from": "X:\\reloaded\\games\\fightnight\\fortnite\\fortnite-webgpu",
+      "to": "X:\\reloaded\\games\\fightnight\\docs\\imported\\fortnite-webgpu",
+      "beforeFileId": "0x0000000000000000000200000027ebf5",
+      "afterFileId": "0x0000000000000000000200000027ebf5",
+      "preserved": true
+    },
+    {
+      "from": "X:\\reloaded\\games\\fightnight\\fortnite\\fortnite-analysis",
+      "to": "X:\\reloaded\\games\\fightnight\\docs\\imported\\fortnite-analysis",
+      "beforeFileId": "0x00000000000000000001000000243587",
+      "afterFileId": "0x00000000000000000001000000243587",
+      "preserved": true
+    }
+  ],
+  "preservation": "Same-volume NTFS rename; directory/file identities retained. No source contents discarded."
+}

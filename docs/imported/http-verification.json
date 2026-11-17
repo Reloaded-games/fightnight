@@ -1,0 +1,31 @@
+{
+  "url": "http://127.0.0.1:5196/",
+  "checks": [
+    {
+      "path": "/",
+      "status": 200,
+      "bytes": 15428
+    },
+    {
+      "path": "game.js",
+      "status": 200,
+      "bytes": 36930
+    },
+    {
+      "path": "imported/library.js",
+      "status": 200,
+      "bytes": 10126
+    },
+    {
+      "path": "pkg/fightnight_bg.wasm",
+      "status": 200,
+      "bytes": 4146967
+    },
+    {
+      "path": "assets/imported/presets.json",
+      "status": 200,
+      "bytes": 1144
+    }
+  ],
+  "sourceRemoved": true
+}

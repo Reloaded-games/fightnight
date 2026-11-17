@@ -1,0 +1,20 @@
+{
+  "main": {
+    "path": "X:\\reloaded\\games\\fightnight\\docs\\imported\\fortnite-analysis\\assets\\converted\\converted",
+    "device": 14033805788965239037,
+    "inode": 844424936104326,
+    "identityMatchesVerifiedDirectory": true
+  },
+  "probe": {
+    "path": "X:\\reloaded\\games\\fightnight\\docs\\imported\\fortnite-analysis\\assets\\converted\\probe\\converted",
+    "device": 14033805788965239037,
+    "inode": 562949955806064,
+    "identityMatchesVerifiedDirectory": true
+  },
+  "audio-animation-probe": {
+    "path": "X:\\reloaded\\games\\fightnight\\docs\\imported\\fortnite-analysis\\assets\\converted\\audio-animation-probe\\converted",
+    "device": 14033805788965239037,
+    "inode": 1970324838558766,
+    "identityMatchesVerifiedDirectory": true
+  }
+}

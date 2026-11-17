@@ -1,0 +1,39 @@
+{
+  "main": {
+    "sameDirectoryIdentity": true,
+    "before": {
+      "relative": "converted",
+      "device": 14033805788965239037,
+      "inode": 844424936104326
+    },
+    "after": {
+      "device": 14033805788965239037,
+      "inode": 844424936104326
+    }
+  },
+  "probe": {
+    "sameDirectoryIdentity": true,
+    "before": {
+      "relative": "probe/converted",
+      "device": 14033805788965239037,
+      "inode": 562949955806064
+    },
+    "after": {
+      "device": 14033805788965239037,
+      "inode": 562949955806064
+    }
+  },
+  "audio-animation-probe": {
+    "sameDirectoryIdentity": false,
+    "before": {
+      "relative": "audio-animation-probe/converted",
+      "device": 14033805788965239037,
+      "inode": 281474979135854
+    },
+    "after": {
+      "device": 14033805788965239037,
+      "inode": 1970324838558766
+    },
+    "allPayloadHashesVerified": 3
+  }
+}
